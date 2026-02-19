@@ -17,10 +17,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // 認証チェック（タイミング攻撃耐性）
+  // 認証チェック
   const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
   const expected = (process.env.SYNC_SECRET || '').trim();
+  // デバッグ: 認証失敗時に長さ情報をログ出力
   if (!safeCompare(secret, expected)) {
+    console.log(`[AUTH FAIL] method=${req.method} secretLen=${secret.length} expectedLen=${expected.length} hasAuth=${!!req.headers.authorization}`);
     return res.status(401).json({ error: '認証エラー' });
   }
 
