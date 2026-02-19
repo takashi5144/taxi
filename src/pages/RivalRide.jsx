@@ -40,28 +40,24 @@ window.RivalRidePage = () => {
 
     if (!navigator.geolocation) return;
     setWeatherLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+    getAccuratePosition({ accuracyThreshold: 500, timeout: 10000, maxWaitAfterFix: 3000 })
+      .then((position) => {
         const lat = position.coords.latitude.toFixed(4);
         const lng = position.coords.longitude.toFixed(4);
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia%2FTokyo`;
-        fetch(url)
-          .then(res => res.json())
-          .then(data => {
-            setWeatherLoading(false);
-            if (data && data.current_weather) {
-              const w = wmoToWeather(data.current_weather.weathercode);
-              if (w) {
-                setForm(prev => prev.weather ? prev : { ...prev, weather: w });
-                AppLogger.info(`他社乗車 天気自動取得成功: ${w}`);
-              }
-            }
-          })
-          .catch(() => setWeatherLoading(false));
-      },
-      () => setWeatherLoading(false),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
-    );
+        return fetch(url).then(res => res.json());
+      })
+      .then(data => {
+        setWeatherLoading(false);
+        if (data && data.current_weather) {
+          const w = wmoToWeather(data.current_weather.weathercode);
+          if (w) {
+            setForm(prev => prev.weather ? prev : { ...prev, weather: w });
+            AppLogger.info(`他社乗車 天気自動取得成功: ${w}`);
+          }
+        }
+      })
+      .catch(() => setWeatherLoading(false));
   }, []);
 
   // ページロード時にGPS場所を自動取得
@@ -75,15 +71,11 @@ window.RivalRidePage = () => {
   const getGpsLocationAuto = () => {
     if (!navigator.geolocation) return;
     setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        reverseGeocode(lat, lng, false);
-      },
-      () => setGpsLoading(false),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+    getAccuratePosition({ accuracyThreshold: 50, timeout: 20000, maxWaitAfterFix: 8000 })
+      .then((position) => {
+        reverseGeocode(position.coords.latitude, position.coords.longitude, false);
+      })
+      .catch(() => setGpsLoading(false));
   };
 
   // GPS場所再取得（ボタン用 — 自動記録追加）
@@ -94,13 +86,11 @@ window.RivalRidePage = () => {
     }
     setGpsLoading(true);
     setErrors([]);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        reverseGeocode(lat, lng, true);
-      },
-      (error) => {
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
+      .then((position) => {
+        reverseGeocode(position.coords.latitude, position.coords.longitude, true);
+      })
+      .catch((error) => {
         setGpsLoading(false);
         const messages = {
           1: 'GPS使用が許可されていません。ブラウザの設定を確認してください。',
@@ -108,9 +98,7 @@ window.RivalRidePage = () => {
           3: 'GPS取得がタイムアウトしました。',
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+      });
   }, [apiKey]);
 
   // GPS解決時に自動記録追加

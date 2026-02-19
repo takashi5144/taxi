@@ -51,34 +51,27 @@ window.RevenuePage = () => {
         return;
       }
       setWeatherLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
+      getAccuratePosition({ accuracyThreshold: 500, timeout: 10000, maxWaitAfterFix: 3000 })
+        .then((position) => {
           const lat = position.coords.latitude.toFixed(4);
           const lng = position.coords.longitude.toFixed(4);
           const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia%2FTokyo`;
-          fetch(url)
-            .then(res => res.json())
-            .then(data => {
-              setWeatherLoading(false);
-              if (data && data.current_weather) {
-                const w = wmoToWeather(data.current_weather.weathercode);
-                if (w) {
-                  setForm(prev => prev.weather ? prev : { ...prev, weather: w });
-                  AppLogger.info(`天気自動取得成功: ${w} (WMO code: ${data.current_weather.weathercode})`);
-                }
-              }
-            })
-            .catch(err => {
-              setWeatherLoading(false);
-              AppLogger.warn('天気API取得失敗: ' + err.message);
-            });
-        },
-        (err) => {
+          return fetch(url).then(res => res.json());
+        })
+        .then(data => {
           setWeatherLoading(false);
-          AppLogger.warn('天気取得用GPS失敗: ' + err.message);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
-      );
+          if (data && data.current_weather) {
+            const w = wmoToWeather(data.current_weather.weathercode);
+            if (w) {
+              setForm(prev => prev.weather ? prev : { ...prev, weather: w });
+              AppLogger.info(`天気自動取得成功: ${w} (WMO code: ${data.current_weather.weathercode})`);
+            }
+          }
+        })
+        .catch(err => {
+          setWeatherLoading(false);
+          AppLogger.warn('天気取得用GPS失敗: ' + (err.message || ''));
+        });
     };
     fetchWeather();
   }, []);
@@ -116,8 +109,8 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
+      .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
 
@@ -193,8 +186,8 @@ window.RevenuePage = () => {
               AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
             });
         }
-      },
-      (error) => {
+      })
+      .catch((error) => {
         setGpsLoading(prev => ({ ...prev, [field]: false }));
         const messages = {
           1: 'GPS使用が許可されていません。ブラウザの設定を確認してください。',
@@ -202,10 +195,8 @@ window.RevenuePage = () => {
           3: 'GPS取得がタイムアウトしました。',
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
-        AppLogger.error(`GPS取得失敗 (${field}): code=${error.code}`);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+        AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
+      });
   }, [apiKey]);
 
   // Geocoding結果から簡潔な住所を抽出

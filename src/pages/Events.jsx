@@ -78,13 +78,11 @@ window.EventsPage = () => {
     }
     setGpsLoading(true);
     setErrors([]);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        reverseGeocode(lat, lng);
-      },
-      (error) => {
+    getAccuratePosition({ accuracyThreshold: 50, timeout: 20000, maxWaitAfterFix: 8000 })
+      .then((position) => {
+        reverseGeocode(position.coords.latitude, position.coords.longitude);
+      })
+      .catch((error) => {
         setGpsLoading(false);
         const messages = {
           1: 'GPS使用が許可されていません。ブラウザの設定を確認してください。',
@@ -92,9 +90,7 @@ window.EventsPage = () => {
           3: 'GPS取得がタイムアウトしました。',
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+      });
   }, [apiKey]);
 
   const reverseGeocode = (lat, lng) => {

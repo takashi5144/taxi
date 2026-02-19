@@ -93,3 +93,77 @@ function getErrorMessage(error) {
       return '位置情報の取得中にエラーが発生しました';
   }
 }
+
+// 高精度GPS取得ユーティリティ
+// watchPositionで精度が閾値以下になるまで監視し、最も精度の高い位置を返す
+window.getAccuratePosition = (options = {}) => {
+  const {
+    accuracyThreshold = 50,   // メートル — この精度以下で即座に返す
+    timeout = 20000,           // 全体タイムアウト（ms）
+    maxWaitAfterFix = 8000,    // 初回取得後、改善を待つ最大時間（ms）
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject({ code: 0, message: 'このブラウザではGPS機能が使えません' });
+      return;
+    }
+
+    let bestPosition = null;
+    let watchId = null;
+    let overallTimer = null;
+    let waitTimer = null;
+
+    const cleanup = () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (overallTimer) clearTimeout(overallTimer);
+      if (waitTimer) clearTimeout(waitTimer);
+      watchId = null;
+      overallTimer = null;
+      waitTimer = null;
+    };
+
+    const finish = () => {
+      cleanup();
+      if (bestPosition) {
+        AppLogger.info(`GPS確定: 精度${bestPosition.coords.accuracy.toFixed(0)}m (${bestPosition.coords.latitude.toFixed(6)}, ${bestPosition.coords.longitude.toFixed(6)})`);
+        resolve(bestPosition);
+      } else {
+        reject({ code: 2, message: '現在地を取得できませんでした。' });
+      }
+    };
+
+    // 全体タイムアウト
+    overallTimer = setTimeout(finish, timeout);
+
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const acc = position.coords.accuracy;
+        AppLogger.debug(`GPS受信: 精度${acc.toFixed(0)}m`);
+
+        // より精度が高い位置を保持
+        if (!bestPosition || acc < bestPosition.coords.accuracy) {
+          bestPosition = position;
+        }
+
+        // 精度が閾値以下なら即確定
+        if (acc <= accuracyThreshold) {
+          cleanup();
+          AppLogger.info(`GPS高精度確定: ${acc.toFixed(0)}m`);
+          resolve(position);
+          return;
+        }
+
+        // 初回取得後、改善待ちタイマーを開始（1回だけ）
+        if (!waitTimer) {
+          waitTimer = setTimeout(finish, maxWaitAfterFix);
+        }
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+      { enableHighAccuracy: true, timeout: timeout, maximumAge: 0 }
+    );
+  });
+};

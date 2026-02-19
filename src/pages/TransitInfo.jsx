@@ -40,11 +40,9 @@ window.TransitInfoPage = () => {
   // 現在地取得
   useEffect(() => {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
-    );
+    getAccuratePosition({ accuracyThreshold: 100, timeout: 15000, maxWaitAfterFix: 5000 })
+      .then((pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }))
+      .catch(() => {});
   }, []);
 
   // Google Maps 初期化
