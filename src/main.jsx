@@ -11,6 +11,7 @@
   T.utils.logger = AppLogger;
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
+  T.utils.geminiService = GeminiService;
 
   // Contexts
   T.contexts.AppContext = AppContext;

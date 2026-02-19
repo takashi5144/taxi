@@ -37,6 +37,14 @@ window.AppStorage = {
     return this.set(APP_CONSTANTS.STORAGE_KEYS.API_KEY, key);
   },
 
+  getGeminiApiKey() {
+    return this.get(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, '');
+  },
+
+  setGeminiApiKey(key) {
+    return this.set(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, key);
+  },
+
   getSettings() {
     return this.get(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, {
       gpsAutoTrack: true,

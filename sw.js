@@ -10,6 +10,7 @@ const STATIC_ASSETS = [
   './src/utils/logger.js',
   './src/utils/storage.js',
   './src/utils/dataService.js',
+  './src/utils/geminiService.js',
   './src/context/LogContext.jsx',
   './src/context/MapContext.jsx',
   './src/context/AppContext.jsx',

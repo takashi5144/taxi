@@ -78,6 +78,7 @@ window.APP_CONSTANTS = {
   // localStorage キー
   STORAGE_KEYS: {
     API_KEY: 'taxi_app_google_maps_api_key',
+    GEMINI_API_KEY: 'taxi_app_gemini_api_key',
     LOGS: 'taxi_app_logs',
     SETTINGS: 'taxi_app_settings',
     REVENUE_DATA: 'taxi_app_revenue',
@@ -180,6 +181,7 @@ window.APP_CONSTANTS = {
               { name: 'logger.js', type: 'js', desc: 'ロガーユーティリティ' },
               { name: 'storage.js', type: 'js', desc: 'localStorage管理' },
               { name: 'dataService.js', type: 'js', desc: '売上データ処理・分析・CSV出力' },
+              { name: 'geminiService.js', type: 'js', desc: 'Gemini AI API連携' },
             ],
           },
           {

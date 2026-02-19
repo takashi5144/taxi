@@ -910,6 +910,7 @@ window.APP_CONSTANTS = {
   // localStorage キー
   STORAGE_KEYS: {
     API_KEY: 'taxi_app_google_maps_api_key',
+    GEMINI_API_KEY: 'taxi_app_gemini_api_key',
     LOGS: 'taxi_app_logs',
     SETTINGS: 'taxi_app_settings',
     REVENUE_DATA: 'taxi_app_revenue',
@@ -1012,6 +1013,7 @@ window.APP_CONSTANTS = {
               { name: 'logger.js', type: 'js', desc: 'ロガーユーティリティ' },
               { name: 'storage.js', type: 'js', desc: 'localStorage管理' },
               { name: 'dataService.js', type: 'js', desc: '売上データ処理・分析・CSV出力' },
+              { name: 'geminiService.js', type: 'js', desc: 'Gemini AI API連携' },
             ],
           },
           {
@@ -1159,6 +1161,14 @@ window.AppStorage = {
 
   setApiKey(key) {
     return this.set(APP_CONSTANTS.STORAGE_KEYS.API_KEY, key);
+  },
+
+  getGeminiApiKey() {
+    return this.get(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, '');
+  },
+
+  setGeminiApiKey(key) {
+    return this.set(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, key);
   },
 
   getSettings() {
@@ -2180,6 +2190,69 @@ window.DataService = (() => {
 })();
 
 // ============================================================
+// FILE: src/utils/geminiService.js
+// ============================================================
+(function() {
+// geminiService.js - Gemini AI API連携サービス
+window.GeminiService = (() => {
+  const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+  async function callGemini(apiKey, prompt) {
+    if (!apiKey) {
+      return { success: false, error: 'Gemini APIキーが設定されていません' };
+    }
+    try {
+      const response = await fetch(`${API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+        }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const errMsg = errData.error?.message || `HTTPエラー: ${response.status}`;
+        if (response.status === 400) return { success: false, error: 'APIキーが無効です。正しいキーを設定してください。' };
+        if (response.status === 429) return { success: false, error: 'API利用制限に達しました。しばらく待ってから再試行してください。' };
+        return { success: false, error: errMsg };
+      }
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) return { success: false, error: '応答が空でした' };
+      return { success: true, text };
+    } catch (e) {
+      AppLogger.error('Gemini API呼び出しエラー', e.message);
+      return { success: false, error: `通信エラー: ${e.message}` };
+    }
+  }
+
+  async function searchTransitInfo(apiKey, query) {
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const prompt = `あなたはタクシードライバー向けの交通情報アシスタントです。\n今日は${today}です。\n\n以下の質問に対して、タクシー営業に役立つ公共交通機関の情報を簡潔に回答してください。\n- 鉄道の運行状況、遅延、運休の情報\n- バス路線の状況\n- 終電・始発の時刻\n- タクシー需要が増える可能性のあるポイント\n\n回答は箇条書きで分かりやすくお願いします。推測や不確実な情報には「※推定」と明記してください。\n\n質問: ${query}`;
+    const result = await callGemini(apiKey, prompt);
+    if (result.success) AppLogger.info(`Gemini交通情報検索: ${query}`);
+    return result;
+  }
+
+  async function searchEvents(apiKey, query, area) {
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const areaStr = area ? `エリア: ${area}\n` : '';
+    const prompt = `あなたはタクシードライバー向けのイベント情報アシスタントです。\n今日は${today}です。\n${areaStr}\n以下の質問に対して、タクシー需要に影響する可能性のあるイベント情報を回答してください。\n各イベントについて以下の形式で回答してください:\n- イベント名\n- 日時（分かれば）\n- 場所\n- 規模の目安（小/中/大/特大）\n- タクシー需要への影響予測（需要増/需要減/不明）\n\n推測や不確実な情報には「※推定」と明記してください。\n\n質問: ${query}`;
+    const result = await callGemini(apiKey, prompt);
+    if (result.success) AppLogger.info(`Geminiイベント検索: ${query}`);
+    return result;
+  }
+
+  async function testConnection(apiKey) {
+    return await callGemini(apiKey, 'こんにちは。接続テストです。「接続成功」と一言だけ返答してください。');
+  }
+
+  return { callGemini, searchTransitInfo, searchEvents, testConnection };
+})();
+})();
+
+// ============================================================
 // FILE: src/context/LogContext.jsx
 // ============================================================
 (function() {
@@ -2287,11 +2360,18 @@ window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [apiKey, setApiKeyState] = useState(AppStorage.getApiKey());
+  const [geminiApiKey, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
 
   const setApiKey = useCallback((key) => {
     AppStorage.setApiKey(key);
     setApiKeyState(key);
     AppLogger.info('Google Maps APIキーが更新されました');
+  }, []);
+
+  const setGeminiApiKey = useCallback((key) => {
+    AppStorage.setGeminiApiKey(key);
+    setGeminiApiKeyState(key);
+    AppLogger.info('Gemini APIキーが更新されました');
   }, []);
 
   // ページ遷移（ハッシュを更新 → hashchangeで状態も更新）
@@ -2325,6 +2405,8 @@ window.AppProvider = ({ children }) => {
     setSidebarOpen,
     apiKey,
     setApiKey,
+    geminiApiKey,
+    setGeminiApiKey,
   };
 
   return React.createElement(AppContext.Provider, { value }, children);
@@ -5385,13 +5467,40 @@ window.RivalRidePage = () => {
 // Google Maps TransitLayer を使用して交通機関情報を表示
 window.TransitInfoPage = () => {
   const { useState, useEffect, useRef, useCallback } = React;
-  const { apiKey } = useAppContext();
+  const { apiKey, geminiApiKey } = useAppContext();
 
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const transitLayerRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
+
+  // Gemini検索
+  const [geminiQuery, setGeminiQuery] = useState('');
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [geminiResult, setGeminiResult] = useState(null);
+  const [geminiError, setGeminiError] = useState(null);
+
+  const handleGeminiSearch = useCallback(async () => {
+    if (!geminiQuery.trim()) return;
+    setGeminiLoading(true);
+    setGeminiError(null);
+    setGeminiResult(null);
+    const result = await GeminiService.searchTransitInfo(geminiApiKey, geminiQuery.trim());
+    setGeminiLoading(false);
+    if (result.success) {
+      setGeminiResult(result.text);
+    } else {
+      setGeminiError(result.error);
+    }
+  }, [geminiApiKey, geminiQuery]);
+
+  const quickQueries = [
+    '東京都内の主要路線の現在の運行状況',
+    '本日の終電時刻（山手線・中央線・京浜東北線）',
+    '現在遅延している路線と代替交通手段',
+    '深夜のタクシー需要が高いエリア',
+  ];
 
   // 現在地取得
   useEffect(() => {
@@ -5503,6 +5612,119 @@ window.TransitInfoPage = () => {
       )
     ),
 
+    // Gemini AI検索
+    geminiApiKey ? React.createElement(Card, {
+      title: 'AI交通情報検索（Gemini）',
+      style: { marginBottom: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { marginBottom: 'var(--space-md)' } },
+        React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'stretch' } },
+          React.createElement('input', {
+            className: 'form-input',
+            type: 'text',
+            placeholder: '例: 山手線の運行状況、終電時刻、遅延情報...',
+            value: geminiQuery,
+            onChange: (e) => setGeminiQuery(e.target.value),
+            onKeyDown: (e) => { if (e.key === 'Enter' && !geminiLoading) handleGeminiSearch(); },
+            style: { flex: 1 },
+          }),
+          React.createElement(Button, {
+            variant: 'primary',
+            icon: geminiLoading ? 'sync' : 'search',
+            onClick: handleGeminiSearch,
+            disabled: geminiLoading || !geminiQuery.trim(),
+            style: { whiteSpace: 'nowrap' },
+          }, geminiLoading ? '検索中...' : 'AI検索')
+        ),
+        React.createElement('div', {
+          style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },
+        },
+          quickQueries.map(q =>
+            React.createElement('button', {
+              key: q,
+              onClick: () => { setGeminiQuery(q); },
+              style: {
+                padding: '4px 10px', borderRadius: '12px', fontSize: '11px',
+                border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
+                color: 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.15s',
+              },
+              onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(26,115,232,0.15)'; e.currentTarget.style.color = 'var(--color-primary-light)'; },
+              onMouseLeave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-secondary)'; },
+            }, q)
+          )
+        )
+      ),
+      geminiError && React.createElement('div', {
+        style: {
+          padding: '10px 14px', borderRadius: '8px', marginBottom: 'var(--space-md)',
+          background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-danger)' } }, 'error'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' } }, geminiError)
+      ),
+      geminiLoading && React.createElement('div', {
+        style: {
+          padding: 'var(--space-lg)', textAlign: 'center',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '32px', color: 'var(--color-primary-light)', animation: 'spin 1s linear infinite' },
+        }, 'sync'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, 'Gemini AIが検索中...')
+      ),
+      geminiResult && React.createElement('div', {
+        style: {
+          padding: 'var(--space-md)', borderRadius: '8px',
+          background: 'rgba(26,115,232,0.06)', border: '1px solid rgba(26,115,232,0.15)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-primary-light)' } }, 'smart_toy'),
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--color-primary-light)' } }, 'Gemini AI回答')
+        ),
+        React.createElement('div', {
+          style: {
+            fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)',
+            lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          },
+        }, geminiResult),
+        React.createElement('div', {
+          style: { marginTop: '10px', fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
+          '※ AIによる回答のため、最新の運行情報は各鉄道会社の公式情報をご確認ください'
+        )
+      )
+    ) : React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('div', {
+        style: {
+          textAlign: 'center', padding: 'var(--space-lg)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '36px', color: 'var(--color-primary-light)', opacity: 0.5 },
+        }, 'smart_toy'),
+        React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'AI交通情報検索'),
+        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-xs)', lineHeight: 1.6 } },
+          'Gemini APIキーを設定すると、AIで交通情報を検索できます'
+        ),
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'settings',
+          onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
+          style: { fontSize: '12px' },
+        }, '設定ページへ')
+      )
+    ),
+
     // 交通機関リンク
     React.createElement(Card, { title: '交通情報リンク', style: { marginBottom: 'var(--space-lg)' } },
       React.createElement('div', { style: { display: 'grid', gap: '10px' } },
@@ -5584,7 +5806,35 @@ window.EventsPage = () => {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsInfo, setGpsInfo] = useState(null);
 
-  const { apiKey } = useAppContext();
+  const { apiKey, geminiApiKey } = useAppContext();
+
+  // Gemini イベント検索
+  const [geminiQuery, setGeminiQuery] = useState('');
+  const [geminiArea, setGeminiArea] = useState('');
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [geminiResult, setGeminiResult] = useState(null);
+  const [geminiError, setGeminiError] = useState(null);
+
+  const handleGeminiSearch = useCallback(async () => {
+    if (!geminiQuery.trim()) return;
+    setGeminiLoading(true);
+    setGeminiError(null);
+    setGeminiResult(null);
+    const result = await GeminiService.searchEvents(geminiApiKey, geminiQuery.trim(), geminiArea.trim());
+    setGeminiLoading(false);
+    if (result.success) {
+      setGeminiResult(result.text);
+    } else {
+      setGeminiError(result.error);
+    }
+  }, [geminiApiKey, geminiQuery, geminiArea]);
+
+  const quickEventQueries = [
+    '今週末の東京都内のイベント',
+    '本日のコンサート・ライブ情報',
+    '今月の大規模スポーツイベント',
+    '近日中の花火大会・お祭り',
+  ];
 
   const entries = DataService.getEvents();
 
@@ -5760,6 +6010,127 @@ window.EventsPage = () => {
       }, `${entries.length} 件`),
       React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' } },
         entries.length > 0 ? `最新: ${entries[0].name} (${entries[0].date})` : 'まだ記録がありません'
+      )
+    ),
+
+    // Gemini AIイベント検索
+    geminiApiKey ? React.createElement(Card, {
+      title: 'AIイベント検索（Gemini）',
+      style: { marginBottom: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { marginBottom: 'var(--space-md)' } },
+        React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'stretch', marginBottom: '8px' } },
+          React.createElement('input', {
+            className: 'form-input',
+            type: 'text',
+            placeholder: '例: 今週末のイベント、コンサート情報...',
+            value: geminiQuery,
+            onChange: (e) => setGeminiQuery(e.target.value),
+            onKeyDown: (e) => { if (e.key === 'Enter' && !geminiLoading) handleGeminiSearch(); },
+            style: { flex: 1 },
+          }),
+          React.createElement(Button, {
+            variant: 'primary',
+            icon: geminiLoading ? 'sync' : 'search',
+            onClick: handleGeminiSearch,
+            disabled: geminiLoading || !geminiQuery.trim(),
+            style: { whiteSpace: 'nowrap' },
+          }, geminiLoading ? '検索中...' : 'AI検索')
+        ),
+        React.createElement('input', {
+          className: 'form-input',
+          type: 'text',
+          placeholder: 'エリア（任意）: 渋谷、新宿、東京駅周辺...',
+          value: geminiArea,
+          onChange: (e) => setGeminiArea(e.target.value),
+          style: { marginBottom: '8px' },
+        }),
+        React.createElement('div', {
+          style: { display: 'flex', gap: '6px', flexWrap: 'wrap' },
+        },
+          quickEventQueries.map(q =>
+            React.createElement('button', {
+              key: q,
+              onClick: () => { setGeminiQuery(q); },
+              style: {
+                padding: '4px 10px', borderRadius: '12px', fontSize: '11px',
+                border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
+                color: 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.15s',
+              },
+              onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(249,168,37,0.15)'; e.currentTarget.style.color = 'var(--color-secondary)'; },
+              onMouseLeave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-secondary)'; },
+            }, q)
+          )
+        )
+      ),
+      geminiError && React.createElement('div', {
+        style: {
+          padding: '10px 14px', borderRadius: '8px', marginBottom: 'var(--space-md)',
+          background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-danger)' } }, 'error'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' } }, geminiError)
+      ),
+      geminiLoading && React.createElement('div', {
+        style: {
+          padding: 'var(--space-lg)', textAlign: 'center',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '32px', color: 'var(--color-secondary)', animation: 'spin 1s linear infinite' },
+        }, 'sync'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, 'Gemini AIが検索中...')
+      ),
+      geminiResult && React.createElement('div', {
+        style: {
+          padding: 'var(--space-md)', borderRadius: '8px',
+          background: 'rgba(249,168,37,0.06)', border: '1px solid rgba(249,168,37,0.15)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-secondary)' } }, 'smart_toy'),
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--color-secondary)' } }, 'Gemini AI回答')
+        ),
+        React.createElement('div', {
+          style: {
+            fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)',
+            lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          },
+        }, geminiResult),
+        React.createElement('div', {
+          style: { marginTop: '10px', fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
+          '※ AIによる回答です。イベント情報は公式サイトで最終確認をお勧めします'
+        )
+      )
+    ) : React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('div', {
+        style: {
+          textAlign: 'center', padding: 'var(--space-lg)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '36px', color: 'var(--color-secondary)', opacity: 0.5 },
+        }, 'smart_toy'),
+        React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'AIイベント検索'),
+        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-xs)', lineHeight: 1.6 } },
+          'Gemini APIキーを設定すると、AIでイベント情報を検索できます'
+        ),
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'settings',
+          onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
+          style: { fontSize: '12px' },
+        }, '設定ページへ')
       )
     ),
 
@@ -6424,9 +6795,13 @@ window.AnalyticsPage = () => {
 // Settings.jsx - 設定ページ
 window.SettingsPage = () => {
   const { useState } = React;
-  const { apiKey, setApiKey } = useAppContext();
+  const { apiKey, setApiKey, geminiApiKey, setGeminiApiKey } = useAppContext();
   const [inputKey, setInputKey] = useState(apiKey);
   const [saved, setSaved] = useState(false);
+  const [geminiInputKey, setGeminiInputKey] = useState(geminiApiKey);
+  const [geminiSaved, setGeminiSaved] = useState(false);
+  const [geminiTesting, setGeminiTesting] = useState(false);
+  const [geminiTestResult, setGeminiTestResult] = useState(null);
 
   const handleSave = () => {
     setApiKey(inputKey.trim());
@@ -6532,6 +6907,106 @@ window.SettingsPage = () => {
           React.createElement('p', {
             style: { marginTop: '8px', padding: '8px 12px', background: 'rgba(0,200,83,0.08)', borderRadius: '6px', color: 'var(--color-accent)' },
           }, '※ 月$200の無料クレジットがあるため、個人利用では通常料金はかかりません。')
+        )
+      )
+    ),
+
+    // Gemini API キー
+    React.createElement(Card, { title: 'Gemini API キー（AI検索）', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, 'Google Gemini を使用して公共交通機関情報やイベント情報をAI検索できます。'),
+
+      React.createElement('div', { className: 'form-group' },
+        React.createElement('label', { className: 'form-label' }, 'Gemini APIキー'),
+        React.createElement('input', {
+          className: 'form-input',
+          type: 'text',
+          placeholder: 'AIzaSy...',
+          value: geminiInputKey,
+          onChange: (e) => setGeminiInputKey(e.target.value),
+          style: { fontFamily: 'monospace' },
+        })
+      ),
+
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'save',
+          onClick: () => {
+            setGeminiApiKey(geminiInputKey.trim());
+            setGeminiSaved(true);
+            setGeminiTestResult(null);
+            setTimeout(() => setGeminiSaved(false), 2000);
+          },
+        }, '保存'),
+        geminiInputKey && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'delete',
+          onClick: () => {
+            setGeminiApiKey('');
+            setGeminiInputKey('');
+            setGeminiTestResult(null);
+            setGeminiSaved(true);
+            setTimeout(() => setGeminiSaved(false), 2000);
+          },
+        }, 'クリア'),
+        geminiInputKey && React.createElement(Button, {
+          variant: 'secondary',
+          icon: geminiTesting ? 'sync' : 'network_check',
+          onClick: async () => {
+            setGeminiTesting(true);
+            setGeminiTestResult(null);
+            const result = await GeminiService.testConnection(geminiInputKey.trim());
+            setGeminiTesting(false);
+            setGeminiTestResult(result.success ? 'success' : result.error);
+          },
+          disabled: geminiTesting,
+        }, geminiTesting ? 'テスト中...' : '接続テスト'),
+        geminiSaved && React.createElement('span', {
+          style: { color: 'var(--color-accent)', fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
+          '保存しました'
+        ),
+        geminiApiKey && React.createElement('span', { className: 'badge badge--success' }, 'APIキー設定済み'),
+        !geminiApiKey && React.createElement('span', { className: 'badge badge--warning' }, '未設定')
+      ),
+
+      geminiTestResult && React.createElement('div', {
+        style: {
+          marginTop: 'var(--space-md)', padding: '8px 12px', borderRadius: '8px',
+          background: geminiTestResult === 'success' ? 'rgba(0,200,83,0.1)' : 'rgba(229,57,53,0.1)',
+          border: `1px solid ${geminiTestResult === 'success' ? 'rgba(0,200,83,0.3)' : 'rgba(229,57,53,0.3)'}`,
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '18px', color: geminiTestResult === 'success' ? 'var(--color-accent)' : 'var(--color-danger)' },
+        }, geminiTestResult === 'success' ? 'check_circle' : 'error'),
+        React.createElement('span', {
+          style: { fontSize: 'var(--font-size-sm)', color: geminiTestResult === 'success' ? 'var(--color-accent)' : 'var(--color-danger)' },
+        }, geminiTestResult === 'success' ? 'Gemini APIに正常に接続できました' : geminiTestResult)
+      ),
+
+      React.createElement('details', {
+        style: { marginTop: 'var(--space-md)', cursor: 'pointer' },
+      },
+        React.createElement('summary', {
+          style: { color: 'var(--color-primary-light)', fontSize: 'var(--font-size-sm)' },
+        }, 'Gemini APIキーの取得方法'),
+        React.createElement('div', {
+          style: { padding: 'var(--space-md)', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', lineHeight: 1.8 },
+        },
+          React.createElement('p', null, '1. Google AI Studio（https://aistudio.google.com）にアクセス'),
+          React.createElement('p', null, '2. Googleアカウントでログイン'),
+          React.createElement('p', null, '3. 「Get API Key」→「Create API key」をクリック'),
+          React.createElement('p', null, '4. 生成されたAPIキーをコピー'),
+          React.createElement('p', null, '5. 上のフォームに貼り付けて保存'),
+          React.createElement('p', {
+            style: { marginTop: '8px', padding: '8px 12px', background: 'rgba(0,200,83,0.08)', borderRadius: '6px', color: 'var(--color-accent)' },
+          }, '※ 無料枠: 15リクエスト/分、1,500リクエスト/日（Gemini 2.0 Flash）')
         )
       )
     ),
@@ -7151,6 +7626,7 @@ window.App = () => {
   T.utils.logger = AppLogger;
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
+  T.utils.geminiService = GeminiService;
 
   // Contexts
   T.contexts.AppContext = AppContext;

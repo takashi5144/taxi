@@ -14,11 +14,18 @@ window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [apiKey, setApiKeyState] = useState(AppStorage.getApiKey());
+  const [geminiApiKey, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
 
   const setApiKey = useCallback((key) => {
     AppStorage.setApiKey(key);
     setApiKeyState(key);
     AppLogger.info('Google Maps APIキーが更新されました');
+  }, []);
+
+  const setGeminiApiKey = useCallback((key) => {
+    AppStorage.setGeminiApiKey(key);
+    setGeminiApiKeyState(key);
+    AppLogger.info('Gemini APIキーが更新されました');
   }, []);
 
   // ページ遷移（ハッシュを更新 → hashchangeで状態も更新）
@@ -52,6 +59,8 @@ window.AppProvider = ({ children }) => {
     setSidebarOpen,
     apiKey,
     setApiKey,
+    geminiApiKey,
+    setGeminiApiKey,
   };
 
   return React.createElement(AppContext.Provider, { value }, children);
