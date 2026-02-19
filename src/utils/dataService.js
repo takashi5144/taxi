@@ -271,7 +271,7 @@ window.DataService = (() => {
   // ============================================================
   async function _syncToCloud(type, entries) {
     try {
-      const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+      const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
       if (!secret) return;
 
       const res = await fetch(`/api/data?type=${type}`, {
@@ -299,7 +299,7 @@ window.DataService = (() => {
 
   async function loadFromCloud(type) {
     try {
-      const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+      const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
       if (!secret) return null;
 
       const res = await fetch(`/api/data?type=${type}`, {

@@ -273,8 +273,10 @@ window.SettingsPage = () => {
             setSyncTesting(true);
             setSyncTestResult(null);
             try {
+              const savedSecret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+              if (!savedSecret) { setSyncTestResult('シークレットを保存してからテストしてください'); setSyncTesting(false); return; }
               const res = await fetch('/api/data?type=revenue', {
-                headers: { 'Authorization': `Bearer ${syncSecret.trim()}` },
+                headers: { 'Authorization': `Bearer ${savedSecret.trim()}` },
               });
               setSyncTestResult(res.ok ? 'success' : `エラー: ${res.status}`);
             } catch (e) {
@@ -325,7 +327,7 @@ window.SettingsPage = () => {
             try {
               const revenueEntries = DataService.getEntries();
               const rivalEntries = DataService.getRivalEntries();
-              const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+              const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
               if (!secret) { setSyncStatus('シークレットが未設定です'); return; }
               const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` };
               const [r1, r2] = await Promise.all([
