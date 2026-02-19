@@ -45,17 +45,17 @@ export default async function handler(req, res) {
     }
 
     // 認証チェック
-    // 同一オリジン（ブラウザからのアプリ内リクエスト）はシークレット不要
+    // 明示的にクロスオリジンの場合のみSYNC_SECRET必須
+    // ブラウザのfetch()はGETでOrigin/Referer/Sec-Fetch-Siteを送らない場合があるため
+    // 「ヘッダーなし＝同一オリジン」として許可する（サーバー側のblobTokenが保護層）
     const origin = req.headers.origin || '';
-    const referer = req.headers.referer || '';
     const host = req.headers.host || '';
     const secFetchSite = req.headers['sec-fetch-site'] || '';
-    const isSameOrigin = secFetchSite === 'same-origin' ||
-      (origin && host && origin.includes(host)) ||
-      (referer && host && referer.includes(host));
+    const isCrossOrigin = secFetchSite === 'cross-site' ||
+      (origin && host && !origin.includes(host));
 
-    if (!isSameOrigin) {
-      // 外部リクエスト（curl等）: SYNC_SECRET必須
+    if (isCrossOrigin) {
+      // 明示的クロスオリジン: SYNC_SECRET必須
       const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
       const expected = (process.env.SYNC_SECRET || '').trim();
       if (!safeCompare(secret, expected)) {
