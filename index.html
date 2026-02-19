@@ -2225,6 +2225,15 @@ window.DataService = (() => {
     return true;
   }
 
+  // 公共交通機関情報の自動保存（サブフォルダ「公共交通機関情報」）
+  async function autoSaveTransitToFile(transitData) {
+    await _handleReady;
+    if (!_dirHandle) return;
+    if (!transitData || Object.keys(transitData).length === 0) return;
+    const dateStr = new Date().toISOString().split('T')[0];
+    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateStr}.json`, [transitData], '0.5.2');
+  }
+
   // ============================================================
   // 公開API
   // ============================================================
@@ -2282,6 +2291,9 @@ window.DataService = (() => {
     addEvent,
     deleteEvent,
     clearAllEvents,
+
+    // 公共交通機関情報
+    autoSaveTransitToFile,
   };
 })();
 
@@ -6013,7 +6025,7 @@ window.TransitInfoPage = () => {
   const [data, setData] = useState(loadSaved);
   const [activeTab, setActiveTab] = useState('trouble');
 
-  // データをlocalStorageに保存
+  // データをlocalStorageに保存 + ファイル保存
   const saveToStorage = useCallback((newData) => {
     const toSave = {};
     Object.keys(newData).forEach(key => {
@@ -6022,6 +6034,8 @@ window.TransitInfoPage = () => {
       }
     });
     AppStorage.set(STORAGE_KEY, toSave);
+    // 保存先フォルダが設定されていればファイルにも保存
+    DataService.autoSaveTransitToFile(toSave);
   }, [STORAGE_KEY]);
 
   // カテゴリ別取得
