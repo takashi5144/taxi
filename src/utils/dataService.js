@@ -271,14 +271,10 @@ window.DataService = (() => {
   // ============================================================
   async function _syncToCloud(type, entries) {
     try {
-      const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-      if (!secret) return;
-
       const res = await fetch(`/api/data?type=${type}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${secret}`,
         },
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
@@ -299,11 +295,7 @@ window.DataService = (() => {
 
   async function loadFromCloud(type) {
     try {
-      const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-      if (!secret) return null;
-
       const res = await fetch(`/api/data?type=${type}`, {
-        headers: { 'Authorization': `Bearer ${secret}` },
       });
       if (!res.ok) return null;
       const data = await res.json();

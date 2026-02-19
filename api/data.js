@@ -18,14 +18,19 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   // 認証チェック
-  const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
-  const expected = (process.env.SYNC_SECRET || '').trim();
-  if (!safeCompare(secret, expected)) {
-    console.log(`[AUTH FAIL] method=${req.method} secretLen=${secret.length} expectedLen=${expected.length} hasAuth=${!!req.headers.authorization}`);
-    return res.status(401).json({
-      error: '認証エラー',
-      debug: { sentLength: secret.length, expectedLength: expected.length, hasAuth: !!req.headers.authorization }
-    });
+  // 同一オリジン（ブラウザからのアプリ内リクエスト）はシークレット不要
+  const origin = req.headers.origin || '';
+  const referer = req.headers.referer || '';
+  const host = req.headers.host || '';
+  const isSameOrigin = (origin && host && origin.includes(host)) || (referer && host && referer.includes(host));
+
+  if (!isSameOrigin) {
+    // 外部リクエスト（curl等）: SYNC_SECRET必須
+    const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
+    const expected = (process.env.SYNC_SECRET || '').trim();
+    if (!safeCompare(secret, expected)) {
+      return res.status(401).json({ error: '認証エラー' });
+    }
   }
 
   const type = req.query.type; // 'revenue' | 'rival'

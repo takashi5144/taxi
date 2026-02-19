@@ -230,79 +230,25 @@ window.SettingsPage = () => {
     React.createElement(Card, { title: 'クラウド同期', style: { marginBottom: 'var(--space-lg)' } },
       React.createElement('p', {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, 'Vercel Blob Storageを使用してデータをクラウドに保存します。Vercelダッシュボードで設定した SYNC_SECRET と同じ値を入力してください。'),
-
-      React.createElement('div', { className: 'form-group' },
-        React.createElement('label', { className: 'form-label' }, '同期シークレット'),
-        React.createElement('input', {
-          className: 'form-input',
-          type: 'password',
-          placeholder: '同期シークレットを入力...',
-          value: syncSecret,
-          onChange: (e) => setSyncSecret(e.target.value),
-          style: { fontFamily: 'monospace' },
-        })
-      ),
+      }, 'Vercel Blob Storageを使用してデータをクラウドに保存・同期します。記録追加時に自動的にクラウドへ保存されます。'),
 
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
         React.createElement(Button, {
-          variant: 'primary',
-          icon: 'save',
-          onClick: () => {
-            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, syncSecret.trim());
-            setSyncSaved(true);
-            setSyncTestResult(null);
-            setTimeout(() => setSyncSaved(false), 2000);
-          },
-        }, '保存'),
-        syncSecret && React.createElement(Button, {
-          variant: 'secondary',
-          icon: 'delete',
-          onClick: () => {
-            localStorage.removeItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
-            setSyncSecret('');
-            setSyncTestResult(null);
-            setSyncSaved(true);
-            setTimeout(() => setSyncSaved(false), 2000);
-          },
-        }, 'クリア'),
-        syncSecret && React.createElement(Button, {
           variant: 'secondary',
           icon: syncTesting ? 'sync' : 'network_check',
           onClick: async () => {
             setSyncTesting(true);
             setSyncTestResult(null);
             try {
-              const savedSecret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
-              if (!savedSecret) { setSyncTestResult('シークレットを保存してからテストしてください'); setSyncTesting(false); return; }
-              const res = await fetch('/api/data?type=revenue', {
-                headers: { 'Authorization': `Bearer ${savedSecret.trim()}` },
-              });
-              if (res.ok) {
-                setSyncTestResult('success');
-              } else {
-                try {
-                  const body = await res.json();
-                  const d = body.debug;
-                  setSyncTestResult(d ? `認証エラー: 送信${d.sentLength}文字, サーバー期待${d.expectedLength}文字` : `エラー: ${res.status}`);
-                } catch { setSyncTestResult(`エラー: ${res.status}`); }
-              }
+              const res = await fetch('/api/data?type=revenue');
+              setSyncTestResult(res.ok ? 'success' : `エラー: ${res.status}`);
             } catch (e) {
               setSyncTestResult('接続エラー: ' + e.message);
             }
             setSyncTesting(false);
           },
           disabled: syncTesting,
-        }, syncTesting ? 'テスト中...' : '接続テスト'),
-        syncSaved && React.createElement('span', {
-          style: { color: 'var(--color-accent)', fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '4px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
-          '保存しました'
-        ),
-        localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET)
-          ? React.createElement('span', { className: 'badge badge--success' }, '設定済み')
-          : React.createElement('span', { className: 'badge badge--warning' }, '未設定')
+        }, syncTesting ? 'テスト中...' : '接続テスト')
       ),
 
       // 接続テスト結果
@@ -335,9 +281,7 @@ window.SettingsPage = () => {
             try {
               const revenueEntries = DataService.getEntries();
               const rivalEntries = DataService.getRivalEntries();
-              const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-              if (!secret) { setSyncStatus('シークレットが未設定です'); return; }
-              const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` };
+              const headers = { 'Content-Type': 'application/json' };
               const [r1, r2] = await Promise.all([
                 fetch('/api/data?type=revenue', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: revenueEntries.length, entries: revenueEntries }) }),
                 fetch('/api/data?type=rival', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: rivalEntries.length, entries: rivalEntries }) }),
