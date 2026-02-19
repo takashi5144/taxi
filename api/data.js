@@ -19,7 +19,31 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
+  // Blob Storeトークン取得（明示的に渡す）
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+
+  // 診断ログ
+  console.log('[DIAG]', JSON.stringify({
+    tokenSet: !!blobToken,
+    tokenLen: blobToken ? blobToken.length : 0,
+    blobEnvKeys: Object.keys(process.env).filter(k => k.includes('BLOB')),
+    method: req.method,
+    host: req.headers.host || '',
+    origin: req.headers.origin || '',
+    referer: req.headers.referer || '',
+    secFetchSite: req.headers['sec-fetch-site'] || '',
+  }));
+
   try {
+    // トークン未設定チェック
+    if (!blobToken) {
+      console.error('[API ERROR] BLOB_READ_WRITE_TOKEN is not set. Available env keys with BLOB:', Object.keys(process.env).filter(k => k.includes('BLOB')));
+      return res.status(503).json({
+        error: 'クラウドストレージ未設定',
+        detail: 'BLOB_READ_WRITE_TOKEN環境変数が設定されていません。Vercelダッシュボード → Storage → Blob Store を接続してください。',
+      });
+    }
+
     // 認証チェック
     // 同一オリジン（ブラウザからのアプリ内リクエスト）はシークレット不要
     const origin = req.headers.origin || '';
@@ -56,12 +80,13 @@ export default async function handler(req, res) {
           access: 'public',
           contentType: 'application/json',
           addRandomSuffix: false,
+          token: blobToken,
         });
         return res.json({ success: true });
       }
 
       case 'GET': {
-        const result = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/' });
+        const result = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
         const latest = result.blobs.find(b => b.pathname.endsWith('latest.json'));
         if (!latest) return res.json({ entries: [] });
         const data = await fetch(latest.url).then(r => r.json());
@@ -69,9 +94,9 @@ export default async function handler(req, res) {
       }
 
       case 'DELETE': {
-        const listResult = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/' });
+        const listResult = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
         if (listResult.blobs.length > 0) {
-          await del(listResult.blobs.map(b => b.url));
+          await del(listResult.blobs.map(b => b.url), { token: blobToken });
         }
         return res.json({ success: true });
       }
