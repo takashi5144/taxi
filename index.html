@@ -7271,7 +7271,15 @@ window.SettingsPage = () => {
               const res = await fetch('/api/data?type=revenue', {
                 headers: { 'Authorization': `Bearer ${savedSecret.trim()}` },
               });
-              setSyncTestResult(res.ok ? 'success' : `エラー: ${res.status}`);
+              if (res.ok) {
+                setSyncTestResult('success');
+              } else {
+                try {
+                  const body = await res.json();
+                  const d = body.debug;
+                  setSyncTestResult(d ? `認証エラー: 送信${d.sentLength}文字, サーバー期待${d.expectedLength}文字` : `エラー: ${res.status}`);
+                } catch { setSyncTestResult(`エラー: ${res.status}`); }
+              }
             } catch (e) {
               setSyncTestResult('接続エラー: ' + e.message);
             }

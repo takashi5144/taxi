@@ -20,10 +20,12 @@ export default async function handler(req, res) {
   // 認証チェック
   const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
   const expected = (process.env.SYNC_SECRET || '').trim();
-  // デバッグ: 認証失敗時に長さ情報をログ出力
   if (!safeCompare(secret, expected)) {
     console.log(`[AUTH FAIL] method=${req.method} secretLen=${secret.length} expectedLen=${expected.length} hasAuth=${!!req.headers.authorization}`);
-    return res.status(401).json({ error: '認証エラー' });
+    return res.status(401).json({
+      error: '認証エラー',
+      debug: { sentLength: secret.length, expectedLength: expected.length, hasAuth: !!req.headers.authorization }
+    });
   }
 
   const type = req.query.type; // 'revenue' | 'rival'
