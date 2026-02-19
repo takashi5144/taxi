@@ -113,6 +113,8 @@ window.RevenuePage = () => {
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
+        const acc = Math.round(position.coords.accuracy);
+        setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), accuracy: acc } }));
 
         // Google Maps Geocoding APIで逆ジオコーディング
         if (apiKey && window.google && window.google.maps) {
@@ -472,9 +474,15 @@ window.RevenuePage = () => {
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px', color: 'var(--color-primary-light)', marginTop: '1px', flexShrink: 0 } }, 'place'),
                 React.createElement('span', { style: { fontWeight: '600', color: 'var(--color-primary-light)', wordBreak: 'break-all' } }, gpsInfo.pickup.address)
               ),
-              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px', flexWrap: 'wrap' } },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', flexShrink: 0 } }, 'gps_fixed'),
-                `${gpsInfo.pickup.lat.toFixed(6)}, ${gpsInfo.pickup.lng.toFixed(6)}`
+                `${gpsInfo.pickup.lat.toFixed(6)}, ${gpsInfo.pickup.lng.toFixed(6)}`,
+                gpsInfo.pickup.accuracy && React.createElement('span', {
+                  style: { padding: '1px 6px', borderRadius: '3px', fontWeight: '600',
+                    background: gpsInfo.pickup.accuracy <= 50 ? 'rgba(0,200,83,0.15)' : gpsInfo.pickup.accuracy <= 200 ? 'rgba(249,168,37,0.15)' : 'rgba(229,57,53,0.15)',
+                    color: gpsInfo.pickup.accuracy <= 50 ? '#4caf50' : gpsInfo.pickup.accuracy <= 200 ? '#f9a825' : '#e53935' },
+                }, `精度 ${gpsInfo.pickup.accuracy}m`),
+                React.createElement('a', { href: `https://www.google.com/maps?q=${gpsInfo.pickup.lat},${gpsInfo.pickup.lng}`, target: '_blank', rel: 'noopener', style: { color: 'var(--color-primary-light)', textDecoration: 'underline' } }, '地図で確認')
               )
             )
           ),
@@ -547,9 +555,15 @@ window.RevenuePage = () => {
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px', color: 'var(--color-accent)', marginTop: '1px', flexShrink: 0 } }, 'place'),
                 React.createElement('span', { style: { fontWeight: '600', color: 'var(--color-accent)', wordBreak: 'break-all' } }, gpsInfo.dropoff.address)
               ),
-              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px', flexWrap: 'wrap' } },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', flexShrink: 0 } }, 'gps_fixed'),
-                `${gpsInfo.dropoff.lat.toFixed(6)}, ${gpsInfo.dropoff.lng.toFixed(6)}`
+                `${gpsInfo.dropoff.lat.toFixed(6)}, ${gpsInfo.dropoff.lng.toFixed(6)}`,
+                gpsInfo.dropoff.accuracy && React.createElement('span', {
+                  style: { padding: '1px 6px', borderRadius: '3px', fontWeight: '600',
+                    background: gpsInfo.dropoff.accuracy <= 50 ? 'rgba(0,200,83,0.15)' : gpsInfo.dropoff.accuracy <= 200 ? 'rgba(249,168,37,0.15)' : 'rgba(229,57,53,0.15)',
+                    color: gpsInfo.dropoff.accuracy <= 50 ? '#4caf50' : gpsInfo.dropoff.accuracy <= 200 ? '#e53935' : '#e53935' },
+                }, `精度 ${gpsInfo.dropoff.accuracy}m`),
+                React.createElement('a', { href: `https://www.google.com/maps?q=${gpsInfo.dropoff.lat},${gpsInfo.dropoff.lng}`, target: '_blank', rel: 'noopener', style: { color: 'var(--color-primary-light)', textDecoration: 'underline' } }, '地図で確認')
               )
             )
           ),

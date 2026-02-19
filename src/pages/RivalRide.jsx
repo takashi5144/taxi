@@ -73,6 +73,7 @@ window.RivalRidePage = () => {
     setGpsLoading(true);
     getAccuratePosition({ accuracyThreshold: 50, timeout: 20000, maxWaitAfterFix: 8000 })
       .then((position) => {
+        setGpsInfo(prev => ({ ...prev, accuracy: Math.round(position.coords.accuracy) }));
         reverseGeocode(position.coords.latitude, position.coords.longitude, false);
       })
       .catch(() => setGpsLoading(false));
@@ -88,6 +89,7 @@ window.RivalRidePage = () => {
     setErrors([]);
     getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
       .then((position) => {
+        setGpsInfo(prev => ({ ...prev, accuracy: Math.round(position.coords.accuracy) }));
         reverseGeocode(position.coords.latitude, position.coords.longitude, true);
       })
       .catch((error) => {
@@ -129,7 +131,7 @@ window.RivalRidePage = () => {
             autoAddEntry(address, { lat, lng });
           } else {
             setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng }, time: getNowTime() }));
-            setGpsInfo({ lat, lng, address: fullAddress });
+            setGpsInfo(prev => ({ ...prev, lat, lng, address: fullAddress }));
           }
         } else {
           nominatimFallback(lat, lng, autoAdd);
@@ -155,7 +157,7 @@ window.RivalRidePage = () => {
             autoAddEntry(shortAddr, { lat, lng });
           } else {
             setForm(prev => ({ ...prev, location: shortAddr, locationCoords: { lat, lng }, time: getNowTime() }));
-            setGpsInfo({ lat, lng, address: data.display_name || shortAddr });
+            setGpsInfo(prev => ({ ...prev, lat, lng, address: data.display_name || shortAddr }));
           }
         } else {
           const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
@@ -163,7 +165,7 @@ window.RivalRidePage = () => {
             autoAddEntry(coordStr, { lat, lng });
           } else {
             setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng }, time: getNowTime() }));
-            setGpsInfo({ lat, lng, address: null });
+            setGpsInfo(prev => ({ ...prev, lat, lng, address: null }));
           }
         }
       })
@@ -174,7 +176,7 @@ window.RivalRidePage = () => {
           autoAddEntry(coordStr, { lat, lng });
         } else {
           setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng } }));
-          setGpsInfo({ lat, lng, address: null });
+          setGpsInfo(prev => ({ ...prev, lat, lng, address: null }));
         }
       });
   };
@@ -467,20 +469,50 @@ window.RivalRidePage = () => {
                 gpsLoading ? '取得中' : 'GPS'
               )
             ),
-            gpsInfo && React.createElement('div', {
+            gpsInfo && gpsInfo.lat && React.createElement('div', {
               style: {
-                marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
+                marginTop: '6px', padding: '8px 10px', borderRadius: '6px',
                 background: 'rgba(26,115,232,0.08)', border: '1px solid rgba(26,115,232,0.15)',
-                fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.5',
+                fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.6',
               },
             },
-              gpsInfo.address && React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '4px', marginBottom: '3px' } },
+              gpsInfo.address && React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '4px', marginBottom: '4px' } },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px', color: 'var(--color-primary-light)', marginTop: '1px', flexShrink: 0 } }, 'place'),
                 React.createElement('span', { style: { fontWeight: '600', color: 'var(--color-primary-light)', wordBreak: 'break-all' } }, gpsInfo.address)
               ),
-              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px' } },
+              // 座標 + 精度
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px', flexWrap: 'wrap' } },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', flexShrink: 0 } }, 'gps_fixed'),
-                `${gpsInfo.lat.toFixed(6)}, ${gpsInfo.lng.toFixed(6)}`
+                `${gpsInfo.lat.toFixed(6)}, ${gpsInfo.lng.toFixed(6)}`,
+                gpsInfo.accuracy && React.createElement('span', {
+                  style: {
+                    padding: '1px 6px', borderRadius: '3px', fontWeight: '600',
+                    background: gpsInfo.accuracy <= 50 ? 'rgba(0,200,83,0.15)' : gpsInfo.accuracy <= 200 ? 'rgba(249,168,37,0.15)' : 'rgba(229,57,53,0.15)',
+                    color: gpsInfo.accuracy <= 50 ? '#4caf50' : gpsInfo.accuracy <= 200 ? '#f9a825' : '#e53935',
+                  },
+                }, `精度 ${gpsInfo.accuracy}m`)
+              ),
+              // Google Maps で確認リンク
+              React.createElement('div', { style: { marginTop: '4px' } },
+                React.createElement('a', {
+                  href: `https://www.google.com/maps?q=${gpsInfo.lat},${gpsInfo.lng}`,
+                  target: '_blank',
+                  rel: 'noopener',
+                  style: { fontSize: '10px', color: 'var(--color-primary-light)', textDecoration: 'underline' },
+                }, 'Google Mapsで位置を確認'),
+              ),
+              // 精度が低い場合のガイド
+              gpsInfo.accuracy && gpsInfo.accuracy > 100 && React.createElement('div', {
+                style: {
+                  marginTop: '6px', padding: '6px 8px', borderRadius: '4px',
+                  background: 'rgba(249,168,37,0.1)', border: '1px solid rgba(249,168,37,0.2)',
+                  fontSize: '10px', color: '#f9a825', lineHeight: '1.5',
+                },
+              },
+                React.createElement('div', { style: { fontWeight: '600', marginBottom: '2px' } }, 'GPS精度が低い場合:'),
+                React.createElement('div', null, '・Androidの設定 → 位置情報 → 「正確な位置情報」をON'),
+                React.createElement('div', null, '・Chromeの権限 → 位置情報 → 「正確な位置情報」を許可'),
+                React.createElement('div', null, '・屋外で再取得すると精度が向上します')
               )
             )
           ),

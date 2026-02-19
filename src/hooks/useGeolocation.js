@@ -113,6 +113,7 @@ window.getAccuratePosition = (options = {}) => {
     let watchId = null;
     let overallTimer = null;
     let waitTimer = null;
+    let settled = false;  // Promise が解決済みかどうか
 
     const cleanup = () => {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -123,13 +124,26 @@ window.getAccuratePosition = (options = {}) => {
       waitTimer = null;
     };
 
-    const finish = () => {
+    const doResolve = (pos) => {
+      if (settled) return;
+      settled = true;
       cleanup();
+      AppLogger.info(`GPS確定: 精度${pos.coords.accuracy.toFixed(0)}m (${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)})`);
+      resolve(pos);
+    };
+
+    const doReject = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const finish = () => {
       if (bestPosition) {
-        AppLogger.info(`GPS確定: 精度${bestPosition.coords.accuracy.toFixed(0)}m (${bestPosition.coords.latitude.toFixed(6)}, ${bestPosition.coords.longitude.toFixed(6)})`);
-        resolve(bestPosition);
+        doResolve(bestPosition);
       } else {
-        reject({ code: 2, message: '現在地を取得できませんでした。' });
+        doReject({ code: 2, message: '現在地を取得できませんでした。' });
       }
     };
 
@@ -138,8 +152,9 @@ window.getAccuratePosition = (options = {}) => {
 
     watchId = navigator.geolocation.watchPosition(
       (position) => {
+        if (settled) return;
         const acc = position.coords.accuracy;
-        AppLogger.debug(`GPS受信: 精度${acc.toFixed(0)}m`);
+        AppLogger.info(`GPS受信: 精度${acc.toFixed(0)}m lat=${position.coords.latitude.toFixed(6)} lng=${position.coords.longitude.toFixed(6)}`);
 
         // より精度が高い位置を保持
         if (!bestPosition || acc < bestPosition.coords.accuracy) {
@@ -148,9 +163,7 @@ window.getAccuratePosition = (options = {}) => {
 
         // 精度が閾値以下なら即確定
         if (acc <= accuracyThreshold) {
-          cleanup();
-          AppLogger.info(`GPS高精度確定: ${acc.toFixed(0)}m`);
-          resolve(position);
+          doResolve(position);
           return;
         }
 
@@ -160,8 +173,7 @@ window.getAccuratePosition = (options = {}) => {
         }
       },
       (error) => {
-        cleanup();
-        reject(error);
+        doReject(error);
       },
       { enableHighAccuracy: true, timeout: timeout, maximumAge: 0 }
     );

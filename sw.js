@@ -1,5 +1,5 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
-const CACHE_NAME = 'taxi-support-v0.4.2';
+const CACHE_NAME = 'taxi-support-v0.4.3';
 const STATIC_ASSETS = [
   './',
   './index.html',
