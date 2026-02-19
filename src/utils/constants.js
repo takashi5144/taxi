@@ -12,7 +12,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.5.0',
+  VERSION: '0.5.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -85,6 +85,7 @@ window.APP_CONSTANTS = {
     RIVAL_RIDES: 'taxi_app_rival_rides',
     EVENTS: 'taxi_app_events',
     SYNC_SECRET: 'taxi_app_sync_secret',
+    TRANSIT_INFO: 'taxi_app_transit_info',
   },
 
   // サイト構造（開発者ツール用）
