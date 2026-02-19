@@ -2920,9 +2920,20 @@ window.getAccuratePosition = (options = {}) => {
         }
       },
       (error) => {
-        doReject(error);
+        // Permission denied は即座にreject（リトライしても無駄）
+        if (error.code === 1) {
+          doReject(error);
+          return;
+        }
+        // その他のエラー（TIMEOUT/POSITION_UNAVAILABLE）は一時的な場合があるので
+        // bestPositionがあればそれを使い、なければ全体タイムアウトに任せる
+        AppLogger.warn(`GPS一時エラー: code=${error.code} ${error.message || ''}`);
+        if (bestPosition) {
+          doResolve(bestPosition);
+        }
+        // bestPositionがなければoverallTimerのfinish()でrejectされる
       },
-      { enableHighAccuracy: true, timeout: timeout, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: Math.min(timeout, 15000), maximumAge: 0 }
     );
   });
 };
@@ -4483,7 +4494,7 @@ window.RevenuePage = () => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         const acc = Math.round(position.coords.accuracy);
-        setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), accuracy: acc } }));
+        setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
 
         // Google Maps Geocoding APIで逆ジオコーディング
         if (apiKey && window.google && window.google.maps) {
@@ -4496,7 +4507,7 @@ window.RevenuePage = () => {
               const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
               const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
               setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: fullAddress } }));
+              setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddress } }));
               AppLogger.info(`GPS逆ジオコーディング成功 (${field}): ${address}`);
             } else {
               // Google Geocoding失敗時はNominatimにフォールバック
@@ -4510,17 +4521,17 @@ window.RevenuePage = () => {
                     const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
                     const shortAddr2 = parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' ');
                     setForm(prev => ({ ...prev, [field]: shortAddr2, [timeField2]: getNowTime() }));
-                    setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: data2.display_name || shortAddr2 } }));
+                    setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: data2.display_name || shortAddr2 } }));
                   } else {
                     const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                     setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
-                    setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+                    setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
                   }
                 })
                 .catch(() => {
                   const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                   setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
-                  setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+                  setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
                 });
               AppLogger.warn(`Google逆ジオコーディング失敗、Nominatimにフォールバック`);
             }
@@ -4540,12 +4551,12 @@ window.RevenuePage = () => {
                 const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
                 const fullAddr = data.display_name || shortAddr;
                 setForm(prev => ({ ...prev, [field]: shortAddr, [timeField3]: getNowTime() }));
-                setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: fullAddr } }));
+                setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddr } }));
                 AppLogger.info(`Nominatim逆ジオコーディング成功 (${field}): ${shortAddr}`);
               } else {
                 const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
-                setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+                setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
                 AppLogger.warn(`Nominatim逆ジオコーディング失敗、座標を使用: ${coordStr}`);
               }
             })
@@ -4553,7 +4564,7 @@ window.RevenuePage = () => {
               setGpsLoading(prev => ({ ...prev, [field]: false }));
               const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
               setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+              setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
               AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
             });
         }
@@ -4832,7 +4843,7 @@ window.RevenuePage = () => {
               )
             ),
             // GPS取得結果の住所・座標表示
-            gpsInfo.pickup && React.createElement('div', {
+            gpsInfo.pickup && gpsInfo.pickup.lat != null && React.createElement('div', {
               style: {
                 marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
                 background: 'rgba(26,115,232,0.08)', border: '1px solid rgba(26,115,232,0.15)',
@@ -4913,7 +4924,7 @@ window.RevenuePage = () => {
               )
             ),
             // GPS取得結果の住所・座標表示
-            gpsInfo.dropoff && React.createElement('div', {
+            gpsInfo.dropoff && gpsInfo.dropoff.lat != null && React.createElement('div', {
               style: {
                 marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
                 background: 'rgba(0,200,83,0.08)', border: '1px solid rgba(0,200,83,0.15)',
