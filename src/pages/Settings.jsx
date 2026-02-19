@@ -14,12 +14,7 @@ window.SettingsPage = () => {
   const handleClear = () => {
     setApiKey('');
     setInputKey('');
-    // Google Maps のスクリプトをリロードするために状態をリセット
-    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
-    if (existingScript) existingScript.remove();
-    if (window.google && window.google.maps) {
-      delete window.google.maps;
-    }
+    _gmapLoader.reset();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

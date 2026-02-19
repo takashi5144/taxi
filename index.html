@@ -2643,34 +2643,67 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ============================================================
 const _gmapLoader = {
   status: 'idle',
+  loadedKey: null,
   callbacks: [],
+
+  reset() {
+    this.status = 'idle';
+    this.loadedKey = null;
+    this.callbacks = [];
+    const s = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (s) s.remove();
+    if (window.google) {
+      try { delete window.google; } catch (e) { window.google = undefined; }
+    }
+  },
+
   load(apiKey) {
     return new Promise((resolve, reject) => {
-      if (window.google && window.google.maps) {
-        this.status = 'loaded';
+      if (this.loadedKey && this.loadedKey !== apiKey) {
+        this.reset();
+      }
+      if (window.google && window.google.maps && this.status === 'loaded' && this.loadedKey === apiKey) {
         resolve();
         return;
       }
-      if (this.status === 'loaded') { resolve(); return; }
       this.callbacks.push({ resolve, reject });
       if (this.status === 'loading') return;
+      if (this.status === 'error') {
+        const s = document.querySelector('script[src*="maps.googleapis.com"]');
+        if (s) s.remove();
+        if (window.google) {
+          try { delete window.google; } catch (e) { window.google = undefined; }
+        }
+      }
       this.status = 'loading';
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&v=weekly`;
       script.async = true;
       script.onload = () => {
         this.status = 'loaded';
+        this.loadedKey = apiKey;
         this.callbacks.forEach(cb => cb.resolve());
         this.callbacks = [];
       };
-      script.onerror = (err) => {
+      script.onerror = () => {
         this.status = 'error';
-        this.callbacks.forEach(cb => cb.reject(err));
+        this.loadedKey = null;
+        script.remove();
+        this.callbacks.forEach(cb => cb.reject(new Error('SCRIPT_LOAD_ERROR')));
         this.callbacks = [];
       };
       document.head.appendChild(script);
     });
   }
+};
+
+window.gm_authFailure = () => {
+  _gmapLoader.status = 'error';
+  _gmapLoader.loadedKey = null;
+  if (typeof AppLogger !== 'undefined') {
+    AppLogger.error('Google Maps API 認証失敗: APIキー・Billing・API有効化を確認してください');
+  }
+  window.dispatchEvent(new Event('gmaps_auth_error'));
 };
 
 // ============================================================
@@ -2690,6 +2723,16 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
+  // Google Maps API 認証エラーを検知
+  useEffect(() => {
+    const handler = () => {
+      setMapError('Google Maps API の認証に失敗しました。以下を確認してください：\n• APIキーが正しいか\n• Maps JavaScript API が有効か\n• Billing（課金）が設定されているか');
+      setMapLoaded(false);
+    };
+    window.addEventListener('gmaps_auth_error', handler);
+    return () => window.removeEventListener('gmaps_auth_error', handler);
+  }, []);
+
   // Google Maps API をロード
   useEffect(() => {
     if (!apiKey) {
@@ -2697,10 +2740,17 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       setMapLoaded(false);
       return;
     }
-    if (window.google && window.google.maps) {
-      setMapLoaded(true);
-      return;
-    }
+
+    // APIキー変更時にマップ状態をリセット
+    initDone.current = false;
+    mapInstanceRef.current = null;
+    markerRef.current = null;
+    accuracyCircleRef.current = null;
+    trafficLayerRef.current = null;
+    firstGpsDone.current = false;
+    setMapLoaded(false);
+    setMapError(null);
+
     let cancelled = false;
     _gmapLoader.load(apiKey)
       .then(() => {
@@ -2712,7 +2762,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       })
       .catch(() => {
         if (!cancelled) {
-          setMapError('Google Maps API の読み込みに失敗しました。APIキーを確認してください。');
+          setMapError('Google Maps API の読み込みに失敗しました。\nAPIキーとネットワーク接続を確認してください。');
           AppLogger.error('Google Maps API ロード失敗');
         }
       });
@@ -2721,57 +2771,61 @@ window.GoogleMapView = ({ fullscreen = false }) => {
 
   // マップ初期化
   useEffect(() => {
-    if (!mapLoaded || !mapRef.current || !window.google || initDone.current) return;
+    if (!mapLoaded || !mapRef.current || !window.google || !window.google.maps || initDone.current) return;
     initDone.current = true;
 
-    // GPS位置があればそこを初期中心に、なければデフォルト
-    const initCenter = currentPosition || mapCenter;
-    const initZoom = currentPosition ? 15 : zoom;
+    try {
+      // GPS位置があればそこを初期中心に、なければデフォルト
+      const initCenter = currentPosition || mapCenter;
+      const initZoom = currentPosition ? 15 : zoom;
 
-    const map = new google.maps.Map(mapRef.current, {
-      center: initCenter,
-      zoom: initZoom,
-      mapTypeId: 'roadmap',
-      disableDefaultUI: false,
-      zoomControl: true,
-      mapTypeControl: true,
-      mapTypeControlOptions: {
-        style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
-        position: google.maps.ControlPosition.TOP_LEFT,
-      },
-      streetViewControl: false,
-      fullscreenControl: false,
-      scaleControl: true,
-      gestureHandling: 'greedy',
-      // 標準スタイル（詳細がしっかり見える）
-    });
-    mapInstanceRef.current = map;
+      const map = new google.maps.Map(mapRef.current, {
+        center: initCenter,
+        zoom: initZoom,
+        mapTypeId: 'roadmap',
+        disableDefaultUI: false,
+        zoomControl: true,
+        mapTypeControl: true,
+        mapTypeControlOptions: {
+          style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+          position: google.maps.ControlPosition.TOP_LEFT,
+        },
+        streetViewControl: false,
+        fullscreenControl: false,
+        scaleControl: true,
+        gestureHandling: 'greedy',
+      });
+      mapInstanceRef.current = map;
 
-    // 交通情報レイヤーを即座に追加
-    const trafficLayer = new google.maps.TrafficLayer();
-    trafficLayer.setMap(map);
-    trafficLayerRef.current = trafficLayer;
+      // 交通情報レイヤーを即座に追加
+      const trafficLayer = new google.maps.TrafficLayer();
+      trafficLayer.setMap(map);
+      trafficLayerRef.current = trafficLayer;
 
-    // GPS位置があれば初回マーカーも配置
-    if (currentPosition) {
-      firstGpsDone.current = true;
-      _placeMarker(map, currentPosition);
+      // GPS位置があれば初回マーカーも配置
+      if (currentPosition) {
+        firstGpsDone.current = true;
+        _placeMarker(map, currentPosition);
+      }
+
+      // イベントリスナー（スロットリング付き）
+      let centerTimer = null;
+      map.addListener('center_changed', () => {
+        clearTimeout(centerTimer);
+        centerTimer = setTimeout(() => {
+          const c = map.getCenter();
+          setMapCenter({ lat: c.lat(), lng: c.lng() });
+        }, 300);
+      });
+      map.addListener('zoom_changed', () => {
+        setZoom(map.getZoom());
+      });
+
+      AppLogger.info('Google Maps 初期化完了（TrafficLayer有効）');
+    } catch (e) {
+      setMapError('Google Maps の初期化に失敗しました: ' + e.message);
+      AppLogger.error('Google Maps 初期化エラー: ' + e.message);
     }
-
-    // イベントリスナー（スロットリング付き）
-    let centerTimer = null;
-    map.addListener('center_changed', () => {
-      clearTimeout(centerTimer);
-      centerTimer = setTimeout(() => {
-        const c = map.getCenter();
-        setMapCenter({ lat: c.lat(), lng: c.lng() });
-      }, 300);
-    });
-    map.addListener('zoom_changed', () => {
-      setZoom(map.getZoom());
-    });
-
-    AppLogger.info('Google Maps 初期化完了（TrafficLayer有効）');
   }, [mapLoaded]);
 
   // マーカー配置用のヘルパー
@@ -2886,10 +2940,20 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   if (mapError) {
     return React.createElement('div', {
       className: `map-container ${fullscreen ? 'map-container--fullscreen' : ''}`,
-      style: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px' },
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', padding: '24px' },
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--color-danger)' } }, 'error'),
-      React.createElement('p', { style: { color: 'var(--color-danger)' } }, mapError)
+      React.createElement('p', { style: { color: 'var(--color-danger)', textAlign: 'center', whiteSpace: 'pre-line', fontSize: 'var(--font-size-sm)' } }, mapError),
+      React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } },
+        React.createElement(Button, {
+          variant: 'primary', icon: 'refresh',
+          onClick: () => { _gmapLoader.reset(); setMapError(null); setMapLoaded(false); },
+        }, '再試行'),
+        React.createElement(Button, {
+          variant: 'secondary', icon: 'settings',
+          onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
+        }, '設定を確認')
+      )
     );
   }
 
@@ -5494,12 +5558,7 @@ window.SettingsPage = () => {
   const handleClear = () => {
     setApiKey('');
     setInputKey('');
-    // Google Maps のスクリプトをリロードするために状態をリセット
-    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
-    if (existingScript) existingScript.remove();
-    if (window.google && window.google.maps) {
-      delete window.google.maps;
-    }
+    _gmapLoader.reset();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
