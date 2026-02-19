@@ -28,6 +28,7 @@ const STATIC_ASSETS = [
   './src/pages/Dashboard.jsx',
   './src/pages/MapView.jsx',
   './src/pages/Revenue.jsx',
+  './src/pages/RivalRide.jsx',
   './src/pages/Analytics.jsx',
   './src/pages/Settings.jsx',
   './src/pages/dev/Logs.jsx',

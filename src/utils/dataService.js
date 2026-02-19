@@ -509,6 +509,96 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 他社乗車データ CRUD
+  // ============================================================
+  function getRivalEntries() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveRivalEntries(entries) {
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES, JSON.stringify(entries));
+      return true;
+    } catch (e) {
+      AppLogger.error('他社乗車データの保存に失敗しました', e.message);
+      return false;
+    }
+  }
+
+  function addRivalEntry(form) {
+    if (!form.location || !form.location.trim()) {
+      return { success: false, errors: ['乗車場所を入力してください'] };
+    }
+    const entries = getRivalEntries();
+    const entryDate = form.date || new Date().toISOString().split('T')[0];
+    const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
+    const entry = {
+      id: Date.now(),
+      date: entryDate,
+      dayOfWeek: dateInfo.dayOfWeek,
+      holiday: dateInfo.holiday || '',
+      time: form.time || '',
+      weather: form.weather || '',
+      location: form.location.trim(),
+      locationCoords: form.locationCoords || null,
+      memo: form.memo || '',
+      timestamp: new Date().toISOString(),
+    };
+    entries.unshift(entry);
+    saveRivalEntries(entries);
+    const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
+    AppLogger.info(`他社乗車記録追加: ${entry.location} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
+    return { success: true, entry };
+  }
+
+  function deleteRivalEntry(id) {
+    const entries = getRivalEntries();
+    const filtered = entries.filter(e => e.id !== id);
+    saveRivalEntries(filtered);
+    AppLogger.info('他社乗車記録を削除しました');
+    return true;
+  }
+
+  function clearAllRivalEntries() {
+    saveRivalEntries([]);
+    AppLogger.info('全他社乗車データを削除しました');
+    return true;
+  }
+
+  function downloadRivalCSV() {
+    const entries = getRivalEntries();
+    if (entries.length === 0) {
+      AppLogger.warn('エクスポート対象の他社乗車データがありません');
+      return false;
+    }
+    const header = 'ID,日付,曜日,祝日,時間,天候,乗車場所,メモ';
+    const rows = entries.map(e => {
+      const weather = (e.weather || '').replace(/,/g, '、');
+      const location = (e.location || '').replace(/,/g, '、');
+      const memo = (e.memo || '').replace(/,/g, '、');
+      return `${e.id},${e.date},${e.dayOfWeek},${e.holiday},${e.time},${weather},${location},${memo}`;
+    });
+    const csv = '\uFEFF' + header + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.href = url;
+    link.download = `rival_rides_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    AppLogger.info(`他社乗車CSVエクスポート完了: ${entries.length}件`);
+    return true;
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -543,5 +633,13 @@ window.DataService = (() => {
     selectSaveFolder,
     importFromFile,
     hasSaveFolder,
+
+    // 他社乗車
+    getRivalEntries,
+    saveRivalEntries,
+    addRivalEntry,
+    deleteRivalEntry,
+    clearAllRivalEntries,
+    downloadRivalCSV,
   };
 })();

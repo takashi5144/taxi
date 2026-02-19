@@ -12,7 +12,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.3.3',
+  VERSION: '0.4.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -30,6 +30,7 @@ window.APP_CONSTANTS = {
     DASHBOARD: 'dashboard',
     MAP: 'map',
     REVENUE: 'revenue',
+    RIVAL_RIDE: 'rival-ride',
     ANALYTICS: 'analytics',
     SETTINGS: 'settings',
     DEV_TOOLS: 'dev',
@@ -43,6 +44,7 @@ window.APP_CONSTANTS = {
     { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },
     { id: 'map', label: '地図', icon: 'map' },
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
+    { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ],
@@ -52,6 +54,7 @@ window.APP_CONSTANTS = {
     { id: 'dashboard', label: 'ホーム', icon: 'home' },
     { id: 'map', label: '地図', icon: 'map' },
     { id: 'revenue', label: '売上', icon: 'receipt_long' },
+    { id: 'rival-ride', label: '他社', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'settings', label: '設定', icon: 'more_horiz' },
   ],
@@ -70,6 +73,7 @@ window.APP_CONSTANTS = {
     LOGS: 'taxi_app_logs',
     SETTINGS: 'taxi_app_settings',
     REVENUE_DATA: 'taxi_app_revenue',
+    RIVAL_RIDES: 'taxi_app_rival_rides',
   },
 
   // サイト構造（開発者ツール用）
