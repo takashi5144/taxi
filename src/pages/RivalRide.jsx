@@ -120,7 +120,7 @@ window.RivalRidePage = () => {
         if (status === 'OK' && results[0]) {
           const address = formatAddress(results[0]);
           const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-          setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng } }));
+          setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng }, time: getNowTime() }));
           setGpsInfo({ lat, lng, address: fullAddress });
           AppLogger.info(`他社乗車 GPS逆ジオコーディング成功: ${address}`);
         } else {
@@ -142,12 +142,12 @@ window.RivalRidePage = () => {
           const a = data.address;
           const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
           const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
-          setForm(prev => ({ ...prev, location: shortAddr, locationCoords: { lat, lng } }));
+          setForm(prev => ({ ...prev, location: shortAddr, locationCoords: { lat, lng }, time: getNowTime() }));
           setGpsInfo({ lat, lng, address: data.display_name || shortAddr });
           AppLogger.info(`他社乗車 Nominatim逆ジオコーディング成功: ${shortAddr}`);
         } else {
           const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-          setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng } }));
+          setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng }, time: getNowTime() }));
           setGpsInfo({ lat, lng, address: null });
         }
       })
