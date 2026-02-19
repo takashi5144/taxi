@@ -4511,6 +4511,8 @@ window.RivalRidePage = () => {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const locationFetched = useRef(false);
+  const formRef = useRef(form);
+  useEffect(() => { formRef.current = form; }, [form]);
 
   const { apiKey } = useAppContext();
 
@@ -4559,7 +4561,7 @@ window.RivalRidePage = () => {
       (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
-        reverseGeocode(lat, lng);
+        reverseGeocode(lat, lng, false);
       },
       () => setGpsLoading(false),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
@@ -4577,7 +4579,7 @@ window.RivalRidePage = () => {
       (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
-        reverseGeocode(lat, lng);
+        reverseGeocode(lat, lng, true);
       },
       (error) => {
         setGpsLoading(false);
@@ -4592,7 +4594,22 @@ window.RivalRidePage = () => {
     );
   }, [apiKey]);
 
-  const reverseGeocode = (lat, lng) => {
+  // GPS解決時に自動記録追加
+  const autoAddEntry = (location, coords) => {
+    const cur = formRef.current;
+    const entryData = { date: cur.date, time: getNowTime(), weather: cur.weather, location, locationCoords: coords, memo: cur.memo };
+    const result = DataService.addRivalEntry(entryData);
+    if (result.success) {
+      setForm({ date: todayDefault, time: getNowTime(), weather: cur.weather, location: '', locationCoords: null, memo: '' });
+      setGpsInfo(null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      setRefreshKey(k => k + 1);
+    }
+  };
+
+  // 逆ジオコーディング共通処理（autoAdd=trueでGPS解決時に自動記録追加）
+  const reverseGeocode = (lat, lng, autoAdd) => {
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
@@ -4600,18 +4617,23 @@ window.RivalRidePage = () => {
         if (status === 'OK' && results[0]) {
           const address = _formatRivalAddress(results[0]);
           const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-          setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng }, time: getNowTime() }));
-          setGpsInfo({ lat, lng, address: fullAddress });
+          AppLogger.info(`他社乗車 GPS逆ジオコーディング成功: ${address}`);
+          if (autoAdd) {
+            autoAddEntry(address, { lat, lng });
+          } else {
+            setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng }, time: getNowTime() }));
+            setGpsInfo({ lat, lng, address: fullAddress });
+          }
         } else {
-          nominatimFallback(lat, lng);
+          nominatimFallback(lat, lng, autoAdd);
         }
       });
     } else {
-      nominatimFallback(lat, lng);
+      nominatimFallback(lat, lng, autoAdd);
     }
   };
 
-  const nominatimFallback = (lat, lng) => {
+  const nominatimFallback = (lat, lng, autoAdd) => {
     const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`;
     fetch(nomUrl)
       .then(res => res.json())
@@ -4621,19 +4643,32 @@ window.RivalRidePage = () => {
           const a = data.address;
           const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
           const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
-          setForm(prev => ({ ...prev, location: shortAddr, locationCoords: { lat, lng }, time: getNowTime() }));
-          setGpsInfo({ lat, lng, address: data.display_name || shortAddr });
+          AppLogger.info(`他社乗車 Nominatim逆ジオコーディング成功: ${shortAddr}`);
+          if (autoAdd) {
+            autoAddEntry(shortAddr, { lat, lng });
+          } else {
+            setForm(prev => ({ ...prev, location: shortAddr, locationCoords: { lat, lng }, time: getNowTime() }));
+            setGpsInfo({ lat, lng, address: data.display_name || shortAddr });
+          }
         } else {
           const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-          setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng }, time: getNowTime() }));
-          setGpsInfo({ lat, lng, address: null });
+          if (autoAdd) {
+            autoAddEntry(coordStr, { lat, lng });
+          } else {
+            setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng }, time: getNowTime() }));
+            setGpsInfo({ lat, lng, address: null });
+          }
         }
       })
       .catch(() => {
         setGpsLoading(false);
         const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-        setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng }, time: getNowTime() }));
-        setGpsInfo({ lat, lng, address: null });
+        if (autoAdd) {
+          autoAddEntry(coordStr, { lat, lng });
+        } else {
+          setForm(prev => ({ ...prev, location: coordStr, locationCoords: { lat, lng } }));
+          setGpsInfo({ lat, lng, address: null });
+        }
       });
   };
 
