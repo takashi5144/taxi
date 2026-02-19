@@ -2230,8 +2230,13 @@ window.DataService = (() => {
     await _handleReady;
     if (!_dirHandle) return;
     if (!transitData || Object.keys(transitData).length === 0) return;
-    const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateStr}.json`, [transitData], '0.5.2');
+    const now = new Date();
+    const dateTimeStr = now.getFullYear()
+      + '-' + String(now.getMonth() + 1).padStart(2, '0')
+      + '-' + String(now.getDate()).padStart(2, '0')
+      + '_' + String(now.getHours()).padStart(2, '0')
+      + String(now.getMinutes()).padStart(2, '0');
+    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateTimeStr}.json`, [transitData], '0.5.2');
   }
 
   // ============================================================
