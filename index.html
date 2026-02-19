@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.4.0</title>
+  <title>タクシー売上サポート v0.5.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -848,7 +848,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.4.0',
+  VERSION: '0.5.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -921,6 +921,7 @@ window.APP_CONSTANTS = {
     RIVAL_RIDES: 'taxi_app_rival_rides',
     EVENTS: 'taxi_app_events',
     SYNC_SECRET: 'taxi_app_sync_secret',
+    TRANSIT_INFO: 'taxi_app_transit_info',
   },
 
   // サイト構造（開発者ツール用）
@@ -2291,22 +2292,32 @@ window.DataService = (() => {
 // ============================================================
 (function() {
 // geminiService.js - Gemini AI API連携サービス
+//
+// Google Gemini 2.0 Flash を使用してAI検索を行うサービス層。
+// 公共交通機関情報やイベント情報の検索に使用する。
+
 window.GeminiService = (() => {
   const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
+  // Gemini APIにリクエストを送信
   async function callGemini(apiKey, prompt) {
     if (!apiKey) {
       return { success: false, error: 'Gemini APIキーが設定されていません' };
     }
+
     try {
       const response = await fetch(`${API_URL}?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2048,
+          },
         }),
       });
+
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         const errMsg = errData.error?.message || `HTTPエラー: ${response.status}`;
@@ -2314,9 +2325,13 @@ window.GeminiService = (() => {
         if (response.status === 429) return { success: false, error: 'API利用制限に達しました。しばらく待ってから再試行してください。' };
         return { success: false, error: errMsg };
       }
+
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) return { success: false, error: '応答が空でした' };
+      if (!text) {
+        return { success: false, error: '応答が空でした' };
+      }
+
       return { success: true, text };
     } catch (e) {
       AppLogger.error('Gemini API呼び出しエラー', e.message);
@@ -2324,28 +2339,246 @@ window.GeminiService = (() => {
     }
   }
 
+  // 公共交通機関の運行情報を検索
   async function searchTransitInfo(apiKey, query) {
     const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-    const prompt = `あなたはタクシードライバー向けの交通情報アシスタントです。\n今日は${today}です。\n\n以下の質問に対して、タクシー営業に役立つ公共交通機関の情報を簡潔に回答してください。\n- 鉄道の運行状況、遅延、運休の情報\n- バス路線の状況\n- 終電・始発の時刻\n- タクシー需要が増える可能性のあるポイント\n\n回答は箇条書きで分かりやすくお願いします。推測や不確実な情報には「※推定」と明記してください。\n\n質問: ${query}`;
+    const prompt = `あなたはタクシードライバー向けの交通情報アシスタントです。
+今日は${today}です。
+
+以下の質問に対して、タクシー営業に役立つ公共交通機関の情報を簡潔に回答してください。
+- 鉄道の運行状況、遅延、運休の情報
+- バス路線の状況
+- 終電・始発の時刻
+- タクシー需要が増える可能性のあるポイント
+
+回答は箇条書きで分かりやすくお願いします。推測や不確実な情報には「※推定」と明記してください。
+
+質問: ${query}`;
+
     const result = await callGemini(apiKey, prompt);
-    if (result.success) AppLogger.info(`Gemini交通情報検索: ${query}`);
+    if (result.success) {
+      AppLogger.info(`Gemini交通情報検索: ${query}`);
+    }
     return result;
   }
 
+  // 周辺イベント情報を検索
   async function searchEvents(apiKey, query, area) {
     const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const areaStr = area ? `エリア: ${area}\n` : '';
-    const prompt = `あなたはタクシードライバー向けのイベント情報アシスタントです。\n今日は${today}です。\n${areaStr}\n以下の質問に対して、タクシー需要に影響する可能性のあるイベント情報を回答してください。\n各イベントについて以下の形式で回答してください:\n- イベント名\n- 日時（分かれば）\n- 場所\n- 規模の目安（小/中/大/特大）\n- タクシー需要への影響予測（需要増/需要減/不明）\n\n推測や不確実な情報には「※推定」と明記してください。\n\n質問: ${query}`;
+    const prompt = `あなたはタクシードライバー向けのイベント情報アシスタントです。
+今日は${today}です。
+${areaStr}
+以下の質問に対して、タクシー需要に影響する可能性のあるイベント情報を回答してください。
+各イベントについて以下の形式で回答してください:
+- イベント名
+- 日時（分かれば）
+- 場所
+- 規模の目安（小/中/大/特大）
+- タクシー需要への影響予測（需要増/需要減/不明）
+
+推測や不確実な情報には「※推定」と明記してください。
+
+質問: ${query}`;
+
     const result = await callGemini(apiKey, prompt);
-    if (result.success) AppLogger.info(`Geminiイベント検索: ${query}`);
+    if (result.success) {
+      AppLogger.info(`Geminiイベント検索: ${query}`);
+    }
     return result;
   }
 
-  async function testConnection(apiKey) {
-    return await callGemini(apiKey, 'こんにちは。接続テストです。「接続成功」と一言だけ返答してください。');
+  // 大容量レスポンス用のGemini API呼び出し
+  async function callGeminiLarge(apiKey, prompt) {
+    if (!apiKey) {
+      return { success: false, error: 'Gemini APIキーが設定されていません' };
+    }
+
+    try {
+      const response = await fetch(`${API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const errMsg = errData.error?.message || `HTTPエラー: ${response.status}`;
+        if (response.status === 400) return { success: false, error: 'APIキーが無効です。正しいキーを設定してください。' };
+        if (response.status === 429) return { success: false, error: 'API利用制限に達しました。しばらく待ってから再試行してください。' };
+        return { success: false, error: errMsg };
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        return { success: false, error: '応答が空でした' };
+      }
+
+      return { success: true, text };
+    } catch (e) {
+      AppLogger.error('Gemini API呼び出しエラー', e.message);
+      return { success: false, error: `通信エラー: ${e.message}` };
+    }
   }
 
-  return { callGemini, searchTransitInfo, searchEvents, testConnection };
+  // 電車の運行時刻・運行情報を取得
+  async function fetchTrainInfo(apiKey) {
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const prompt = `あなたは公共交通機関の情報提供アシスタントです。
+今日は${today}です。
+
+東京都内および近郊の主要鉄道路線について、本日の運行情報を網羅的に提供してください。
+
+以下の路線を含めてください:
+【JR線】山手線、中央線、京浜東北線、総武線、埼京線、湘南新宿ライン、東海道線、横須賀線、常磐線、武蔵野線、京葉線
+【私鉄】東急（東横線・田園都市線・目黒線）、小田急線、京王線、西武線（池袋線・新宿線）、東武線（東上線・スカイツリーライン）、京成線、京急線
+【地下鉄】東京メトロ（銀座線・丸ノ内線・日比谷線・東西線・千代田線・有楽町線・半蔵門線・南北線・副都心線）、都営地下鉄（浅草線・三田線・新宿線・大江戸線）
+
+各路線について以下を記載してください:
+- 始発時刻と終電時刻（主要駅基準）
+- 本日の運行ダイヤ（平日/休日ダイヤ）
+- ピーク時の運行間隔
+- 現在の運行状況（通常運行/遅延/運休など）
+
+見やすい表形式や箇条書きで整理してください。
+※情報が確認できない場合は「※一般的な時刻」と明記してください。`;
+
+    const result = await callGeminiLarge(apiKey, prompt);
+    if (result.success) {
+      AppLogger.info('Gemini: 電車運行情報を取得');
+    }
+    return result;
+  }
+
+  // バスの運行時刻・運行情報を取得
+  async function fetchBusInfo(apiKey) {
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const prompt = `あなたは公共交通機関の情報提供アシスタントです。
+今日は${today}です。
+
+東京都内の主要バス路線について、本日の運行情報を網羅的に提供してください。
+
+以下のバス会社を含めてください:
+【都営バス】主要系統（都01〜都06、品93、渋88、東43、王40など主要路線）
+【民営バス】東急バス、小田急バス、京王バス、関東バス、西武バス、国際興業バス、東武バス
+【高速バス・空港バス】リムジンバス（羽田・成田）、高速バスターミナル（バスタ新宿）発着の主要路線
+【深夜バス】深夜急行バス（渋谷・新宿・東京発）
+
+各路線・会社について以下を記載してください:
+- 主要路線名と区間
+- 始発・終バスの時刻
+- 本日のダイヤ（平日/休日）
+- 運行間隔（ピーク時/日中/夜間）
+- 現在の運行状況
+
+見やすい表形式や箇条書きで整理してください。
+※情報が確認できない場合は「※一般的な時刻」と明記してください。`;
+
+    const result = await callGeminiLarge(apiKey, prompt);
+    if (result.success) {
+      AppLogger.info('Gemini: バス運行情報を取得');
+    }
+    return result;
+  }
+
+  // 飛行機の運航時刻・運航情報を取得
+  async function fetchFlightInfo(apiKey) {
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const prompt = `あなたは公共交通機関の情報提供アシスタントです。
+今日は${today}です。
+
+羽田空港（HND）と成田空港（NRT）の本日のフライト情報を網羅的に提供してください。
+
+【羽田空港】
+- 国内線: 主要路線（札幌・大阪・福岡・沖縄・名古屋・広島・仙台・鹿児島等）の出発・到着便
+- 国際線: 主要路線の出発・到着便
+- 各ターミナル（第1・第2・第3）の利用航空会社
+
+【成田空港】
+- 国際線: 主要路線（アジア・北米・欧州方面）の出発・到着便
+- 国内線: 主要路線の出発・到着便
+- 各ターミナル（第1・第2・第3）の利用航空会社
+
+以下の情報を含めてください:
+- 早朝便（始発〜7時）と深夜便（21時以降）の一覧（タクシー需要が高い時間帯）
+- ピーク時間帯（到着便が集中する時間）
+- 現在の運航状況（通常運航/遅延/欠航など）
+- 天候による影響（ある場合）
+
+見やすい表形式や箇条書きで整理してください。
+※情報が確認できない場合は「※一般的なスケジュール」と明記してください。`;
+
+    const result = await callGeminiLarge(apiKey, prompt);
+    if (result.success) {
+      AppLogger.info('Gemini: 飛行機運航情報を取得');
+    }
+    return result;
+  }
+
+  // 遅延・トラブル情報を取得
+  async function fetchTroubleInfo(apiKey) {
+    const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    const prompt = `あなたは公共交通機関の情報提供アシスタントです。
+今日は${today}、現在時刻は${now}です。
+
+現在発生している公共交通機関の遅延・トラブル・運休情報をすべて提供してください。
+
+【確認対象】
+1. 鉄道（JR・私鉄・地下鉄すべて）
+2. バス（都営・民営・高速バス）
+3. 航空（羽田・成田発着便）
+4. その他（モノレール・ゆりかもめ・つくばエクスプレス等）
+
+【各トラブルについて以下を記載】
+- 路線名・区間
+- トラブルの種類（遅延/運休/運転見合わせ/徐行運転/振替輸送等）
+- 原因（人身事故/車両故障/天候/信号故障等）
+- 発生時刻（分かれば）
+- 復旧見込み（分かれば）
+- 影響度（小/中/大）
+- タクシー需要への影響（需要増のエリア・駅を具体的に）
+
+【追加情報】
+- 本日予定されている計画運休・工事運休
+- 天候による今後の影響予測
+- 振替輸送の実施状況
+
+タクシードライバーの営業に役立つ観点でまとめてください。
+トラブルがない場合は「現在、大きなトラブルは報告されていません」と回答してください。
+※リアルタイム情報が不明な場合は「※最新情報は各社公式サイトで確認してください」と明記してください。`;
+
+    const result = await callGeminiLarge(apiKey, prompt);
+    if (result.success) {
+      AppLogger.info('Gemini: 遅延・トラブル情報を取得');
+    }
+    return result;
+  }
+
+  // APIキーの接続テスト
+  async function testConnection(apiKey) {
+    const result = await callGemini(apiKey, 'こんにちは。接続テストです。「接続成功」と一言だけ返答してください。');
+    return result;
+  }
+
+  return {
+    callGemini,
+    searchTransitInfo,
+    searchEvents,
+    callGeminiLarge,
+    fetchTrainInfo,
+    fetchBusInfo,
+    fetchFlightInfo,
+    fetchTroubleInfo,
+    testConnection,
+  };
 })();
 })();
 
@@ -5662,108 +5895,288 @@ window.RivalRidePage = () => {
 // ============================================================
 (function() {
 // TransitInfo.jsx - 公共交通機関情報ページ
-// Google Maps TransitLayer を使用して交通機関情報を表示
+// Gemini AI を使用して電車・バス・飛行機の運行情報と遅延情報を取得・保存
 window.TransitInfoPage = () => {
-  const { useState, useEffect, useRef, useCallback } = React;
-  const { apiKey, geminiApiKey } = useAppContext();
+  const { useState, useCallback, useEffect, useMemo } = React;
+  const { geminiApiKey } = useAppContext();
 
-  const mapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const transitLayerRef = useRef(null);
-  const [mapReady, setMapReady] = useState(false);
-  const [userLocation, setUserLocation] = useState(null);
+  const STORAGE_KEY = APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO;
 
-  // Gemini検索
-  const [geminiQuery, setGeminiQuery] = useState('');
-  const [geminiLoading, setGeminiLoading] = useState(false);
-  const [geminiResult, setGeminiResult] = useState(null);
-  const [geminiError, setGeminiError] = useState(null);
+  // カテゴリ定義
+  const categories = useMemo(() => [
+    { key: 'trouble', icon: 'warning',        label: '遅延・トラブル', color: '229,57,53',  fetchFn: GeminiService.fetchTroubleInfo },
+    { key: 'train',   icon: 'train',           label: '電車',           color: '26,115,232',  fetchFn: GeminiService.fetchTrainInfo },
+    { key: 'bus',     icon: 'directions_bus',   label: 'バス',           color: '46,125,50',   fetchFn: GeminiService.fetchBusInfo },
+    { key: 'flight',  icon: 'flight',           label: '飛行機',         color: '156,39,176',  fetchFn: GeminiService.fetchFlightInfo },
+  ], []);
 
-  const handleGeminiSearch = useCallback(async () => {
-    if (!geminiQuery.trim()) return;
-    setGeminiLoading(true);
-    setGeminiError(null);
-    setGeminiResult(null);
-    const result = await GeminiService.searchTransitInfo(geminiApiKey, geminiQuery.trim());
-    setGeminiLoading(false);
-    if (result.success) {
-      setGeminiResult(result.text);
-    } else {
-      setGeminiError(result.error);
-    }
-  }, [geminiApiKey, geminiQuery]);
-
-  const quickQueries = [
-    '東京都内の主要路線の現在の運行状況',
-    '本日の終電時刻（山手線・中央線・京浜東北線）',
-    '現在遅延している路線と代替交通手段',
-    '深夜のタクシー需要が高いエリア',
-  ];
-
-  // 現在地取得
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    getAccuratePosition({ accuracyThreshold: 100, timeout: 15000, maxWaitAfterFix: 5000 })
-      .then((pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }))
-      .catch(() => {}
-    );
-  }, []);
-
-  // Google Maps 初期化
-  useEffect(() => {
-    if (!apiKey || !window.google || !window.google.maps) return;
-    if (mapInstanceRef.current) return;
-
-    const center = userLocation || APP_CONSTANTS.DEFAULT_MAP_CENTER;
-    const map = new google.maps.Map(mapRef.current, {
-      center,
-      zoom: 13,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: true,
-      styles: [
-        { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
-        { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
-        { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
-        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
-        { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
-        { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
-        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
-        { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
-        { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-      ],
+  // localStorageから保存済みデータを読み込み
+  const loadSaved = () => {
+    const saved = AppStorage.get(STORAGE_KEY, {});
+    const result = {};
+    categories.forEach(c => {
+      const s = saved[c.key];
+      result[c.key] = { loading: false, result: s?.text || null, error: null, fetchedAt: s?.fetchedAt || null };
     });
-    mapInstanceRef.current = map;
-
-    // TransitLayer を有効化
-    const transitLayer = new google.maps.TransitLayer();
-    transitLayer.setMap(map);
-    transitLayerRef.current = transitLayer;
-    setMapReady(true);
-  }, [apiKey, userLocation]);
-
-  // ユーザー位置にパン
-  useEffect(() => {
-    if (mapInstanceRef.current && userLocation) {
-      mapInstanceRef.current.panTo(userLocation);
-    }
-  }, [userLocation]);
-
-  // 交通機関リンクカード
-  const transitLinks = [
-    { label: 'Google Maps 経路検索', icon: 'directions', color: '#1a73e8', url: 'https://www.google.com/maps/dir/?api=1&travelmode=transit' },
-    { label: 'Yahoo! 乗換案内', icon: 'train', color: '#ff0033', url: 'https://transit.yahoo.co.jp/' },
-    { label: 'NAVITIME', icon: 'route', color: '#00a968', url: 'https://www.navitime.co.jp/' },
-    { label: 'JR東日本 運行情報', icon: 'info', color: '#008000', url: 'https://traininfo.jreast.co.jp/train_info/kanto.aspx' },
-  ];
-
-  const cardStyle = {
-    display: 'flex', alignItems: 'center', gap: '12px',
-    padding: '14px 16px', borderRadius: '10px',
-    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-    cursor: 'pointer', transition: 'all 0.2s ease', textDecoration: 'none',
-    color: 'inherit',
+    return result;
   };
+
+  const [data, setData] = useState(loadSaved);
+  const [activeTab, setActiveTab] = useState('trouble');
+
+  // データをlocalStorageに保存
+  const saveToStorage = useCallback((newData) => {
+    const toSave = {};
+    Object.keys(newData).forEach(key => {
+      if (newData[key].result) {
+        toSave[key] = { text: newData[key].result, fetchedAt: newData[key].fetchedAt };
+      }
+    });
+    AppStorage.set(STORAGE_KEY, toSave);
+  }, [STORAGE_KEY]);
+
+  // カテゴリ別取得
+  const handleFetch = useCallback(async (categoryKey) => {
+    const cat = categories.find(c => c.key === categoryKey);
+    if (!cat) return;
+
+    setData(prev => ({ ...prev, [categoryKey]: { ...prev[categoryKey], loading: true, error: null } }));
+
+    const result = await cat.fetchFn(geminiApiKey);
+    const now = new Date().toISOString();
+
+    setData(prev => {
+      const updated = {
+        ...prev,
+        [categoryKey]: {
+          loading: false,
+          result: result.success ? result.text : prev[categoryKey].result,
+          error: result.success ? null : result.error,
+          fetchedAt: result.success ? now : prev[categoryKey].fetchedAt,
+        }
+      };
+      if (result.success) saveToStorage(updated);
+      return updated;
+    });
+  }, [geminiApiKey, categories, saveToStorage]);
+
+  // 全カテゴリ一括取得
+  const handleFetchAll = useCallback(async () => {
+    for (const cat of categories) {
+      await handleFetch(cat.key);
+    }
+  }, [categories, handleFetch]);
+
+  // 取得時刻のフォーマット
+  const formatTime = (isoStr) => {
+    if (!isoStr) return null;
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Geminiテキストを見やすく整形するレンダラー
+  const renderFormattedText = (text) => {
+    if (!text) return null;
+
+    const lines = text.split('\n');
+    const elements = [];
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        elements.push(React.createElement('div', { key: idx, style: { height: '6px' } }));
+        return;
+      }
+
+      // ### 見出し3
+      if (trimmed.startsWith('### ')) {
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)',
+            marginTop: '12px', marginBottom: '4px', paddingBottom: '3px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          },
+        }, renderInlineFormatting(trimmed.slice(4))));
+        return;
+      }
+
+      // ## 見出し2
+      if (trimmed.startsWith('## ')) {
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-light)',
+            marginTop: '14px', marginBottom: '6px', paddingBottom: '4px',
+            borderBottom: '1px solid rgba(26,115,232,0.2)',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          },
+        }, renderInlineFormatting(trimmed.slice(3))));
+        return;
+      }
+
+      // # 見出し1
+      if (trimmed.startsWith('# ')) {
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)',
+            marginTop: '16px', marginBottom: '8px', paddingBottom: '6px',
+            borderBottom: '2px solid rgba(26,115,232,0.3)',
+          },
+        }, renderInlineFormatting(trimmed.slice(2))));
+        return;
+      }
+
+      // 【セクション】ヘッダー
+      if (trimmed.startsWith('\u3010') && trimmed.includes('\u3011')) {
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-light)',
+            marginTop: '14px', marginBottom: '6px', padding: '6px 10px',
+            borderRadius: '6px', background: 'rgba(26,115,232,0.08)',
+            borderLeft: '3px solid rgba(26,115,232,0.5)',
+          },
+        }, renderInlineFormatting(trimmed)));
+        return;
+      }
+
+      // 表区切り線 (|---|---| 形式) - スキップ
+      if (/^\|[\s\-:]+\|/.test(trimmed) && !trimmed.replace(/[\|\s\-:]/g, '')) {
+        return;
+      }
+
+      // テーブル行 (| cell | cell |)
+      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+        const cells = trimmed.split('|').filter(c => c.trim());
+        const isHeader = idx + 1 < lines.length && /^\|[\s\-:]+\|/.test(lines[idx + 1]?.trim() || '');
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            display: 'grid',
+            gridTemplateColumns: `repeat(${cells.length}, 1fr)`,
+            gap: '1px', fontSize: '11px',
+            background: 'rgba(255,255,255,0.04)', borderRadius: idx === 0 ? '4px 4px 0 0' : '0',
+          },
+        },
+          cells.map((cell, ci) => React.createElement('div', {
+            key: ci,
+            style: {
+              padding: '5px 8px',
+              fontWeight: isHeader ? 700 : 400,
+              color: isHeader ? 'var(--text-primary)' : 'var(--text-secondary)',
+              background: isHeader ? 'rgba(26,115,232,0.08)' : 'rgba(255,255,255,0.02)',
+              borderBottom: '1px solid rgba(255,255,255,0.05)',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            },
+          }, renderInlineFormatting(cell.trim())))
+        ));
+        return;
+      }
+
+      // 箇条書き (- / * / ・)
+      if (/^[-*\u30FB]/.test(trimmed) && trimmed.length > 1) {
+        const content = trimmed.replace(/^[-*\u30FB]\s*/, '');
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            display: 'flex', gap: '6px', fontSize: '12px', color: 'var(--text-primary)',
+            padding: '2px 0 2px 8px', lineHeight: 1.6,
+          },
+        },
+          React.createElement('span', { style: { color: 'var(--color-primary-light)', flexShrink: 0, marginTop: '2px', fontSize: '8px' } }, '\u25CF'),
+          React.createElement('span', null, renderInlineFormatting(content))
+        ));
+        return;
+      }
+
+      // 番号付きリスト (1. / 2.)
+      if (/^\d+[\.\)]\s/.test(trimmed)) {
+        const num = trimmed.match(/^(\d+)[\.\)]\s/)[1];
+        const content = trimmed.replace(/^\d+[\.\)]\s*/, '');
+        elements.push(React.createElement('div', {
+          key: idx,
+          style: {
+            display: 'flex', gap: '6px', fontSize: '12px', color: 'var(--text-primary)',
+            padding: '2px 0 2px 4px', lineHeight: 1.6,
+          },
+        },
+          React.createElement('span', {
+            style: {
+              color: 'var(--color-primary-light)', flexShrink: 0, fontWeight: 600,
+              fontSize: '11px', minWidth: '16px', textAlign: 'right',
+            },
+          }, num + '.'),
+          React.createElement('span', null, renderInlineFormatting(content))
+        ));
+        return;
+      }
+
+      // 通常テキスト
+      elements.push(React.createElement('div', {
+        key: idx,
+        style: { fontSize: '12px', color: 'var(--text-primary)', lineHeight: 1.7, padding: '1px 0' },
+      }, renderInlineFormatting(trimmed)));
+    });
+
+    return elements;
+  };
+
+  // インライン書式（太字・強調）
+  const renderInlineFormatting = (text) => {
+    if (!text) return '';
+    // **太字**
+    const parts = text.split(/(\*\*[^*]+\*\*)/g);
+    if (parts.length <= 1) return text;
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return React.createElement('strong', {
+          key: i,
+          style: { fontWeight: 700, color: 'var(--text-primary)' },
+        }, part.slice(2, -2));
+      }
+      return part;
+    });
+  };
+
+  // APIキー未設定時
+  if (!geminiApiKey) {
+    return React.createElement('div', null,
+      React.createElement('h1', { className: 'page-title' },
+        React.createElement('span', { className: 'material-icons-round' }, 'directions_transit'),
+        '公共交通機関情報'
+      ),
+      React.createElement(Card, null,
+        React.createElement('div', {
+          style: {
+            textAlign: 'center', padding: 'var(--space-lg)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+          },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '36px', color: 'var(--color-primary-light)', opacity: 0.5 },
+          }, 'smart_toy'),
+          React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '公共交通機関情報'),
+          React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-xs)', lineHeight: 1.6 } },
+            'Gemini APIキーを設定すると、AIで交通機関の運行情報を取得できます'
+          ),
+          React.createElement(Button, {
+            variant: 'secondary',
+            icon: 'settings',
+            onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
+            style: { fontSize: '12px' },
+          }, '設定ページへ')
+        )
+      )
+    );
+  }
+
+  const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  const anyLoading = categories.some(c => data[c.key]?.loading);
+  const activeCat = categories.find(c => c.key === activeTab);
+  const activeData = data[activeTab] || { loading: false, result: null, error: null, fetchedAt: null };
 
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
@@ -5771,207 +6184,238 @@ window.TransitInfoPage = () => {
       '公共交通機関情報'
     ),
 
-    // 地図セクション
-    apiKey ? React.createElement(Card, { title: '交通路線マップ（TransitLayer）', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('div', {
-        ref: mapRef,
-        style: {
-          width: '100%', height: '400px', borderRadius: '8px',
-          background: '#242f3e', position: 'relative',
-        },
-      }),
-      React.createElement('div', {
-        style: { marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' },
-      },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'info'),
-        '鉄道・バス・地下鉄などの路線が表示されます。ピンチ操作で拡大縮小できます。'
-      )
-    ) : React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
+    // 上部: 日付 + 取得ボタン群
+    React.createElement(Card, { style: { marginBottom: 'var(--space-md)' } },
+      // 日付
       React.createElement('div', {
         style: {
-          textAlign: 'center', padding: 'var(--space-xl)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: '12px', flexWrap: 'wrap', gap: '8px',
         },
       },
-        React.createElement('span', {
-          className: 'material-icons-round',
-          style: { fontSize: '48px', color: 'var(--color-warning)', opacity: 0.7 },
-        }, 'map'),
-        React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-lg)' } }, 'デモモード'),
-        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', lineHeight: 1.6 } },
-          'Google Maps APIキーを設定すると、交通路線レイヤー付きの地図が表示されます。'
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'today'),
+          today
         ),
         React.createElement(Button, {
           variant: 'primary',
-          icon: 'settings',
-          onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
-        }, '設定ページでAPIキーを設定')
-      )
-    ),
+          icon: anyLoading ? 'sync' : 'refresh',
+          onClick: handleFetchAll,
+          disabled: anyLoading,
+          style: { fontSize: '11px', padding: '6px 12px' },
+        }, anyLoading ? '取得中...' : 'すべて取得')
+      ),
 
-    // Gemini AI検索
-    geminiApiKey ? React.createElement(Card, {
-      title: 'AI交通情報検索（Gemini）',
-      style: { marginBottom: 'var(--space-lg)' },
-    },
-      React.createElement('div', { style: { marginBottom: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'stretch' } },
-          React.createElement('input', {
-            className: 'form-input',
-            type: 'text',
-            placeholder: '例: 山手線の運行状況、終電時刻、遅延情報...',
-            value: geminiQuery,
-            onChange: (e) => setGeminiQuery(e.target.value),
-            onKeyDown: (e) => { if (e.key === 'Enter' && !geminiLoading) handleGeminiSearch(); },
-            style: { flex: 1 },
-          }),
-          React.createElement(Button, {
-            variant: 'primary',
-            icon: geminiLoading ? 'sync' : 'search',
-            onClick: handleGeminiSearch,
-            disabled: geminiLoading || !geminiQuery.trim(),
-            style: { whiteSpace: 'nowrap' },
-          }, geminiLoading ? '検索中...' : 'AI検索')
-        ),
-        React.createElement('div', {
-          style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' },
-        },
-          quickQueries.map(q =>
-            React.createElement('button', {
-              key: q,
-              onClick: () => { setGeminiQuery(q); },
-              style: {
-                padding: '4px 10px', borderRadius: '12px', fontSize: '11px',
-                border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
-                color: 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.15s',
-              },
-              onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(26,115,232,0.15)'; e.currentTarget.style.color = 'var(--color-primary-light)'; },
-              onMouseLeave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-secondary)'; },
-            }, q)
-          )
-        )
-      ),
-      geminiError && React.createElement('div', {
-        style: {
-          padding: '10px 14px', borderRadius: '8px', marginBottom: 'var(--space-md)',
-          background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
-          display: 'flex', alignItems: 'center', gap: '8px',
-        },
-      },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-danger)' } }, 'error'),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' } }, geminiError)
-      ),
-      geminiLoading && React.createElement('div', {
-        style: {
-          padding: 'var(--space-lg)', textAlign: 'center',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
-        },
-      },
-        React.createElement('span', {
-          className: 'material-icons-round',
-          style: { fontSize: '32px', color: 'var(--color-primary-light)', animation: 'spin 1s linear infinite' },
-        }, 'sync'),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, 'Gemini AIが検索中...')
-      ),
-      geminiResult && React.createElement('div', {
-        style: {
-          padding: 'var(--space-md)', borderRadius: '8px',
-          background: 'rgba(26,115,232,0.06)', border: '1px solid rgba(26,115,232,0.15)',
-        },
-      },
-        React.createElement('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-primary-light)' } }, 'smart_toy'),
-          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--color-primary-light)' } }, 'Gemini AI回答')
-        ),
-        React.createElement('div', {
-          style: {
-            fontSize: 'var(--font-size-sm)', color: 'var(--text-primary)',
-            lineHeight: 1.8, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          },
-        }, geminiResult),
-        React.createElement('div', {
-          style: { marginTop: '10px', fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
-          '※ AIによる回答のため、最新の運行情報は各鉄道会社の公式情報をご確認ください'
-        )
-      )
-    ) : React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
+      // 個別取得ボタン群
       React.createElement('div', {
-        style: {
-          textAlign: 'center', padding: 'var(--space-lg)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
-        },
+        style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' },
       },
-        React.createElement('span', {
-          className: 'material-icons-round',
-          style: { fontSize: '36px', color: 'var(--color-primary-light)', opacity: 0.5 },
-        }, 'smart_toy'),
-        React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'AI交通情報検索'),
-        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-xs)', lineHeight: 1.6 } },
-          'Gemini APIキーを設定すると、AIで交通情報を検索できます'
-        ),
-        React.createElement(Button, {
-          variant: 'secondary',
-          icon: 'settings',
-          onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
-          style: { fontSize: '12px' },
-        }, '設定ページへ')
-      )
-    ),
-
-    // 交通機関リンク
-    React.createElement(Card, { title: '交通情報リンク', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('div', { style: { display: 'grid', gap: '10px' } },
-        transitLinks.map(link =>
-          React.createElement('a', {
-            key: link.label,
-            href: link.url,
-            target: '_blank',
-            rel: 'noopener noreferrer',
-            style: cardStyle,
-            onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; },
-            onMouseLeave: (e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; },
+        categories.map(cat => {
+          const catData = data[cat.key] || {};
+          const hasData = !!catData.result;
+          const isLoading = catData.loading;
+          return React.createElement('button', {
+            key: cat.key,
+            onClick: () => { if (!isLoading) handleFetch(cat.key); },
+            disabled: isLoading,
+            style: {
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+              padding: '10px 4px', borderRadius: '10px', border: 'none',
+              background: isLoading ? 'rgba(255,255,255,0.08)' : `rgba(${cat.color}, 0.1)`,
+              cursor: isLoading ? 'wait' : 'pointer', transition: 'all 0.15s',
+              opacity: isLoading ? 0.7 : 1,
+            },
+            onMouseEnter: (e) => { if (!isLoading) e.currentTarget.style.background = `rgba(${cat.color}, 0.2)`; },
+            onMouseLeave: (e) => { e.currentTarget.style.background = isLoading ? 'rgba(255,255,255,0.08)' : `rgba(${cat.color}, 0.1)`; },
           },
             React.createElement('span', {
               className: 'material-icons-round',
-              style: { fontSize: '24px', color: link.color },
-            }, link.icon),
-            React.createElement('div', { style: { flex: 1 } },
-              React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, link.label)
-            ),
+              style: {
+                fontSize: '22px', color: `rgb(${cat.color})`,
+                animation: isLoading ? 'spin 1s linear infinite' : 'none',
+              },
+            }, isLoading ? 'sync' : cat.icon),
             React.createElement('span', {
-              className: 'material-icons-round',
-              style: { fontSize: '18px', color: 'var(--text-muted)' },
-            }, 'open_in_new')
-          )
-        )
+              style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-primary)' },
+            }, cat.label),
+            // 取得済みマーク or 未取得
+            hasData
+              ? React.createElement('span', {
+                  style: { fontSize: '9px', color: 'var(--text-muted)' },
+                }, formatTime(catData.fetchedAt) + ' 取得')
+              : React.createElement('span', {
+                  style: { fontSize: '9px', color: 'var(--text-muted)', opacity: 0.5 },
+                }, '未取得')
+          );
+        })
       )
     ),
 
-    // 活用ヒント
-    React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: 'var(--color-secondary)' } }, 'lightbulb'),
-        React.createElement('span', { style: { fontWeight: 600 } }, 'タクシー営業での活用ヒント')
-      ),
-      React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', lineHeight: 1.8 } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)', marginTop: '3px', flexShrink: 0 } }, 'check_circle'),
-          '終電後のターミナル駅周辺は乗車需要が高まります'
-        ),
-        React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)', marginTop: '3px', flexShrink: 0 } }, 'check_circle'),
-          '鉄道の運休・遅延時はバスターミナルや駅前ロータリーが狙い目です'
-        ),
-        React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)', marginTop: '3px', flexShrink: 0 } }, 'check_circle'),
-          '主要路線の始発・終電時刻を把握しておくと効率的に営業できます'
+    // タブ切り替え
+    React.createElement('div', {
+      style: {
+        display: 'flex', gap: '2px', marginBottom: 'var(--space-sm)',
+        background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '3px',
+      },
+    },
+      categories.map(cat => {
+        const isActive = activeTab === cat.key;
+        const catData = data[cat.key] || {};
+        return React.createElement('button', {
+          key: cat.key,
+          onClick: () => setActiveTab(cat.key),
+          style: {
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+            padding: '8px 4px', borderRadius: '8px', border: 'none',
+            background: isActive ? `rgba(${cat.color}, 0.15)` : 'transparent',
+            color: isActive ? `rgb(${cat.color})` : 'var(--text-muted)',
+            fontWeight: isActive ? 600 : 400, fontSize: '11px',
+            cursor: 'pointer', transition: 'all 0.15s', position: 'relative',
+          },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '16px' },
+          }, cat.icon),
+          // モバイルではラベル非表示
+          React.createElement('span', {
+            style: { fontSize: '10px' },
+            className: 'transit-tab-label',
+          }, cat.label),
+          // 取得済みドット
+          catData.result && React.createElement('span', {
+            style: {
+              position: 'absolute', top: '4px', right: '4px',
+              width: '5px', height: '5px', borderRadius: '50%',
+              background: `rgb(${cat.color})`,
+            },
+          })
+        );
+      })
+    ),
+
+    // コンテンツエリア
+    activeData.loading
+      ? React.createElement(Card, null,
+          React.createElement('div', {
+            style: {
+              padding: 'var(--space-xl)', textAlign: 'center',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+            },
+          },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '36px', color: `rgb(${activeCat.color})`, animation: 'spin 1s linear infinite' },
+            }, 'sync'),
+            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } },
+              activeCat.label + 'の情報を取得中...'
+            )
+          )
         )
-      )
-    )
+      : activeData.error
+        ? React.createElement(Card, null,
+            React.createElement('div', {
+              style: {
+                padding: '12px', borderRadius: '8px',
+                background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)',
+                display: 'flex', alignItems: 'center', gap: '8px',
+              },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-danger)' } }, 'error'),
+              React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' } }, activeData.error)
+            )
+          )
+        : activeData.result
+          ? React.createElement(Card, null,
+              // ヘッダー: カテゴリ名 + 取得時刻 + 再取得ボタン
+              React.createElement('div', {
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: '12px', paddingBottom: '10px',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                },
+              },
+                React.createElement('div', {
+                  style: { display: 'flex', alignItems: 'center', gap: '8px' },
+                },
+                  React.createElement('span', {
+                    className: 'material-icons-round',
+                    style: { fontSize: '20px', color: `rgb(${activeCat.color})` },
+                  }, activeCat.icon),
+                  React.createElement('div', null,
+                    React.createElement('div', { style: { fontWeight: 700, fontSize: '13px', color: 'var(--text-primary)' } },
+                      activeCat.label + ' 運行情報'
+                    ),
+                    activeData.fetchedAt && React.createElement('div', {
+                      style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' },
+                    },
+                      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px', verticalAlign: 'middle', marginRight: '2px' } }, 'schedule'),
+                      formatTime(activeData.fetchedAt) + ' に取得'
+                    )
+                  )
+                ),
+                React.createElement('button', {
+                  onClick: () => handleFetch(activeTab),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '4px 10px', borderRadius: '6px', border: 'none',
+                    background: `rgba(${activeCat.color}, 0.1)`, color: `rgb(${activeCat.color})`,
+                    fontSize: '11px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                  },
+                  onMouseEnter: (e) => { e.currentTarget.style.background = `rgba(${activeCat.color}, 0.2)`; },
+                  onMouseLeave: (e) => { e.currentTarget.style.background = `rgba(${activeCat.color}, 0.1)`; },
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'refresh'),
+                  '再取得'
+                )
+              ),
+
+              // 整形済みコンテンツ
+              React.createElement('div', {
+                style: { maxHeight: '60vh', overflowY: 'auto', padding: '0 2px' },
+              }, renderFormattedText(activeData.result)),
+
+              // 免責事項
+              React.createElement('div', {
+                style: {
+                  marginTop: '12px', paddingTop: '8px',
+                  borderTop: '1px solid rgba(255,255,255,0.06)',
+                  fontSize: '10px', color: 'var(--text-muted)',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                },
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
+                '※ AIによる回答です。最新情報は各交通機関の公式サイトでご確認ください'
+              )
+            )
+          : // 未取得状態
+            React.createElement(Card, null,
+              React.createElement('div', {
+                style: {
+                  textAlign: 'center', padding: 'var(--space-xl)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
+                },
+              },
+                React.createElement('span', {
+                  className: 'material-icons-round',
+                  style: { fontSize: '40px', color: `rgb(${activeCat.color})`, opacity: 0.3 },
+                }, activeCat.icon),
+                React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } },
+                  activeCat.label + 'の情報がありません'
+                ),
+                React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '11px', lineHeight: 1.5 } },
+                  '上のボタンをタップして情報を取得してください'
+                ),
+                React.createElement(Button, {
+                  variant: 'primary',
+                  icon: 'download',
+                  onClick: () => handleFetch(activeTab),
+                  style: { fontSize: '12px', marginTop: '4px' },
+                }, activeCat.label + 'の情報を取得')
+              )
+            )
   );
 };
 
