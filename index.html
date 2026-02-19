@@ -1,0 +1,5458 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <meta name="description" content="タクシードライバー向けの売上サポートツール" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>タクシー売上サポート v0.3.3</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://maps.googleapis.com" />
+  <link rel="preconnect" href="https://maps.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+<style>
+/* FILE: variables.css */
+:root {
+  /* カラーパレット */
+  --color-primary: #1a73e8;
+  --color-primary-dark: #1557b0;
+  --color-primary-light: #4a90e2;
+  --color-secondary: #f9a825;
+  --color-secondary-dark: #c17900;
+  --color-accent: #00c853;
+  --color-danger: #e53935;
+  --color-warning: #ff9800;
+
+  /* 背景色 */
+  --bg-dark: #1a1a2e;
+  --bg-medium: #16213e;
+  --bg-light: #0f3460;
+  --bg-card: #1e2a4a;
+  --bg-card-hover: #253252;
+  --bg-surface: #f5f5f5;
+
+  /* テキスト色 */
+  --text-primary: #ffffff;
+  --text-secondary: #b0b8c8;
+  --text-muted: #6c757d;
+  --text-dark: #1a1a2e;
+
+  /* フォント */
+  --font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+
+  /* スペーシング */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* レイアウト */
+  --header-height: 56px;
+  --sidebar-width: 240px;
+  --bottom-nav-height: 64px;
+  --border-radius: 12px;
+  --border-radius-sm: 8px;
+
+  /* シャドウ */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+
+  /* トランジション */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+/* FILE: global.css */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--color-primary-light);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* スクロールバー */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-medium);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-light);
+  border-radius: 3px;
+}
+
+/* ヘッダー */
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  background: var(--bg-medium);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-md);
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+}
+
+.header__logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+  color: var(--color-secondary);
+  cursor: pointer;
+}
+
+.header__logo .material-icons-round {
+  font-size: 28px;
+}
+
+.header__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: auto;
+}
+
+.header__nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.header__nav-btn:hover,
+.header__nav-btn.active {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+}
+
+.header__nav-btn.active {
+  color: var(--color-primary-light);
+}
+
+.header__menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 24px;
+  cursor: pointer;
+  padding: var(--space-sm);
+}
+
+/* サイドバー */
+.sidebar {
+  position: fixed;
+  top: var(--header-height);
+  left: 0;
+  width: var(--sidebar-width);
+  height: calc(100vh - var(--header-height));
+  background: var(--bg-medium);
+  border-right: 1px solid rgba(255,255,255,0.06);
+  padding: var(--space-md) 0;
+  overflow-y: auto;
+  z-index: 900;
+  transition: transform var(--transition-normal);
+}
+
+.sidebar__section {
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.sidebar__section-title {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-sm);
+  padding: 0 var(--space-sm);
+}
+
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--border-radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: var(--font-size-sm);
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-family);
+}
+
+.sidebar__item:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-primary);
+}
+
+.sidebar__item.active {
+  background: rgba(26, 115, 232, 0.15);
+  color: var(--color-primary-light);
+}
+
+.sidebar__item .material-icons-round {
+  font-size: 20px;
+}
+
+/* メインコンテンツ */
+.main-content {
+  margin-top: var(--header-height);
+  margin-left: var(--sidebar-width);
+  padding: var(--space-lg);
+  min-height: calc(100vh - var(--header-height));
+  transition: margin-left var(--transition-normal);
+}
+
+/* ボトムナビ */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--bottom-nav-height);
+  background: var(--bg-medium);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  z-index: 1000;
+}
+
+.bottom-nav__items {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-sm);
+}
+
+.bottom-nav__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--border-radius-sm);
+  transition: color var(--transition-fast);
+  font-family: var(--font-family);
+  min-width: 56px;
+}
+
+.bottom-nav__item .material-icons-round {
+  font-size: 22px;
+}
+
+.bottom-nav__item.active {
+  color: var(--color-primary-light);
+}
+
+.bottom-nav__item:hover {
+  color: var(--text-primary);
+}
+
+/* カード */
+.card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: var(--border-radius);
+  padding: var(--space-lg);
+  transition: all var(--transition-fast);
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(255,255,255,0.1);
+}
+
+.card__title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--space-sm);
+}
+
+.card__subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-md);
+}
+
+/* ボタン */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: white;
+}
+.btn--primary:hover {
+  background: var(--color-primary-dark);
+}
+
+.btn--secondary {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+}
+.btn--secondary:hover {
+  background: rgba(255,255,255,0.14);
+}
+
+.btn--success {
+  background: var(--color-accent);
+  color: white;
+}
+
+.btn--danger {
+  background: var(--color-danger);
+  color: white;
+}
+
+.btn--icon {
+  padding: var(--space-sm);
+  border-radius: 50%;
+}
+
+/* グリッド */
+.grid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.grid--2 { grid-template-columns: repeat(2, 1fr); }
+.grid--3 { grid-template-columns: repeat(3, 1fr); }
+.grid--4 { grid-template-columns: repeat(4, 1fr); }
+
+/* ページタイトル */
+.page-title {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin-bottom: var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.page-title .material-icons-round {
+  color: var(--color-secondary);
+}
+
+/* 地図コンテナ */
+.map-container {
+  width: 100%;
+  height: 500px;
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-card);
+}
+
+.map-container--fullscreen {
+  position: fixed;
+  top: var(--header-height);
+  left: var(--sidebar-width);
+  right: 0;
+  bottom: 0;
+  height: auto;
+  border-radius: 0;
+  z-index: 500;
+}
+
+/* GPS情報パネル */
+.gps-panel {
+  background: rgba(26, 26, 46, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: var(--border-radius-sm);
+  padding: var(--space-md);
+  margin-top: var(--space-md);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.gps-panel__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.gps-panel__label {
+  color: var(--text-muted);
+  min-width: 60px;
+}
+
+.gps-panel__value {
+  color: var(--color-accent);
+  font-weight: 500;
+  font-family: 'Courier New', monospace;
+}
+
+/* ステータスバッジ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.badge--success {
+  background: rgba(0, 200, 83, 0.15);
+  color: var(--color-accent);
+}
+
+.badge--warning {
+  background: rgba(255, 152, 0, 0.15);
+  color: var(--color-warning);
+}
+
+.badge--error {
+  background: rgba(229, 57, 53, 0.15);
+  color: var(--color-danger);
+}
+
+.badge--info {
+  background: rgba(26, 115, 232, 0.15);
+  color: var(--color-primary-light);
+}
+
+/* 開発ツール */
+.dev-log-entry {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: var(--font-size-sm);
+  font-family: 'Courier New', monospace;
+}
+
+.dev-log-entry__time {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dev-log-entry__level {
+  min-width: 50px;
+  font-weight: 700;
+}
+
+.dev-log-entry__level--info { color: var(--color-primary-light); }
+.dev-log-entry__level--warn { color: var(--color-warning); }
+.dev-log-entry__level--error { color: var(--color-danger); }
+.dev-log-entry__level--debug { color: var(--text-muted); }
+
+.dev-log-entry__message {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+/* フォーム */
+.form-group {
+  margin-bottom: var(--space-md);
+}
+
+.form-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.form-input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--border-radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  transition: border-color var(--transition-fast);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* 統計カード */
+.stat-card {
+  text-align: center;
+  padding: var(--space-lg);
+}
+
+.stat-card__value {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-secondary);
+}
+
+.stat-card__label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* ローディング */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  gap: var(--space-md);
+}
+
+.loading__spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255,255,255,0.1);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ファイルツリー */
+.file-tree {
+  font-family: 'Courier New', monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.8;
+}
+
+.file-tree__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 0;
+}
+
+.file-tree__icon {
+  font-size: 16px;
+}
+
+.file-tree__icon--folder { color: var(--color-secondary); }
+.file-tree__icon--file { color: var(--text-muted); }
+.file-tree__icon--react { color: #61dafb; }
+.file-tree__icon--css { color: #264de4; }
+.file-tree__icon--js { color: #f7df1e; }
+.file-tree__icon--html { color: #e34c26; }
+.file-tree__icon--md { color: var(--text-secondary); }
+
+/* タブ */
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: var(--space-lg);
+}
+
+.tab {
+  padding: var(--space-sm) var(--space-lg);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.tab:hover {
+  color: var(--text-secondary);
+}
+
+.tab.active {
+  color: var(--color-primary-light);
+  border-bottom-color: var(--color-primary);
+}
+
+/* FILE: responsive.css */
+/* タブレット */
+@media (max-width: 1023px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    margin-left: 0;
+  }
+
+  .map-container--fullscreen {
+    left: 0;
+  }
+
+  .header__menu-toggle {
+    display: block;
+  }
+
+  .header__nav {
+    display: none;
+  }
+
+  .grid--3 { grid-template-columns: repeat(2, 1fr); }
+  .grid--4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* モバイル (Android) */
+@media (max-width: 767px) {
+  html {
+    font-size: 14px;
+  }
+
+  .sidebar {
+    width: 100%;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .bottom-nav {
+    display: block;
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: var(--space-md);
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-md));
+  }
+
+  .map-container {
+    height: 350px;
+  }
+
+  .map-container--fullscreen {
+    left: 0;
+    bottom: var(--bottom-nav-height);
+  }
+
+  .grid--2,
+  .grid--3,
+  .grid--4 {
+    grid-template-columns: 1fr;
+  }
+
+  .page-title {
+    font-size: var(--font-size-lg);
+  }
+
+  .card {
+    padding: var(--space-md);
+  }
+
+  .gps-panel {
+    padding: var(--space-sm);
+  }
+
+  .header__nav-btn span:not(.material-icons-round) {
+    display: none;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 小型モバイル */
+@media (max-width: 375px) {
+  .bottom-nav__item {
+    min-width: 48px;
+    font-size: 10px;
+  }
+
+  .bottom-nav__item .material-icons-round {
+    font-size: 20px;
+  }
+}
+
+/* ランドスケープモード */
+@media (max-height: 500px) and (orientation: landscape) {
+  .header {
+    height: 44px;
+  }
+
+  .main-content {
+    margin-top: 44px;
+  }
+
+  .map-container {
+    height: 250px;
+  }
+}
+
+/* PC大画面 */
+@media (min-width: 1440px) {
+  .main-content {
+    max-width: 1200px;
+  }
+
+  .grid--4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ダークモード対応（システム設定連動） */
+@media (prefers-color-scheme: light) {
+  /* 将来のライトモード対応用 */
+}
+
+/* タッチデバイス対応 */
+@media (hover: none) {
+  .card:hover {
+    background: var(--bg-card);
+    border-color: rgba(255,255,255,0.06);
+  }
+
+  .btn:active {
+    transform: scale(0.97);
+  }
+
+  .sidebar__item:active {
+    background: rgba(255,255,255,0.08);
+  }
+}
+
+/* 印刷用 */
+@media print {
+  .header, .sidebar, .bottom-nav {
+    display: none !important;
+  }
+
+  .main-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+  <script type="text/javascript">
+
+// ============================================================
+// FILE: src/utils/constants.js
+// ============================================================
+(function() {
+// constants.js - アプリケーション定数
+//
+// TaxiApp 名前空間を定義。全コンポーネント・フック・コンテキストは
+// この名前空間に登録される。window直接割り当ては後方互換のためのエイリアス。
+window.TaxiApp = window.TaxiApp || {
+  components: {},  // UIコンポーネント
+  pages: {},       // ページコンポーネント
+  hooks: {},       // カスタムフック
+  contexts: {},    // React Context
+  utils: {},       // ユーティリティ
+};
+
+window.APP_CONSTANTS = {
+  APP_NAME: 'タクシー売上サポート',
+  VERSION: '0.3.3',
+
+  // デフォルト地図設定（東京駅）
+  DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
+  DEFAULT_MAP_ZOOM: 15,
+
+  // GPS設定
+  GPS_OPTIONS: {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 5000,
+  },
+
+  // ルート定義
+  ROUTES: {
+    DASHBOARD: 'dashboard',
+    MAP: 'map',
+    REVENUE: 'revenue',
+    ANALYTICS: 'analytics',
+    SETTINGS: 'settings',
+    DEV_TOOLS: 'dev',
+    DEV_LOGS: 'dev-logs',
+    DEV_STRUCTURE: 'dev-structure',
+    DEV_API: 'dev-api',
+  },
+
+  // ナビゲーション項目
+  NAV_ITEMS: [
+    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },
+    { id: 'map', label: '地図', icon: 'map' },
+    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
+    { id: 'analytics', label: '分析', icon: 'analytics' },
+    { id: 'settings', label: '設定', icon: 'settings' },
+  ],
+
+  // ボトムナビ項目
+  BOTTOM_NAV_ITEMS: [
+    { id: 'dashboard', label: 'ホーム', icon: 'home' },
+    { id: 'map', label: '地図', icon: 'map' },
+    { id: 'revenue', label: '売上', icon: 'receipt_long' },
+    { id: 'analytics', label: '分析', icon: 'analytics' },
+    { id: 'settings', label: '設定', icon: 'more_horiz' },
+  ],
+
+  // ログレベル
+  LOG_LEVELS: {
+    DEBUG: 'debug',
+    INFO: 'info',
+    WARN: 'warn',
+    ERROR: 'error',
+  },
+
+  // localStorage キー
+  STORAGE_KEYS: {
+    API_KEY: 'taxi_app_google_maps_api_key',
+    LOGS: 'taxi_app_logs',
+    SETTINGS: 'taxi_app_settings',
+    REVENUE_DATA: 'taxi_app_revenue',
+  },
+
+  // サイト構造（開発者ツール用）
+  SITE_STRUCTURE: {
+    name: 'taxi-sales-support/',
+    type: 'folder',
+    children: [
+      {
+        name: 'src/',
+        type: 'folder',
+        children: [
+          { name: 'main.jsx', type: 'react', desc: 'エントリーポイント' },
+          { name: 'App.jsx', type: 'react', desc: 'ルートコンポーネント・ルーティング' },
+          {
+            name: 'components/',
+            type: 'folder',
+            children: [
+              {
+                name: 'Layout/',
+                type: 'folder',
+                children: [
+                  { name: 'Header.jsx', type: 'react', desc: 'ヘッダーナビゲーション' },
+                  { name: 'Sidebar.jsx', type: 'react', desc: 'PC用サイドバー' },
+                  { name: 'BottomNav.jsx', type: 'react', desc: 'モバイル用ボトムナビ' },
+                  { name: 'Layout.jsx', type: 'react', desc: 'レイアウトラッパー' },
+                ],
+              },
+              {
+                name: 'Map/',
+                type: 'folder',
+                children: [
+                  { name: 'GoogleMap.jsx', type: 'react', desc: 'Google Maps本体' },
+                  { name: 'GpsTracker.jsx', type: 'react', desc: 'GPS追跡パネル' },
+                  { name: 'MapControls.jsx', type: 'react', desc: '地図操作コントロール' },
+                ],
+              },
+              {
+                name: 'common/',
+                type: 'folder',
+                children: [
+                  { name: 'Button.jsx', type: 'react', desc: '汎用ボタン' },
+                  { name: 'Card.jsx', type: 'react', desc: '汎用カード' },
+                  { name: 'Loading.jsx', type: 'react', desc: 'ローディング表示' },
+                  { name: 'ErrorBoundary.jsx', type: 'react', desc: 'エラーバウンダリ' },
+                ],
+              },
+            ],
+          },
+          {
+            name: 'pages/',
+            type: 'folder',
+            children: [
+              { name: 'Dashboard.jsx', type: 'react', desc: 'ダッシュボード' },
+              { name: 'MapView.jsx', type: 'react', desc: '地図ページ' },
+              { name: 'Revenue.jsx', type: 'react', desc: '売上記録' },
+              { name: 'Analytics.jsx', type: 'react', desc: '売上分析' },
+              { name: 'Settings.jsx', type: 'react', desc: 'アプリ設定' },
+              {
+                name: 'dev/',
+                type: 'folder',
+                children: [
+                  { name: 'DevTools.jsx', type: 'react', desc: '開発者ツールハブ' },
+                  { name: 'Structure.jsx', type: 'react', desc: 'サイト構造ビューア' },
+                  { name: 'Logs.jsx', type: 'react', desc: 'ログビューア' },
+                  { name: 'ApiStatus.jsx', type: 'react', desc: 'API接続状態' },
+                ],
+              },
+            ],
+          },
+          {
+            name: 'context/',
+            type: 'folder',
+            children: [
+              { name: 'AppContext.jsx', type: 'react', desc: 'グローバル状態管理' },
+              { name: 'MapContext.jsx', type: 'react', desc: '地図状態管理' },
+              { name: 'LogContext.jsx', type: 'react', desc: 'ログ管理' },
+            ],
+          },
+          {
+            name: 'hooks/',
+            type: 'folder',
+            children: [
+              { name: 'useGeolocation.js', type: 'js', desc: 'GPS位置情報フック' },
+              { name: 'useGoogleMaps.js', type: 'js', desc: 'Google Maps読み込みフック' },
+              { name: 'useLogger.js', type: 'js', desc: 'ロガーフック' },
+            ],
+          },
+          {
+            name: 'utils/',
+            type: 'folder',
+            children: [
+              { name: 'constants.js', type: 'js', desc: '定数定義・TaxiApp名前空間' },
+              { name: 'logger.js', type: 'js', desc: 'ロガーユーティリティ' },
+              { name: 'storage.js', type: 'js', desc: 'localStorage管理' },
+              { name: 'dataService.js', type: 'js', desc: '売上データ処理・分析・CSV出力' },
+            ],
+          },
+          {
+            name: 'styles/',
+            type: 'folder',
+            children: [
+              { name: 'variables.css', type: 'css', desc: 'CSS変数' },
+              { name: 'global.css', type: 'css', desc: 'グローバルスタイル' },
+              { name: 'responsive.css', type: 'css', desc: 'レスポンシブ対応' },
+            ],
+          },
+        ],
+      },
+      {
+        name: 'docs/',
+        type: 'folder',
+        children: [
+          { name: 'ARCHITECTURE.md', type: 'md', desc: 'アーキテクチャ設計書' },
+          { name: 'CHANGELOG.md', type: 'md', desc: '変更履歴' },
+          { name: 'DEV_LOG.md', type: 'md', desc: '開発ログ' },
+        ],
+      },
+      {
+        name: 'public/',
+        type: 'folder',
+        children: [
+          { name: 'manifest.json', type: 'file', desc: 'PWAマニフェスト' },
+          { name: 'sw.js', type: 'js', desc: 'Service Worker（コピー元）' },
+        ],
+      },
+      { name: 'index.html', type: 'html', desc: 'エントリーHTML' },
+      { name: 'sw.js', type: 'js', desc: 'Service Worker（ルート配置）' },
+      { name: 'package.json', type: 'file', desc: 'プロジェクト情報' },
+    ],
+  },
+};
+
+})();
+
+// ============================================================
+// FILE: src/utils/logger.js
+// ============================================================
+(function() {
+// logger.js - アプリケーションロガー
+window.AppLogger = (() => {
+  const MAX_LOGS = 500;
+  let logs = [];
+  let listeners = [];
+
+  function loadLogs() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.LOGS);
+      if (saved) logs = JSON.parse(saved);
+    } catch (e) {
+      logs = [];
+    }
+  }
+
+  function saveLogs() {
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.LOGS, JSON.stringify(logs.slice(-MAX_LOGS)));
+    } catch (e) { /* ignore */ }
+  }
+
+  function notify() {
+    listeners.forEach(fn => fn([...logs]));
+  }
+
+  function addLog(level, message, data = null) {
+    const entry = {
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      data,
+    };
+    logs.push(entry);
+    if (logs.length > MAX_LOGS) logs = logs.slice(-MAX_LOGS);
+    saveLogs();
+    notify();
+
+    // コンソールにも出力
+    const consoleFn = level === 'error' ? console.error
+      : level === 'warn' ? console.warn
+      : level === 'debug' ? console.debug
+      : console.log;
+    consoleFn(`[${level.toUpperCase()}] ${message}`, data || '');
+
+    return entry;
+  }
+
+  loadLogs();
+
+  return {
+    debug: (msg, data) => addLog('debug', msg, data),
+    info: (msg, data) => addLog('info', msg, data),
+    warn: (msg, data) => addLog('warn', msg, data),
+    error: (msg, data) => addLog('error', msg, data),
+    getLogs: () => [...logs],
+    clearLogs: () => { logs = []; saveLogs(); notify(); },
+    subscribe: (fn) => { listeners.push(fn); return () => { listeners = listeners.filter(l => l !== fn); }; },
+  };
+})();
+
+})();
+
+// ============================================================
+// FILE: src/utils/storage.js
+// ============================================================
+(function() {
+// storage.js - localStorage管理
+window.AppStorage = {
+  get(key, defaultValue = null) {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  },
+
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  getApiKey() {
+    // APIキーはユーザーが設定画面から入力したもののみ使用
+    // ハードコードされたキーは使用しない（セキュリティリスク）
+    return this.get(APP_CONSTANTS.STORAGE_KEYS.API_KEY, '');
+  },
+
+  setApiKey(key) {
+    return this.set(APP_CONSTANTS.STORAGE_KEYS.API_KEY, key);
+  },
+
+  getSettings() {
+    return this.get(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, {
+      gpsAutoTrack: true,
+      mapType: 'roadmap',
+    });
+  },
+
+  setSettings(settings) {
+    return this.set(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, settings);
+  },
+};
+
+})();
+
+// ============================================================
+// FILE: src/utils/holidays.js
+// ============================================================
+(function() {
+// holidays.js - 日本の祝日判定ユーティリティ
+// 固定祝日・ハッピーマンデー・春分/秋分の日・振替休日・国民の休日に対応
+
+window.JapaneseHolidays = (() => {
+  // 曜日名
+  const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+
+  // 曜日を取得
+  function getDayOfWeek(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    return DAY_NAMES[d.getDay()];
+  }
+
+  // 曜日インデックスを取得 (0=日, 6=土)
+  function getDayIndex(dateStr) {
+    return new Date(dateStr + 'T00:00:00').getDay();
+  }
+
+  // 春分の日を計算（1900-2099年対応）
+  function getVernalEquinox(year) {
+    if (year < 1900 || year > 2099) return 21;
+    if (year <= 1979) return Math.floor(20.8357 + 0.242194 * (year - 1980) - Math.floor((year - 1983) / 4));
+    if (year <= 2099) return Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+    return 21;
+  }
+
+  // 秋分の日を計算（1900-2099年対応）
+  function getAutumnalEquinox(year) {
+    if (year < 1900 || year > 2099) return 23;
+    if (year <= 1979) return Math.floor(23.2588 + 0.242194 * (year - 1980) - Math.floor((year - 1983) / 4));
+    if (year <= 2099) return Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+    return 23;
+  }
+
+  // 第N月曜日の日付を取得
+  function getNthMonday(year, month, n) {
+    const firstDay = new Date(year, month - 1, 1);
+    let dayOfWeek = firstDay.getDay();
+    let firstMonday = dayOfWeek <= 1 ? (1 + (1 - dayOfWeek)) : (1 + (8 - dayOfWeek));
+    return firstMonday + (n - 1) * 7;
+  }
+
+  // その年の祝日一覧を生成（日付文字列 → 祝日名のMap）
+  function getHolidaysForYear(year) {
+    const holidays = new Map();
+    const pad = (n) => String(n).padStart(2, '0');
+    const key = (m, d) => `${year}-${pad(m)}-${pad(d)}`;
+
+    // === 固定祝日 ===
+    holidays.set(key(1, 1), '元日');
+    holidays.set(key(2, 11), '建国記念の日');
+    if (year >= 2020) holidays.set(key(2, 23), '天皇誕生日');
+    else if (year >= 1989 && year <= 2018) holidays.set(key(12, 23), '天皇誕生日');
+    holidays.set(key(4, 29), year >= 2007 ? '昭和の日' : 'みどりの日');
+    holidays.set(key(5, 3), '憲法記念日');
+    holidays.set(key(5, 4), year >= 2007 ? 'みどりの日' : '国民の休日');
+    holidays.set(key(5, 5), 'こどもの日');
+    if (year >= 2016) holidays.set(key(8, 11), '山の日');
+    holidays.set(key(11, 3), '文化の日');
+    holidays.set(key(11, 23), '勤労感謝の日');
+
+    // === ハッピーマンデー ===
+    if (year >= 2000) {
+      holidays.set(key(1, getNthMonday(year, 1, 2)), '成人の日');
+    } else {
+      holidays.set(key(1, 15), '成人の日');
+    }
+
+    if (year >= 2003) {
+      holidays.set(key(7, getNthMonday(year, 7, 3)), '海の日');
+    } else if (year >= 1996) {
+      holidays.set(key(7, 20), '海の日');
+    }
+
+    if (year >= 2003) {
+      holidays.set(key(9, getNthMonday(year, 9, 3)), '敬老の日');
+    } else if (year >= 1966) {
+      holidays.set(key(9, 15), '敬老の日');
+    }
+
+    if (year >= 2000) {
+      holidays.set(key(10, getNthMonday(year, 10, 2)), 'スポーツの日');
+    } else {
+      holidays.set(key(10, 10), '体育の日');
+    }
+
+    // === 春分の日・秋分の日 ===
+    holidays.set(key(3, getVernalEquinox(year)), '春分の日');
+    holidays.set(key(9, getAutumnalEquinox(year)), '秋分の日');
+
+    // === 特例（オリンピック等） ===
+    if (year === 2020) {
+      holidays.delete(key(7, getNthMonday(year, 7, 3)));
+      holidays.set(key(7, 23), '海の日');
+      holidays.set(key(7, 24), 'スポーツの日');
+      holidays.delete(key(10, getNthMonday(year, 10, 2)));
+      holidays.delete(key(8, 11));
+      holidays.set(key(8, 10), '山の日');
+    }
+    if (year === 2021) {
+      holidays.delete(key(7, getNthMonday(year, 7, 3)));
+      holidays.set(key(7, 22), '海の日');
+      holidays.set(key(7, 23), 'スポーツの日');
+      holidays.delete(key(10, getNthMonday(year, 10, 2)));
+      holidays.delete(key(8, 11));
+      holidays.set(key(8, 8), '山の日');
+    }
+
+    // === 振替休日 ===
+    // 祝日が日曜の場合、翌月曜が振替休日
+    const baseHolidays = new Map(holidays);
+    for (const [dateStr] of baseHolidays) {
+      const d = new Date(dateStr + 'T00:00:00');
+      if (d.getDay() === 0) { // 日曜日
+        let next = new Date(d);
+        next.setDate(next.getDate() + 1);
+        let nextStr = next.toISOString().split('T')[0];
+        // 翌日も祝日なら更に翌日へ
+        while (holidays.has(nextStr)) {
+          next.setDate(next.getDate() + 1);
+          nextStr = next.toISOString().split('T')[0];
+        }
+        holidays.set(nextStr, '振替休日');
+      }
+    }
+
+    // === 国民の休日（祝日に挟まれた平日） ===
+    const sortedDates = Array.from(holidays.keys()).sort();
+    for (let i = 0; i < sortedDates.length - 1; i++) {
+      const curr = new Date(sortedDates[i] + 'T00:00:00');
+      const next = new Date(sortedDates[i + 1] + 'T00:00:00');
+      const diff = (next - curr) / 86400000;
+      if (diff === 2) {
+        const between = new Date(curr);
+        between.setDate(between.getDate() + 1);
+        const betweenStr = between.toISOString().split('T')[0];
+        if (!holidays.has(betweenStr) && between.getDay() !== 0) {
+          holidays.set(betweenStr, '国民の休日');
+        }
+      }
+    }
+
+    return holidays;
+  }
+
+  // キャッシュ
+  const _cache = {};
+
+  // 指定日が祝日かチェック（祝日名を返す、祝日でなければnull）
+  function getHolidayName(dateStr) {
+    if (!dateStr) return null;
+    const year = parseInt(dateStr.split('-')[0]);
+    if (!_cache[year]) {
+      _cache[year] = getHolidaysForYear(year);
+    }
+    return _cache[year].get(dateStr) || null;
+  }
+
+  // 日付情報をまとめて取得
+  function getDateInfo(dateStr) {
+    if (!dateStr) return { dayOfWeek: '', holiday: null, isHoliday: false, isSunday: false, isSaturday: false };
+    const dayOfWeek = getDayOfWeek(dateStr);
+    const dayIndex = getDayIndex(dateStr);
+    const holiday = getHolidayName(dateStr);
+    return {
+      dayOfWeek,
+      holiday,
+      isHoliday: !!holiday,
+      isSunday: dayIndex === 0,
+      isSaturday: dayIndex === 6,
+    };
+  }
+
+  return {
+    getDayOfWeek,
+    getHolidayName,
+    getDateInfo,
+    getHolidaysForYear,
+  };
+})();
+
+})();
+
+// ============================================================
+// FILE: src/utils/dataService.js
+// ============================================================
+(function() {
+// dataService.js - データ処理層（ビジネスロジック）
+//
+// 売上データの集計・分析・エクスポートを一元管理するサービス層。
+// Dashboard, Analytics, Revenue の全ページがこのサービスを通じてデータにアクセスする。
+
+window.DataService = (() => {
+  // ============================================================
+  // データ取得
+  // ============================================================
+  function getEntries() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveEntries(entries) {
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, JSON.stringify(entries));
+      return true;
+    } catch (e) {
+      AppLogger.error('売上データの保存に失敗しました', e.message);
+      return false;
+    }
+  }
+
+  // ============================================================
+  // ファイル保存・復元（売上データフォルダ）
+  // ============================================================
+  let _dirHandle = null; // File System Access API用
+
+  // File System Access APIでフォルダにJSONを直接保存
+  async function _saveToFolder(entries) {
+    try {
+      if (!_dirHandle) return false;
+      // パーミッション確認
+      const perm = await _dirHandle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        const req = await _dirHandle.requestPermission({ mode: 'readwrite' });
+        if (req !== 'granted') return false;
+      }
+      const dateStr = new Date().toISOString().split('T')[0];
+      const fileName = `売上記録_${dateStr}.json`;
+      const fileHandle = await _dirHandle.getFileHandle(fileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      const data = JSON.stringify({ version: '0.3.8', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      await writable.write(data);
+      await writable.close();
+      AppLogger.info(`ファイル保存完了: ${fileName} (${entries.length}件)`);
+      return true;
+    } catch (e) {
+      AppLogger.warn('フォルダ保存失敗: ' + e.message);
+      return false;
+    }
+  }
+
+  // ダウンロード方式でJSON保存（フォールバック）
+  function _downloadBackup(entries) {
+    try {
+      const dateStr = new Date().toISOString().split('T')[0];
+      const data = JSON.stringify({ version: '0.3.8', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `売上記録_${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      AppLogger.info(`バックアップダウンロード: ${entries.length}件`);
+      return true;
+    } catch (e) {
+      AppLogger.warn('バックアップ失敗: ' + e.message);
+      return false;
+    }
+  }
+
+  // 自動保存（フォルダ直接 or ダウンロード）
+  async function autoSaveToFile() {
+    const entries = getEntries();
+    if (entries.length === 0) return;
+    if (_dirHandle) {
+      const ok = await _saveToFolder(entries);
+      if (ok) return;
+    }
+    // フォルダ未設定 or 保存失敗の場合はダウンロード
+    _downloadBackup(entries);
+  }
+
+  // 保存先フォルダを選択（File System Access API）
+  async function selectSaveFolder() {
+    if (!window.showDirectoryPicker) {
+      return { success: false, message: 'このブラウザではフォルダ直接保存がサポートされていません。ダウンロード方式で保存します。' };
+    }
+    try {
+      _dirHandle = await window.showDirectoryPicker({ id: 'taxi-save', mode: 'readwrite', startIn: 'documents' });
+      AppLogger.info('保存先フォルダを設定: ' + _dirHandle.name);
+      return { success: true, folderName: _dirHandle.name };
+    } catch (e) {
+      if (e.name === 'AbortError') return { success: false, message: 'フォルダ選択がキャンセルされました' };
+      return { success: false, message: 'フォルダ選択に失敗: ' + e.message };
+    }
+  }
+
+  // JSONファイルから復元
+  async function importFromFile() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) { resolve({ success: false, message: 'ファイルが選択されませんでした' }); return; }
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            let entries = [];
+            if (Array.isArray(data)) {
+              entries = data;
+            } else if (data.entries && Array.isArray(data.entries)) {
+              entries = data.entries;
+            } else {
+              resolve({ success: false, message: 'ファイル形式が正しくありません' }); return;
+            }
+            // 既存データとマージ（IDで重複排除）
+            const existing = getEntries();
+            const existingIds = new Set(existing.map(e => e.id));
+            let newCount = 0;
+            entries.forEach(entry => {
+              if (!existingIds.has(entry.id) && entry.amount) {
+                existing.push(entry);
+                newCount++;
+              }
+            });
+            existing.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            saveEntries(existing);
+            AppLogger.info(`ファイルから復元: ${newCount}件追加 (合計${existing.length}件)`);
+            resolve({ success: true, message: `${newCount}件の新しい記録を復元しました（合計${existing.length}件）` });
+          } catch (err) {
+            resolve({ success: false, message: 'ファイルの読み込みに失敗: ' + err.message });
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    });
+  }
+
+  // 保存フォルダが設定済みかどうか
+  function hasSaveFolder() {
+    return !!_dirHandle;
+  }
+
+  // ============================================================
+  // 日付ヘルパー
+  // ============================================================
+  function toDateStr(isoString) {
+    return isoString ? isoString.split('T')[0] : '';
+  }
+
+  function toHour(isoString) {
+    return isoString ? new Date(isoString).getHours() : 0;
+  }
+
+  function getDayOfWeek(isoString) {
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    return days[new Date(isoString).getDay()];
+  }
+
+  function getDayOfWeekIndex(isoString) {
+    return new Date(isoString).getDay();
+  }
+
+  function getWeekStart(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    d.setDate(diff);
+    return toDateStr(d.toISOString());
+  }
+
+  function getMonthStr(isoString) {
+    const d = new Date(isoString);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  // ============================================================
+  // 本日のサマリー（Dashboard用）
+  // ============================================================
+  function getTodaySummary() {
+    const entries = getEntries();
+    const today = toDateStr(new Date().toISOString());
+    const todayEntries = entries.filter(e => toDateStr(e.timestamp) === today);
+
+    const totalAmount = todayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const rideCount = todayEntries.length;
+    const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
+
+    // 稼働時間の計算（最初の記録〜最後の記録）
+    let workMinutes = 0;
+    if (todayEntries.length >= 2) {
+      const sorted = [...todayEntries].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      const first = new Date(sorted[0].timestamp);
+      const last = new Date(sorted[sorted.length - 1].timestamp);
+      workMinutes = Math.round((last - first) / 60000);
+    }
+    const workHours = Math.floor(workMinutes / 60);
+    const workMins = workMinutes % 60;
+
+    return {
+      totalAmount,
+      rideCount,
+      avgAmount,
+      workTime: `${workHours}h ${workMins}m`,
+      workMinutes,
+      entries: todayEntries,
+    };
+  }
+
+  // ============================================================
+  // 全期間サマリー
+  // ============================================================
+  function getOverallSummary() {
+    const entries = getEntries();
+    const totalAmount = entries.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const rideCount = entries.length;
+    const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
+
+    // 日数計算
+    const uniqueDays = new Set(entries.map(e => toDateStr(e.timestamp)));
+    const activeDays = uniqueDays.size;
+    const dailyAvg = activeDays > 0 ? Math.round(totalAmount / activeDays) : 0;
+
+    return {
+      totalAmount,
+      rideCount,
+      avgAmount,
+      activeDays,
+      dailyAvg,
+    };
+  }
+
+  // ============================================================
+  // 日別集計（Analytics用）
+  // ============================================================
+  function getDailyBreakdown(days = 30) {
+    const entries = getEntries();
+    const result = {};
+
+    // 過去N日分の枠を作る
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = toDateStr(d.toISOString());
+      result[key] = { date: key, amount: 0, count: 0 };
+    }
+
+    entries.forEach(e => {
+      const key = toDateStr(e.timestamp);
+      if (result[key]) {
+        result[key].amount += e.amount || 0;
+        result[key].count += 1;
+      }
+    });
+
+    return Object.values(result);
+  }
+
+  // ============================================================
+  // 曜日別集計（Analytics用）
+  // ============================================================
+  function getDayOfWeekBreakdown() {
+    const entries = getEntries();
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    const result = days.map((name, i) => ({ name, index: i, amount: 0, count: 0, avg: 0 }));
+
+    entries.forEach(e => {
+      const idx = getDayOfWeekIndex(e.timestamp);
+      result[idx].amount += e.amount || 0;
+      result[idx].count += 1;
+    });
+
+    result.forEach(d => {
+      d.avg = d.count > 0 ? Math.round(d.amount / d.count) : 0;
+    });
+
+    return result;
+  }
+
+  // ============================================================
+  // 時間帯別集計（Analytics用）
+  // ============================================================
+  function getHourlyBreakdown() {
+    const entries = getEntries();
+    const result = [];
+
+    for (let h = 0; h < 24; h++) {
+      result.push({ hour: h, label: `${h}時`, amount: 0, count: 0, avg: 0 });
+    }
+
+    entries.forEach(e => {
+      const h = toHour(e.timestamp);
+      result[h].amount += e.amount || 0;
+      result[h].count += 1;
+    });
+
+    result.forEach(d => {
+      d.avg = d.count > 0 ? Math.round(d.amount / d.count) : 0;
+    });
+
+    return result;
+  }
+
+  // ============================================================
+  // エリア別集計（乗車地・降車地の頻度）
+  // ============================================================
+  function getAreaBreakdown() {
+    const entries = getEntries();
+    const pickups = {};
+    const dropoffs = {};
+
+    entries.forEach(e => {
+      if (e.pickup) {
+        pickups[e.pickup] = (pickups[e.pickup] || { name: e.pickup, count: 0, amount: 0 });
+        pickups[e.pickup].count += 1;
+        pickups[e.pickup].amount += e.amount || 0;
+      }
+      if (e.dropoff) {
+        dropoffs[e.dropoff] = (dropoffs[e.dropoff] || { name: e.dropoff, count: 0, amount: 0 });
+        dropoffs[e.dropoff].count += 1;
+        dropoffs[e.dropoff].amount += e.amount || 0;
+      }
+    });
+
+    return {
+      pickups: Object.values(pickups).sort((a, b) => b.count - a.count).slice(0, 10),
+      dropoffs: Object.values(dropoffs).sort((a, b) => b.count - a.count).slice(0, 10),
+    };
+  }
+
+  // ============================================================
+  // 週別集計
+  // ============================================================
+  function getWeeklyBreakdown(weeks = 12) {
+    const entries = getEntries();
+    const result = {};
+
+    for (let i = weeks - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - (i * 7));
+      const key = getWeekStart(d);
+      result[key] = { week: key, amount: 0, count: 0 };
+    }
+
+    entries.forEach(e => {
+      const key = getWeekStart(new Date(e.timestamp));
+      if (result[key]) {
+        result[key].amount += e.amount || 0;
+        result[key].count += 1;
+      }
+    });
+
+    return Object.values(result);
+  }
+
+  // ============================================================
+  // 月別集計
+  // ============================================================
+  function getMonthlyBreakdown() {
+    const entries = getEntries();
+    const result = {};
+
+    entries.forEach(e => {
+      const key = getMonthStr(e.timestamp);
+      if (!result[key]) {
+        result[key] = { month: key, amount: 0, count: 0 };
+      }
+      result[key].amount += e.amount || 0;
+      result[key].count += 1;
+    });
+
+    return Object.values(result).sort((a, b) => a.month.localeCompare(b.month));
+  }
+
+  // ============================================================
+  // CSVエクスポート
+  // ============================================================
+  function exportCSV() {
+    const entries = getEntries();
+    if (entries.length === 0) return null;
+
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,メモ';
+    const rows = entries.map(e => {
+      const entryDate = e.date || toDateStr(e.timestamp);
+      const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
+      const dayOfWeek = e.dayOfWeek || dateInfo.dayOfWeek;
+      const holiday = e.holiday || dateInfo.holiday || '';
+      const dateTime = new Date(e.timestamp).toLocaleString('ja-JP');
+      const weather = (e.weather || '').replace(/,/g, '、');
+      const pickup = (e.pickup || '').replace(/,/g, '、');
+      const pickupTime = e.pickupTime || '';
+      const dropoff = (e.dropoff || '').replace(/,/g, '、');
+      const dropoffTime = e.dropoffTime || '';
+      const passengers = e.passengers || '';
+      const gender = e.gender || '';
+      const purpose = (e.purpose || '').replace(/,/g, '、');
+      const memo = (e.memo || '').replace(/,/g, '、');
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${memo}`;
+    });
+
+    const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
+    return csv;
+  }
+
+  function downloadCSV() {
+    const csv = exportCSV();
+    if (!csv) {
+      AppLogger.warn('エクスポート対象のデータがありません');
+      return false;
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.href = url;
+    link.download = `taxi_revenue_${dateStr}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    AppLogger.info(`CSVエクスポート完了: ${getEntries().length}件`);
+    return true;
+  }
+
+  // ============================================================
+  // データバリデーション
+  // ============================================================
+  function validateEntry(form) {
+    const errors = [];
+    const amount = parseInt(form.amount);
+
+    if (!form.amount || isNaN(amount)) {
+      errors.push('金額を入力してください');
+    } else if (amount <= 0) {
+      errors.push('金額は1円以上を入力してください');
+    } else if (amount > 1000000) {
+      errors.push('金額が大きすぎます（100万円以下にしてください）');
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  // ============================================================
+  // CRUD操作
+  // ============================================================
+  function addEntry(form) {
+    const validation = validateEntry(form);
+    if (!validation.valid) return { success: false, errors: validation.errors };
+
+    const entries = getEntries();
+    const entryDate = form.date || new Date().toISOString().split('T')[0];
+    const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
+    const entry = {
+      id: Date.now(),
+      amount: parseInt(form.amount),
+      date: entryDate,
+      dayOfWeek: dateInfo.dayOfWeek,
+      holiday: dateInfo.holiday || '',
+      weather: form.weather || '',
+      pickup: form.pickup || '',
+      pickupTime: form.pickupTime || '',
+      dropoff: form.dropoff || '',
+      dropoffTime: form.dropoffTime || '',
+      passengers: form.passengers || '',
+      gender: form.gender || '',
+      purpose: form.purpose || '',
+      memo: form.memo || '',
+      timestamp: new Date().toISOString(),
+    };
+
+    entries.unshift(entry);
+    saveEntries(entries);
+    const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
+    AppLogger.info(`売上記録追加: ¥${entry.amount} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
+    // 自動ファイル保存
+    autoSaveToFile();
+    return { success: true, entry };
+  }
+
+  function deleteEntry(id) {
+    const entries = getEntries();
+    const filtered = entries.filter(e => e.id !== id);
+    saveEntries(filtered);
+    AppLogger.info('売上記録を削除しました');
+    autoSaveToFile();
+    return true;
+  }
+
+  function clearAllEntries() {
+    saveEntries([]);
+    AppLogger.info('全売上データを削除しました');
+    return true;
+  }
+
+  // ============================================================
+  // 公開API
+  // ============================================================
+  return {
+    // データ取得
+    getEntries,
+    saveEntries,
+
+    // サマリー
+    getTodaySummary,
+    getOverallSummary,
+
+    // 分析
+    getDailyBreakdown,
+    getDayOfWeekBreakdown,
+    getHourlyBreakdown,
+    getAreaBreakdown,
+    getWeeklyBreakdown,
+    getMonthlyBreakdown,
+
+    // CRUD
+    addEntry,
+    deleteEntry,
+    clearAllEntries,
+    validateEntry,
+
+    // エクスポート
+    exportCSV,
+    downloadCSV,
+
+    // ファイル保存・復元
+    autoSaveToFile,
+    selectSaveFolder,
+    importFromFile,
+    hasSaveFolder,
+  };
+})();
+
+})();
+
+// ============================================================
+// FILE: src/context/LogContext.jsx
+// ============================================================
+(function() {
+// LogContext.jsx - ログ状態管理
+const { createContext, useState, useEffect, useContext } = React;
+
+window.LogContext = createContext(null);
+
+window.LogProvider = ({ children }) => {
+  const [logs, setLogs] = useState(AppLogger.getLogs());
+
+  useEffect(() => {
+    const unsub = AppLogger.subscribe(setLogs);
+    return unsub;
+  }, []);
+
+  const value = {
+    logs,
+    addLog: AppLogger.info,
+    addDebug: AppLogger.debug,
+    addWarn: AppLogger.warn,
+    addError: AppLogger.error,
+    clearLogs: AppLogger.clearLogs,
+  };
+
+  return React.createElement(LogContext.Provider, { value }, children);
+};
+
+window.useLogContext = () => useContext(LogContext);
+
+})();
+
+// ============================================================
+// FILE: src/context/MapContext.jsx
+// ============================================================
+(function() {
+// MapContext.jsx - 地図・GPS状態管理
+const { createContext, useState, useCallback, useContext } = React;
+
+window.MapContext = createContext(null);
+
+window.MapProvider = ({ children }) => {
+  const [currentPosition, setCurrentPosition] = useState(null);
+  const [mapCenter, setMapCenter] = useState(APP_CONSTANTS.DEFAULT_MAP_CENTER);
+  const [zoom, setZoom] = useState(APP_CONSTANTS.DEFAULT_MAP_ZOOM);
+  const [isTracking, setIsTracking] = useState(false);
+  const [gpsError, setGpsError] = useState(null);
+  const [accuracy, setAccuracy] = useState(null);
+  const [speed, setSpeed] = useState(null);
+  const [heading, setHeading] = useState(null);
+
+  const updatePosition = useCallback((position) => {
+    const pos = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+    };
+    setCurrentPosition(pos);
+    setAccuracy(position.coords.accuracy);
+    setSpeed(position.coords.speed);
+    setHeading(position.coords.heading);
+    setGpsError(null);
+  }, []);
+
+  const value = {
+    currentPosition,
+    setCurrentPosition,
+    mapCenter,
+    setMapCenter,
+    zoom,
+    setZoom,
+    isTracking,
+    setIsTracking,
+    gpsError,
+    setGpsError,
+    accuracy,
+    speed,
+    heading,
+    updatePosition,
+  };
+
+  return React.createElement(MapContext.Provider, { value }, children);
+};
+
+window.useMapContext = () => useContext(MapContext);
+
+})();
+
+// ============================================================
+// FILE: src/context/AppContext.jsx
+// ============================================================
+(function() {
+// AppContext.jsx - アプリ全体の状態管理（ハッシュルーティング対応）
+const { createContext, useState, useEffect, useCallback, useContext } = React;
+
+window.AppContext = createContext(null);
+
+// ハッシュからページ名を取得するヘルパー
+function getPageFromHash() {
+  const hash = window.location.hash.replace('#/', '').replace('#', '');
+  const validRoutes = Object.values(APP_CONSTANTS.ROUTES);
+  return validRoutes.includes(hash) ? hash : APP_CONSTANTS.ROUTES.DASHBOARD;
+}
+
+window.AppProvider = ({ children }) => {
+  const [currentPage, setCurrentPage] = useState(getPageFromHash);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [apiKey, setApiKeyState] = useState(AppStorage.getApiKey());
+
+  const setApiKey = useCallback((key) => {
+    AppStorage.setApiKey(key);
+    setApiKeyState(key);
+    AppLogger.info('Google Maps APIキーが更新されました');
+  }, []);
+
+  // ページ遷移（ハッシュを更新 → hashchangeで状態も更新）
+  const navigate = useCallback((page) => {
+    window.location.hash = `#/${page}`;
+    setSidebarOpen(false);
+    AppLogger.debug(`ページ遷移: ${page}`);
+  }, []);
+
+  // ブラウザの戻る/進むボタン対応
+  useEffect(() => {
+    const handleHashChange = () => {
+      const page = getPageFromHash();
+      setCurrentPage(page);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // 初期ハッシュが空の場合にセット
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
+    }
+  }, []);
+
+  const value = {
+    currentPage,
+    navigate,
+    sidebarOpen,
+    setSidebarOpen,
+    apiKey,
+    setApiKey,
+  };
+
+  return React.createElement(AppContext.Provider, { value }, children);
+};
+
+window.useAppContext = () => useContext(AppContext);
+
+})();
+
+// ============================================================
+// FILE: src/hooks/useGeolocation.js
+// ============================================================
+(function() {
+// useGeolocation.js - GPS位置情報カスタムフック
+window.useGeolocation = () => {
+  const { useState, useEffect, useRef, useCallback } = React;
+  const mapCtx = useMapContext();
+  const [watchId, setWatchId] = useState(null);
+  const watchIdRef = useRef(null);
+
+  const isSupported = 'geolocation' in navigator;
+
+  const getCurrentPosition = useCallback(() => {
+    if (!isSupported) {
+      mapCtx.setGpsError('このブラウザはGPSに対応していません');
+      AppLogger.error('Geolocation API 非対応');
+      return;
+    }
+
+    AppLogger.info('現在地を取得中...');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        mapCtx.updatePosition(position);
+        const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
+        mapCtx.setMapCenter(pos);
+        AppLogger.info(`現在地取得成功: ${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`);
+      },
+      (error) => {
+        const msg = getErrorMessage(error);
+        mapCtx.setGpsError(msg);
+        AppLogger.error(`GPS取得エラー: ${msg}`);
+      },
+      APP_CONSTANTS.GPS_OPTIONS
+    );
+  }, [isSupported, mapCtx]);
+
+  const startTracking = useCallback(() => {
+    if (!isSupported) return;
+
+    AppLogger.info('GPS追跡を開始');
+    mapCtx.setIsTracking(true);
+
+    const id = navigator.geolocation.watchPosition(
+      (position) => {
+        mapCtx.updatePosition(position);
+      },
+      (error) => {
+        const msg = getErrorMessage(error);
+        mapCtx.setGpsError(msg);
+        AppLogger.warn(`GPS追跡エラー: ${msg}`);
+      },
+      APP_CONSTANTS.GPS_OPTIONS
+    );
+
+    watchIdRef.current = id;
+    setWatchId(id);
+  }, [isSupported, mapCtx]);
+
+  const stopTracking = useCallback(() => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      setWatchId(null);
+    }
+    mapCtx.setIsTracking(false);
+    AppLogger.info('GPS追跡を停止');
+  }, [mapCtx]);
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    isSupported,
+    getCurrentPosition,
+    startTracking,
+    stopTracking,
+    isTracking: mapCtx.isTracking,
+  };
+};
+
+function getErrorMessage(error) {
+  switch (error.code) {
+    case error.PERMISSION_DENIED:
+      return '位置情報の権限が拒否されました';
+    case error.POSITION_UNAVAILABLE:
+      return '位置情報を取得できません';
+    case error.TIMEOUT:
+      return '位置情報の取得がタイムアウトしました';
+    default:
+      return '位置情報の取得中にエラーが発生しました';
+  }
+}
+
+})();
+
+// ============================================================
+// FILE: src/hooks/useGoogleMaps.js
+// ============================================================
+(function() {
+// useGoogleMaps.js - Google Maps API管理フック
+//
+// GoogleMap.jsx内のローダーロジックをフックとして公開し、
+// 複数コンポーネントからGoogle Maps APIの状態を参照可能にする。
+
+window.useGoogleMaps = () => {
+  const { useState, useEffect, useCallback } = React;
+  const { apiKey } = useAppContext();
+  const [isLoaded, setIsLoaded] = useState(!!(window.google && window.google.maps));
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Google Maps API をロード
+  const loadApi = useCallback(() => {
+    if (!apiKey) {
+      setError(null);
+      setIsLoaded(false);
+      return;
+    }
+
+    if (window.google && window.google.maps) {
+      setIsLoaded(true);
+      setError(null);
+      return;
+    }
+
+    setIsLoading(true);
+
+    // 既存のスクリプトがあるかチェック
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (existingScript) {
+      // ロード完了を待つ
+      const check = setInterval(() => {
+        if (window.google && window.google.maps) {
+          clearInterval(check);
+          setIsLoaded(true);
+          setIsLoading(false);
+          setError(null);
+        }
+      }, 100);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP`;
+    script.async = true;
+    script.onload = () => {
+      setIsLoaded(true);
+      setIsLoading(false);
+      setError(null);
+      AppLogger.info('Google Maps API ロード完了 (useGoogleMaps)');
+    };
+    script.onerror = () => {
+      setError('Google Maps API の読み込みに失敗しました。APIキーを確認してください。');
+      setIsLoading(false);
+      AppLogger.error('Google Maps API ロード失敗 (useGoogleMaps)');
+    };
+    document.head.appendChild(script);
+  }, [apiKey]);
+
+  useEffect(() => {
+    loadApi();
+  }, [loadApi]);
+
+  return {
+    isLoaded,
+    isLoading,
+    error,
+    apiKey,
+    reload: loadApi,
+  };
+};
+
+})();
+
+// ============================================================
+// FILE: src/hooks/useLogger.js
+// ============================================================
+(function() {
+// useLogger.js - ロギング用カスタムフック
+//
+// AppLogger をReactコンポーネントから便利に使うためのフック。
+// コンポーネント名を自動的にプレフィックスとして付加する。
+
+window.useLogger = (componentName = '') => {
+  const { useCallback, useMemo } = React;
+
+  const prefix = componentName ? `[${componentName}] ` : '';
+
+  const logger = useMemo(() => ({
+    debug: (msg, data) => AppLogger.debug(`${prefix}${msg}`, data),
+    info: (msg, data) => AppLogger.info(`${prefix}${msg}`, data),
+    warn: (msg, data) => AppLogger.warn(`${prefix}${msg}`, data),
+    error: (msg, data) => AppLogger.error(`${prefix}${msg}`, data),
+  }), [prefix]);
+
+  // コンポーネントのマウント/アンマウントをログ
+  const logMount = useCallback(() => {
+    if (componentName) {
+      AppLogger.debug(`${prefix}マウント`);
+    }
+  }, [prefix, componentName]);
+
+  const logUnmount = useCallback(() => {
+    if (componentName) {
+      AppLogger.debug(`${prefix}アンマウント`);
+    }
+  }, [prefix, componentName]);
+
+  return {
+    ...logger,
+    logMount,
+    logUnmount,
+    getLogs: AppLogger.getLogs,
+    clearLogs: AppLogger.clearLogs,
+    subscribe: AppLogger.subscribe,
+  };
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/common/Loading.jsx
+// ============================================================
+(function() {
+// Loading.jsx - ローディング表示
+window.Loading = ({ message = '読み込み中...' }) => {
+  return React.createElement('div', { className: 'loading' },
+    React.createElement('div', { className: 'loading__spinner' }),
+    React.createElement('span', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, message)
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/common/Card.jsx
+// ============================================================
+(function() {
+// Card.jsx - 汎用カード
+window.Card = ({ title, subtitle, children, className = '', onClick, style }) => {
+  return React.createElement('div', {
+    className: `card ${className}`,
+    onClick,
+    style: { ...style, cursor: onClick ? 'pointer' : 'default' },
+  },
+    title && React.createElement('div', { className: 'card__title' }, title),
+    subtitle && React.createElement('div', { className: 'card__subtitle' }, subtitle),
+    children
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/common/Button.jsx
+// ============================================================
+(function() {
+// Button.jsx - 汎用ボタン
+window.Button = ({ children, variant = 'primary', icon, onClick, disabled, className = '', style }) => {
+  return React.createElement('button', {
+    className: `btn btn--${variant} ${className}`,
+    onClick,
+    disabled,
+    style,
+  },
+    icon && React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, icon),
+    children
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/common/ErrorBoundary.jsx
+// ============================================================
+(function() {
+// ErrorBoundary.jsx - エラーバウンダリ（白画面クラッシュ防止）
+// React Error Boundary はクラスコンポーネントが必要
+window.ErrorBoundary = class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
+    // ログに記録
+    if (window.AppLogger) {
+      AppLogger.error(`ErrorBoundary: ${error.message}`);
+    }
+    console.error('[ErrorBoundary]', error, errorInfo);
+  }
+
+  handleReset() {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+  }
+
+  handleReload() {
+    window.location.reload();
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return React.createElement('div', {
+        style: {
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          minHeight: '60vh', padding: '24px', textAlign: 'center',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '64px', color: 'var(--color-danger)', marginBottom: '16px' },
+        }, 'error_outline'),
+
+        React.createElement('h2', {
+          style: { color: 'var(--text-primary)', marginBottom: '8px', fontSize: 'var(--font-size-xl)' },
+        }, 'エラーが発生しました'),
+
+        React.createElement('p', {
+          style: { color: 'var(--text-secondary)', marginBottom: '24px', maxWidth: '400px', fontSize: 'var(--font-size-sm)' },
+        }, 'アプリケーションで予期しないエラーが発生しました。再試行するか、ページを再読み込みしてください。'),
+
+        // エラー詳細（開発時のみ表示を想定）
+        this.state.error && React.createElement('details', {
+          style: {
+            marginBottom: '24px', textAlign: 'left', maxWidth: '500px', width: '100%',
+            background: 'rgba(229,57,53,0.08)', borderRadius: '8px', padding: '12px',
+            fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)',
+          },
+        },
+          React.createElement('summary', {
+            style: { cursor: 'pointer', color: 'var(--text-secondary)', marginBottom: '8px' },
+          }, 'エラー詳細を表示'),
+          React.createElement('pre', {
+            style: { whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 },
+          }, String(this.state.error)),
+          this.state.errorInfo && React.createElement('pre', {
+            style: { whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: '8px 0 0', fontSize: '11px' },
+          }, this.state.errorInfo.componentStack)
+        ),
+
+        // アクションボタン
+        React.createElement('div', { style: { display: 'flex', gap: '12px' } },
+          React.createElement('button', {
+            onClick: () => this.handleReset(),
+            style: {
+              padding: '10px 24px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+              background: 'var(--color-primary)', color: '#fff', fontWeight: 500,
+              fontSize: 'var(--font-size-sm)',
+            },
+          }, '再試行'),
+          React.createElement('button', {
+            onClick: () => this.handleReload(),
+            style: {
+              padding: '10px 24px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+              cursor: 'pointer', background: 'transparent', color: 'var(--text-secondary)',
+              fontWeight: 500, fontSize: 'var(--font-size-sm)',
+            },
+          }, 'ページ再読み込み')
+        )
+      );
+    }
+
+    return this.props.children;
+  }
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Map/GoogleMap.jsx
+// ============================================================
+(function() {
+// GoogleMap.jsx - Google Maps 本体コンポーネント（TrafficLayer対応・高速ロード版）
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ============================================================
+// Google Maps スクリプトローダー（シングルトン）
+// ============================================================
+const _gmapLoader = {
+  status: 'idle',
+  callbacks: [],
+  load(apiKey) {
+    return new Promise((resolve, reject) => {
+      if (window.google && window.google.maps) {
+        this.status = 'loaded';
+        resolve();
+        return;
+      }
+      if (this.status === 'loaded') { resolve(); return; }
+      this.callbacks.push({ resolve, reject });
+      if (this.status === 'loading') return;
+      this.status = 'loading';
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP`;
+      script.async = true;
+      script.onload = () => {
+        this.status = 'loaded';
+        this.callbacks.forEach(cb => cb.resolve());
+        this.callbacks = [];
+      };
+      script.onerror = (err) => {
+        this.status = 'error';
+        this.callbacks.forEach(cb => cb.reject(err));
+        this.callbacks = [];
+      };
+      document.head.appendChild(script);
+    });
+  }
+};
+
+// ============================================================
+// メインコンポーネント
+// ============================================================
+window.GoogleMapView = ({ fullscreen = false }) => {
+  const { apiKey } = useAppContext();
+  const { mapCenter, zoom, currentPosition, accuracy, setMapCenter, setZoom } = useMapContext();
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+  const accuracyCircleRef = useRef(null);
+  const trafficLayerRef = useRef(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState(null);
+  const [showTraffic, setShowTraffic] = useState(true);
+  const initDone = useRef(false);
+  const firstGpsDone = useRef(false);
+
+  // Google Maps API をロード
+  useEffect(() => {
+    if (!apiKey) {
+      setMapError(null);
+      setMapLoaded(false);
+      return;
+    }
+    if (window.google && window.google.maps) {
+      setMapLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    _gmapLoader.load(apiKey)
+      .then(() => {
+        if (!cancelled) {
+          setMapLoaded(true);
+          setMapError(null);
+          AppLogger.info('Google Maps API ロード完了');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMapError('Google Maps API の読み込みに失敗しました。APIキーを確認してください。');
+          AppLogger.error('Google Maps API ロード失敗');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [apiKey]);
+
+  // マップ初期化
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current || !window.google || initDone.current) return;
+    initDone.current = true;
+
+    // GPS位置があればそこを初期中心に、なければデフォルト
+    const initCenter = currentPosition || mapCenter;
+    const initZoom = currentPosition ? 15 : zoom;
+
+    const map = new google.maps.Map(mapRef.current, {
+      center: initCenter,
+      zoom: initZoom,
+      mapTypeId: 'roadmap',
+      disableDefaultUI: false,
+      zoomControl: true,
+      mapTypeControl: true,
+      mapTypeControlOptions: {
+        style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+        position: google.maps.ControlPosition.TOP_LEFT,
+      },
+      streetViewControl: false,
+      fullscreenControl: false,
+      scaleControl: true,
+      gestureHandling: 'greedy',
+      // 標準スタイル（詳細がしっかり見える）
+    });
+    mapInstanceRef.current = map;
+
+    // 交通情報レイヤーを即座に追加
+    const trafficLayer = new google.maps.TrafficLayer();
+    trafficLayer.setMap(map);
+    trafficLayerRef.current = trafficLayer;
+
+    // GPS位置があれば初回マーカーも配置
+    if (currentPosition) {
+      firstGpsDone.current = true;
+      _placeMarker(map, currentPosition);
+    }
+
+    // イベントリスナー（スロットリング付き）
+    let centerTimer = null;
+    map.addListener('center_changed', () => {
+      clearTimeout(centerTimer);
+      centerTimer = setTimeout(() => {
+        const c = map.getCenter();
+        setMapCenter({ lat: c.lat(), lng: c.lng() });
+      }, 300);
+    });
+    map.addListener('zoom_changed', () => {
+      setZoom(map.getZoom());
+    });
+
+    AppLogger.info('Google Maps 初期化完了（TrafficLayer有効）');
+  }, [mapLoaded]);
+
+  // マーカー配置用のヘルパー
+  function _placeMarker(map, pos) {
+    if (!markerRef.current) {
+      markerRef.current = new google.maps.Marker({
+        position: pos,
+        map: map,
+        title: '現在地',
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#4285F4',
+          fillOpacity: 1,
+          strokeColor: '#ffffff',
+          strokeWeight: 3,
+        },
+        zIndex: 999,
+      });
+      accuracyCircleRef.current = new google.maps.Circle({
+        map: map,
+        center: pos,
+        radius: accuracy || 50,
+        fillColor: '#4285F4',
+        fillOpacity: 0.08,
+        strokeColor: '#4285F4',
+        strokeOpacity: 0.25,
+        strokeWeight: 1,
+        clickable: false,
+      });
+    }
+  }
+
+  // 交通レイヤーの表示/非表示
+  useEffect(() => {
+    if (!trafficLayerRef.current || !mapInstanceRef.current) return;
+    trafficLayerRef.current.setMap(showTraffic ? mapInstanceRef.current : null);
+  }, [showTraffic]);
+
+  // 現在位置マーカー更新
+  useEffect(() => {
+    if (!mapInstanceRef.current || !currentPosition || !window.google) return;
+    const map = mapInstanceRef.current;
+
+    if (!markerRef.current) {
+      _placeMarker(map, currentPosition);
+    } else {
+      markerRef.current.setPosition(currentPosition);
+      if (accuracyCircleRef.current) {
+        accuracyCircleRef.current.setCenter(currentPosition);
+        if (accuracy) accuracyCircleRef.current.setRadius(accuracy);
+      }
+    }
+
+    // 初回GPS取得時: 中心を移動しズームを15に設定（詳細表示）
+    if (!firstGpsDone.current) {
+      firstGpsDone.current = true;
+      map.setCenter(currentPosition);
+      map.setZoom(15);
+      AppLogger.info(`初回GPS: ${currentPosition.lat.toFixed(6)}, ${currentPosition.lng.toFixed(6)} → zoom 15`);
+    } else {
+      // 2回目以降はスムーズにパン
+      map.panTo(currentPosition);
+    }
+  }, [currentPosition]);
+
+  // ============================================================
+  // APIキーなしのデモモード
+  // ============================================================
+  if (!apiKey) {
+    return React.createElement('div', {
+      className: `map-container ${fullscreen ? 'map-container--fullscreen' : ''}`,
+      style: {
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        background: 'linear-gradient(135deg, var(--bg-medium), var(--bg-light))',
+      },
+    },
+      React.createElement('span', {
+        className: 'material-icons-round',
+        style: { fontSize: '64px', color: 'var(--color-secondary)', marginBottom: '16px' },
+      }, 'map'),
+      React.createElement('h3', {
+        style: { marginBottom: '8px', color: 'var(--text-primary)' },
+      }, 'Google Maps デモモード'),
+      React.createElement('p', {
+        style: { color: 'var(--text-secondary)', textAlign: 'center', maxWidth: '400px', fontSize: 'var(--font-size-sm)' },
+      }, '設定画面からGoogle Maps APIキーを入力すると、実際の地図と交通渋滞情報が表示されます。'),
+      React.createElement('div', {
+        style: {
+          marginTop: '16px', padding: '12px 20px',
+          background: 'rgba(255,255,255,0.06)', borderRadius: '8px',
+          fontFamily: 'monospace', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)',
+        },
+      },
+        React.createElement('div', null, `中心: ${mapCenter.lat.toFixed(4)}, ${mapCenter.lng.toFixed(4)}`),
+        React.createElement('div', null, `ズーム: ${zoom}`),
+        currentPosition && React.createElement('div', {
+          style: { color: 'var(--color-accent)', marginTop: '4px' },
+        }, `GPS: ${currentPosition.lat.toFixed(6)}, ${currentPosition.lng.toFixed(6)}`)
+      ),
+      React.createElement(Button, {
+        variant: 'primary', icon: 'settings',
+        onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
+        style: { marginTop: '16px' },
+      }, '設定を開く')
+    );
+  }
+
+  // ============================================================
+  // エラー画面
+  // ============================================================
+  if (mapError) {
+    return React.createElement('div', {
+      className: `map-container ${fullscreen ? 'map-container--fullscreen' : ''}`,
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--color-danger)' } }, 'error'),
+      React.createElement('p', { style: { color: 'var(--color-danger)' } }, mapError)
+    );
+  }
+
+  // ============================================================
+  // メイン地図表示
+  // ============================================================
+  return React.createElement('div', null,
+    // 地図コンテナ
+    React.createElement('div', {
+      ref: mapRef,
+      className: `map-container ${fullscreen ? 'map-container--fullscreen' : ''}`,
+      style: { minHeight: '450px' },
+    },
+      !mapLoaded && React.createElement(Loading, { message: '地図を読み込み中...' })
+    ),
+
+    // マップ操作パネル（マップの外・下に表示）
+    mapLoaded && React.createElement('div', {
+      style: {
+        marginTop: 'var(--space-md)',
+        background: 'rgba(26, 26, 46, 0.95)',
+        borderRadius: 'var(--border-radius-sm)',
+        padding: 'var(--space-md)',
+        border: '1px solid rgba(255,255,255,0.1)',
+      },
+    },
+      // ボタン行
+      React.createElement('div', {
+        style: {
+          display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center',
+        },
+      },
+        // 渋滞情報トグルボタン
+        React.createElement('button', {
+          onClick: () => setShowTraffic(prev => !prev),
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: 'pointer',
+            border: showTraffic ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showTraffic ? '#ef4444' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'traffic'),
+          `渋滞情報 ${showTraffic ? 'ON' : 'OFF'}`
+        ),
+
+        // 現在地に移動ボタン
+        currentPosition && React.createElement('button', {
+          onClick: () => {
+            if (mapInstanceRef.current && currentPosition) {
+              mapInstanceRef.current.setCenter(currentPosition);
+              mapInstanceRef.current.setZoom(15);
+            }
+          },
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: 'pointer',
+            border: '1px solid rgba(255,255,255,0.2)',
+            background: 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'my_location'),
+          '現在地'
+        ),
+
+        // Google Mapsで開く
+        React.createElement('a', {
+          href: `https://www.google.com/maps/@${mapCenter.lat},${mapCenter.lng},${zoom}z/data=!5m1!1e1`,
+          target: '_blank', rel: 'noreferrer',
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700', textDecoration: 'none',
+            color: '#fff', border: '1px solid rgba(255,255,255,0.2)',
+            background: 'rgba(255,255,255,0.08)',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'open_in_new'),
+          'Google Mapsで開く'
+        )
+      ),
+
+      // 渋滞凡例
+      showTraffic && React.createElement('div', {
+        style: {
+          marginTop: '10px', paddingTop: '10px',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center',
+        },
+      },
+        React.createElement('span', {
+          style: { fontSize: '11px', fontWeight: '600', color: 'var(--text-secondary)' },
+        }, '渋滞:'),
+        ...[
+          { c: '#22c55e', l: 'スムーズ' },
+          { c: '#f59e0b', l: 'やや混雑' },
+          { c: '#f97316', l: '混雑' },
+          { c: '#ef4444', l: '渋滞' },
+          { c: '#7f1d1d', l: '大渋滞' },
+        ].map(item =>
+          React.createElement('span', {
+            key: item.l,
+            style: { display: 'flex', alignItems: 'center', gap: '3px' },
+          },
+            React.createElement('span', {
+              style: { display: 'inline-block', width: '18px', height: '4px', borderRadius: '2px', background: item.c },
+            }),
+            React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-secondary)' } }, item.l)
+          )
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Map/GpsTracker.jsx
+// ============================================================
+(function() {
+// GpsTracker.jsx - GPS追跡パネル
+window.GpsTracker = () => {
+  const { currentPosition, isTracking, gpsError, accuracy, speed, heading } = useMapContext();
+  const geo = useGeolocation();
+
+  const formatCoord = (val) => val ? val.toFixed(6) : '---';
+  const formatAccuracy = (val) => val ? `${Math.round(val)}m` : '---';
+  const formatSpeed = (val) => val !== null && val !== undefined ? `${(val * 3.6).toFixed(1)} km/h` : '---';
+  const formatHeading = (val) => {
+    if (val === null || val === undefined) return '---';
+    const dirs = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
+    return dirs[Math.round(val / 45) % 8] + ` (${Math.round(val)}°)`;
+  };
+
+  return React.createElement('div', { className: 'gps-panel' },
+    // ステータス行
+    React.createElement('div', {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '18px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' },
+        }, isTracking ? 'gps_fixed' : 'gps_not_fixed'),
+        React.createElement('span', {
+          className: `badge ${isTracking ? 'badge--success' : 'badge--warning'}`,
+        }, isTracking ? 'GPS追跡中' : 'GPS停止中')
+      ),
+      React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+        !isTracking && React.createElement(Button, {
+          variant: 'primary',
+          icon: 'my_location',
+          onClick: () => { geo.getCurrentPosition(); },
+          style: { padding: '4px 12px', fontSize: '12px' },
+        }, '現在地'),
+        React.createElement(Button, {
+          variant: isTracking ? 'danger' : 'success',
+          icon: isTracking ? 'stop' : 'play_arrow',
+          onClick: () => isTracking ? geo.stopTracking() : geo.startTracking(),
+          style: { padding: '4px 12px', fontSize: '12px' },
+        }, isTracking ? '停止' : '追跡開始')
+      )
+    ),
+
+    // エラー表示
+    gpsError && React.createElement('div', {
+      style: { color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'warning'),
+      gpsError
+    ),
+
+    // 位置情報
+    React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' } },
+      React.createElement('div', { className: 'gps-panel__row' },
+        React.createElement('span', { className: 'gps-panel__label' }, '緯度'),
+        React.createElement('span', { className: 'gps-panel__value' }, formatCoord(currentPosition?.lat))
+      ),
+      React.createElement('div', { className: 'gps-panel__row' },
+        React.createElement('span', { className: 'gps-panel__label' }, '経度'),
+        React.createElement('span', { className: 'gps-panel__value' }, formatCoord(currentPosition?.lng))
+      ),
+      React.createElement('div', { className: 'gps-panel__row' },
+        React.createElement('span', { className: 'gps-panel__label' }, '精度'),
+        React.createElement('span', { className: 'gps-panel__value' }, formatAccuracy(accuracy))
+      ),
+      React.createElement('div', { className: 'gps-panel__row' },
+        React.createElement('span', { className: 'gps-panel__label' }, '速度'),
+        React.createElement('span', { className: 'gps-panel__value' }, formatSpeed(speed))
+      ),
+      React.createElement('div', { className: 'gps-panel__row' },
+        React.createElement('span', { className: 'gps-panel__label' }, '方角'),
+        React.createElement('span', { className: 'gps-panel__value' }, formatHeading(heading))
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Map/MapControls.jsx
+// ============================================================
+(function() {
+// MapControls.jsx - 地図操作コントロール
+//
+// 地図上に表示する操作ボタン群（渋滞情報トグル、現在地移動、外部マップ起動）
+
+window.MapControls = ({
+  showTraffic,
+  onToggleTraffic,
+  onCenterToPosition,
+  currentPosition,
+  mapCenter,
+  zoom,
+}) => {
+  const controlBtnBase = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    borderRadius: '8px',
+    fontSize: '12px',
+    fontWeight: '700',
+    color: '#fff',
+    cursor: 'pointer',
+    border: '1px solid rgba(255,255,255,0.2)',
+    background: 'rgba(26,26,46,0.85)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+    backdropFilter: 'blur(8px)',
+    transition: 'all 0.2s ease',
+  };
+
+  return React.createElement('div', {
+    style: {
+      position: 'absolute',
+      top: '12px',
+      right: '12px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '6px',
+      zIndex: 5,
+    },
+  },
+    // 渋滞情報トグル
+    React.createElement('button', {
+      onClick: onToggleTraffic,
+      style: {
+        ...controlBtnBase,
+        border: showTraffic ? 'none' : controlBtnBase.border,
+        background: showTraffic ? '#ef4444' : controlBtnBase.background,
+      },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'traffic'),
+      `渋滞情報 ${showTraffic ? 'ON' : 'OFF'}`
+    ),
+
+    // 現在地に移動
+    currentPosition && React.createElement('button', {
+      onClick: onCenterToPosition,
+      style: controlBtnBase,
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'my_location'),
+      '現在地'
+    ),
+
+    // Google Mapsで開く
+    React.createElement('a', {
+      href: `https://www.google.com/maps/@${mapCenter.lat},${mapCenter.lng},${zoom}z/data=!5m1!1e1`,
+      target: '_blank',
+      rel: 'noreferrer',
+      style: { ...controlBtnBase, textDecoration: 'none' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'open_in_new'),
+      'Google Mapsで開く'
+    )
+  );
+};
+
+// 渋滞凡例コンポーネント
+window.TrafficLegend = ({ visible }) => {
+  if (!visible) return null;
+
+  const items = [
+    { c: '#22c55e', l: 'スムーズ' },
+    { c: '#f59e0b', l: 'やや混雑' },
+    { c: '#f97316', l: '混雑' },
+    { c: '#ef4444', l: '渋滞' },
+    { c: '#7f1d1d', l: '大渋滞' },
+  ];
+
+  return React.createElement('div', {
+    style: {
+      position: 'absolute',
+      bottom: '12px',
+      left: '12px',
+      background: 'rgba(255,255,255,0.92)',
+      borderRadius: '8px',
+      padding: '6px 10px',
+      display: 'flex',
+      gap: '8px',
+      alignItems: 'center',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+      zIndex: 5,
+    },
+  },
+    React.createElement('span', {
+      style: { fontSize: '11px', fontWeight: '600', color: '#333' },
+    }, '渋滞:'),
+    ...items.map(item =>
+      React.createElement('span', {
+        key: item.l,
+        style: { display: 'flex', alignItems: 'center', gap: '3px' },
+      },
+        React.createElement('span', {
+          style: { display: 'inline-block', width: '18px', height: '4px', borderRadius: '2px', background: item.c },
+        }),
+        React.createElement('span', { style: { fontSize: '10px', color: '#555' } }, item.l)
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Layout/Header.jsx
+// ============================================================
+(function() {
+// Header.jsx - ヘッダーナビゲーション
+window.Header = () => {
+  const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
+
+  return React.createElement('header', { className: 'header' },
+    // メニュートグル（モバイル）
+    React.createElement('button', {
+      className: 'header__menu-toggle',
+      onClick: () => setSidebarOpen(!sidebarOpen),
+    },
+      React.createElement('span', { className: 'material-icons-round' }, sidebarOpen ? 'close' : 'menu')
+    ),
+
+    // ロゴ
+    React.createElement('div', {
+      className: 'header__logo',
+      onClick: () => navigate('dashboard'),
+    },
+      React.createElement('span', { className: 'material-icons-round' }, 'local_taxi'),
+      React.createElement('span', null, 'タクシー売上サポート')
+    ),
+
+    // ナビゲーション（PC用）
+    React.createElement('nav', { className: 'header__nav' },
+      APP_CONSTANTS.NAV_ITEMS.map(item =>
+        React.createElement('button', {
+          key: item.id,
+          className: `header__nav-btn ${currentPage === item.id ? 'active' : ''}`,
+          onClick: () => navigate(item.id),
+        },
+          React.createElement('span', { className: 'material-icons-round' }, item.icon),
+          React.createElement('span', null, item.label)
+        )
+      ),
+      // 開発者ツールボタン
+      React.createElement('button', {
+        className: `header__nav-btn ${currentPage.startsWith('dev') ? 'active' : ''}`,
+        onClick: () => navigate('dev'),
+        style: { marginLeft: '8px', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '16px' },
+      },
+        React.createElement('span', { className: 'material-icons-round' }, 'code'),
+        React.createElement('span', null, '開発者')
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Layout/Sidebar.jsx
+// ============================================================
+(function() {
+// Sidebar.jsx - PC用サイドバー
+window.Sidebar = () => {
+  const { currentPage, navigate, sidebarOpen } = useAppContext();
+
+  const devItems = [
+    { id: 'dev', label: '開発者ツール', icon: 'code' },
+    { id: 'dev-structure', label: 'サイト構造', icon: 'account_tree' },
+    { id: 'dev-logs', label: 'ログビューア', icon: 'terminal' },
+    { id: 'dev-api', label: 'API状態', icon: 'cloud' },
+  ];
+
+  return React.createElement('aside', {
+    className: `sidebar ${sidebarOpen ? 'open' : ''}`,
+  },
+    // メインナビ
+    React.createElement('div', { className: 'sidebar__section' },
+      React.createElement('div', { className: 'sidebar__section-title' }, 'メインメニュー'),
+      APP_CONSTANTS.NAV_ITEMS.map(item =>
+        React.createElement('button', {
+          key: item.id,
+          className: `sidebar__item ${currentPage === item.id ? 'active' : ''}`,
+          onClick: () => navigate(item.id),
+        },
+          React.createElement('span', { className: 'material-icons-round' }, item.icon),
+          item.label
+        )
+      )
+    ),
+
+    // 開発者ツール
+    React.createElement('div', { className: 'sidebar__section' },
+      React.createElement('div', { className: 'sidebar__section-title' }, '開発者ツール'),
+      devItems.map(item =>
+        React.createElement('button', {
+          key: item.id,
+          className: `sidebar__item ${currentPage === item.id ? 'active' : ''}`,
+          onClick: () => navigate(item.id),
+        },
+          React.createElement('span', { className: 'material-icons-round' }, item.icon),
+          item.label
+        )
+      )
+    ),
+
+    // バージョン
+    React.createElement('div', {
+      style: {
+        padding: 'var(--space-md)',
+        marginTop: 'auto',
+        fontSize: 'var(--font-size-xs)',
+        color: 'var(--text-muted)',
+        textAlign: 'center',
+      },
+    }, `v${APP_CONSTANTS.VERSION}`)
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Layout/BottomNav.jsx
+// ============================================================
+(function() {
+// BottomNav.jsx - モバイル用ボトムナビゲーション
+window.BottomNav = () => {
+  const { currentPage, navigate } = useAppContext();
+
+  return React.createElement('nav', { className: 'bottom-nav' },
+    React.createElement('div', { className: 'bottom-nav__items' },
+      APP_CONSTANTS.BOTTOM_NAV_ITEMS.map(item =>
+        React.createElement('button', {
+          key: item.id,
+          className: `bottom-nav__item ${currentPage === item.id ? 'active' : ''}`,
+          onClick: () => navigate(item.id),
+        },
+          React.createElement('span', { className: 'material-icons-round' }, item.icon),
+          React.createElement('span', null, item.label)
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/components/Layout/Layout.jsx
+// ============================================================
+(function() {
+// Layout.jsx - レイアウトラッパー
+window.Layout = ({ children }) => {
+  const { sidebarOpen, setSidebarOpen } = useAppContext();
+
+  return React.createElement(React.Fragment, null,
+    React.createElement(Header),
+    React.createElement(Sidebar),
+    React.createElement('main', { className: 'main-content' }, children),
+    React.createElement(BottomNav),
+
+    // オーバーレイ（モバイルサイドバー表示時）
+    sidebarOpen && React.createElement('div', {
+      style: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.5)',
+        zIndex: 800,
+      },
+      onClick: () => setSidebarOpen(false),
+    })
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/Dashboard.jsx
+// ============================================================
+(function() {
+// Dashboard.jsx - ダッシュボード（DataServiceからリアルタイムデータ取得）
+window.DashboardPage = () => {
+  const { useState, useEffect, useMemo } = React;
+  const { navigate } = useAppContext();
+  const { currentPosition, isTracking } = useMapContext();
+
+  // DataServiceからリアルタイムデータを取得
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // localStorageの変更を監視して自動更新
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
+        setRefreshKey(k => k + 1);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // 画面に戻った時も更新
+    const handleVisibility = () => {
+      if (!document.hidden) setRefreshKey(k => k + 1);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
+  const overallSummary = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
+
+  const stats = [
+    {
+      label: '本日の売上',
+      value: `¥${todaySummary.totalAmount.toLocaleString()}`,
+      icon: 'payments',
+      color: 'var(--color-secondary)',
+    },
+    {
+      label: '乗車回数',
+      value: `${todaySummary.rideCount}回`,
+      icon: 'people',
+      color: 'var(--color-primary-light)',
+    },
+    {
+      label: '平均単価',
+      value: `¥${todaySummary.avgAmount.toLocaleString()}`,
+      icon: 'price_check',
+      color: 'var(--color-accent)',
+    },
+    {
+      label: '稼働時間',
+      value: todaySummary.workTime,
+      icon: 'schedule',
+      color: 'var(--color-warning)',
+    },
+  ];
+
+  const quickActions = [
+    { label: '地図を開く', icon: 'map', page: 'map', color: 'var(--color-primary)' },
+    { label: '売上を記録', icon: 'add_circle', page: 'revenue', color: 'var(--color-accent)' },
+    { label: '分析を見る', icon: 'analytics', page: 'analytics', color: 'var(--color-secondary)' },
+    { label: '開発者ツール', icon: 'code', page: 'dev', color: 'var(--color-warning)' },
+  ];
+
+  return React.createElement('div', null,
+    // タイトル
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'dashboard'),
+      'ダッシュボード'
+    ),
+
+    // GPS状態
+    React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '24px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' },
+        }, isTracking ? 'gps_fixed' : 'gps_off'),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } },
+            isTracking ? 'GPS追跡中' : 'GPS未接続'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+            currentPosition
+              ? `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`
+              : '地図ページでGPSを有効にしてください'
+          )
+        )
+      )
+    ),
+
+    // 本日の統計カード
+    React.createElement('div', { className: 'grid grid--4', style: { marginBottom: 'var(--space-lg)' } },
+      stats.map((stat, i) =>
+        React.createElement(Card, { key: i, className: 'stat-card' },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '32px', color: stat.color, marginBottom: '8px' },
+          }, stat.icon),
+          React.createElement('div', { className: 'stat-card__value' }, stat.value),
+          React.createElement('div', { className: 'stat-card__label' }, stat.label)
+        )
+      )
+    ),
+
+    // 累計情報
+    overallSummary.rideCount > 0 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
+    },
+      React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } },
+        '累計実績'
+      ),
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', textAlign: 'center' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-secondary)' } },
+            `¥${overallSummary.totalAmount.toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上')
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
+            `${overallSummary.rideCount}回`
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計乗車')
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
+            `¥${overallSummary.dailyAvg.toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上')
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
+            `${overallSummary.activeDays}日`
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '稼働日数')
+        )
+      )
+    ),
+
+    // 最近の売上（本日分）
+    todaySummary.entries.length > 0 && React.createElement(Card, {
+      title: `本日の記録（${todaySummary.entries.length}件）`,
+      style: { marginBottom: 'var(--space-lg)' },
+    },
+      todaySummary.entries.slice(0, 5).map(entry =>
+        React.createElement('div', {
+          key: entry.id,
+          style: {
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          },
+        },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: 'var(--font-size-sm)' } },
+              `${entry.pickup || '---'} → ${entry.dropoff || '---'}`
+            ),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
+              new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+            )
+          ),
+          React.createElement('div', {
+            style: { fontWeight: 700, color: 'var(--color-secondary)' },
+          }, `¥${entry.amount.toLocaleString()}`)
+        )
+      ),
+      todaySummary.entries.length > 5 && React.createElement(Button, {
+        variant: 'secondary', icon: 'arrow_forward',
+        onClick: () => navigate('revenue'),
+        style: { marginTop: 'var(--space-sm)', width: '100%' },
+      }, 'すべての記録を見る')
+    ),
+
+    // クイックアクション
+    React.createElement('h2', {
+      style: { fontSize: 'var(--font-size-lg)', marginBottom: 'var(--space-md)', fontWeight: 500 },
+    }, 'クイックアクション'),
+
+    React.createElement('div', { className: 'grid grid--4' },
+      quickActions.map((action, i) =>
+        React.createElement(Card, {
+          key: i,
+          onClick: () => navigate(action.page),
+          style: { textAlign: 'center', cursor: 'pointer', padding: 'var(--space-lg)' },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '36px', color: action.color, marginBottom: '8px' },
+          }, action.icon),
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, action.label)
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/MapView.jsx
+// ============================================================
+(function() {
+// MapView.jsx - 地図ページ
+window.MapViewPage = () => {
+  const { useState } = React;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  return React.createElement('div', null,
+    !isFullscreen && React.createElement('div', {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' },
+    },
+      React.createElement('h1', { className: 'page-title', style: { marginBottom: 0 } },
+        React.createElement('span', { className: 'material-icons-round' }, 'map'),
+        '地図'
+      ),
+      React.createElement(Button, {
+        variant: 'secondary',
+        icon: 'fullscreen',
+        onClick: () => setIsFullscreen(true),
+      }, '全画面')
+    ),
+
+    // 地図コンテナ
+    React.createElement('div', { style: { position: 'relative' } },
+      React.createElement(GoogleMapView, { fullscreen: isFullscreen }),
+
+      // 全画面時の閉じるボタン
+      isFullscreen && React.createElement(Button, {
+        variant: 'secondary',
+        icon: 'fullscreen_exit',
+        onClick: () => setIsFullscreen(false),
+        style: {
+          position: 'absolute',
+          top: '12px',
+          right: '12px',
+          zIndex: 10,
+          background: 'rgba(26,26,46,0.9)',
+        },
+      }, '閉じる')
+    ),
+
+    // GPS追跡パネル（マップの外側・下に表示）
+    React.createElement(GpsTracker)
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/Revenue.jsx
+// ============================================================
+(function() {
+// Revenue.jsx - 売上記録ページ（DataService統合・バリデーション・CSVエクスポート）
+// v0.3.2: DataServiceのCRUDメソッドに一元化。ローカルstate独自管理を廃止し、
+//         DataServiceを唯一のデータソースとして使用する。
+// v0.3.4: 乗車地・降車地のGPS現在地取得機能を追加
+// v0.3.5: 日付・天候フィールドを追加
+// v0.3.6: 乗車時間・降車時間フィールドを追加
+// v0.3.7: 日付・曜日・天候の自動取得
+window.RevenuePage = () => {
+  const { useState, useEffect, useCallback, useRef } = React;
+
+  // 本日の日付をデフォルト値に
+  const todayDefault = new Date().toISOString().split('T')[0];
+
+  // 現在時刻をHH:MM形式で取得
+  const getNowTime = () => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  };
+
+  // WMO天気コードを天候カテゴリに変換
+  const wmoToWeather = (code) => {
+    if (code === undefined || code === null) return '';
+    // 0-1: 晴れ, 2-3: 曇り, 45-67: 雨系, 71-77,85-86: 雪系
+    if (code <= 1) return '晴れ';
+    if (code <= 3 || code === 45 || code === 48) return '曇り';
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
+    return '曇り'; // デフォルト
+  };
+
+  // DataServiceから最新データを取得するためのrefreshKey
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+  const [errors, setErrors] = useState([]);
+  const [saved, setSaved] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
+  const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const weatherFetched = useRef(false);
+
+  const { apiKey } = useAppContext();
+
+  // ページ読み込み時に天気を自動取得
+  useEffect(() => {
+    if (weatherFetched.current) return;
+    weatherFetched.current = true;
+
+    const fetchWeather = () => {
+      if (!navigator.geolocation) {
+        AppLogger.warn('天気自動取得: GPS利用不可');
+        return;
+      }
+      setWeatherLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude.toFixed(4);
+          const lng = position.coords.longitude.toFixed(4);
+          const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia%2FTokyo`;
+          fetch(url)
+            .then(res => res.json())
+            .then(data => {
+              setWeatherLoading(false);
+              if (data && data.current_weather) {
+                const w = wmoToWeather(data.current_weather.weathercode);
+                if (w) {
+                  setForm(prev => prev.weather ? prev : { ...prev, weather: w });
+                  AppLogger.info(`天気自動取得成功: ${w} (WMO code: ${data.current_weather.weathercode})`);
+                }
+              }
+            })
+            .catch(err => {
+              setWeatherLoading(false);
+              AppLogger.warn('天気API取得失敗: ' + err.message);
+            });
+        },
+        (err) => {
+          setWeatherLoading(false);
+          AppLogger.warn('天気取得用GPS失敗: ' + err.message);
+        },
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+      );
+    };
+    fetchWeather();
+  }, []);
+
+  // データは常にDataServiceから取得（単一のデータソース）
+  const entries = DataService.getEntries();
+
+  // localStorageの変更を監視して自動更新
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
+        setRefreshKey(k => k + 1);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    const handleVisibility = () => {
+      if (!document.hidden) setRefreshKey(k => k + 1);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  // GPS現在地を取得して住所に変換
+  const getGpsLocation = useCallback((field) => {
+    if (!navigator.geolocation) {
+      setErrors(['このブラウザではGPS機能が使えません']);
+      return;
+    }
+
+    setGpsLoading(prev => ({ ...prev, [field]: true }));
+    setErrors([]);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+
+        // Google Maps Geocoding APIで逆ジオコーディング
+        if (apiKey && window.google && window.google.maps) {
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            setGpsLoading(prev => ({ ...prev, [field]: false }));
+            if (status === 'OK' && results[0]) {
+              // 住所コンポーネントから簡潔な住所を生成
+              const address = _formatAddress(results[0]);
+              const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+              const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+              setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: fullAddress } }));
+              AppLogger.info(`GPS逆ジオコーディング成功 (${field}): ${address}`);
+            } else {
+              // Google Geocoding失敗時はNominatimにフォールバック
+              const timeField2 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+              const nomUrl2 = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`;
+              fetch(nomUrl2)
+                .then(res2 => res2.json())
+                .then(data2 => {
+                  if (data2 && data2.address) {
+                    const a2 = data2.address;
+                    const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
+                    const shortAddr2 = parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' ');
+                    setForm(prev => ({ ...prev, [field]: shortAddr2, [timeField2]: getNowTime() }));
+                    setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: data2.display_name || shortAddr2 } }));
+                  } else {
+                    const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                    setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
+                    setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+                  }
+                })
+                .catch(() => {
+                  const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                  setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
+                  setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+                });
+              AppLogger.warn(`Google逆ジオコーディング失敗、Nominatimにフォールバック`);
+            }
+          });
+        } else {
+          // APIキーなし or Google Maps未ロードの場合はNominatim（OpenStreetMap）で逆ジオコーディング
+          const timeField3 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+          const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`;
+          fetch(nomUrl)
+            .then(res => res.json())
+            .then(data => {
+              setGpsLoading(prev => ({ ...prev, [field]: false }));
+              if (data && data.address) {
+                // 日本の住所形式で組み立て
+                const a = data.address;
+                const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
+                const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
+                const fullAddr = data.display_name || shortAddr;
+                setForm(prev => ({ ...prev, [field]: shortAddr, [timeField3]: getNowTime() }));
+                setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: fullAddr } }));
+                AppLogger.info(`Nominatim逆ジオコーディング成功 (${field}): ${shortAddr}`);
+              } else {
+                const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
+                setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+                AppLogger.warn(`Nominatim逆ジオコーディング失敗、座標を使用: ${coordStr}`);
+              }
+            })
+            .catch(err => {
+              setGpsLoading(prev => ({ ...prev, [field]: false }));
+              const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null } }));
+              AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
+            });
+        }
+      },
+      (error) => {
+        setGpsLoading(prev => ({ ...prev, [field]: false }));
+        const messages = {
+          1: 'GPS使用が許可されていません。ブラウザの設定を確認してください。',
+          2: '現在地を取得できませんでした。',
+          3: 'GPS取得がタイムアウトしました。',
+        };
+        setErrors([messages[error.code] || 'GPS取得に失敗しました']);
+        AppLogger.error(`GPS取得失敗 (${field}): code=${error.code}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  }, [apiKey]);
+
+  // Geocoding結果から簡潔な住所を抽出
+  function _formatAddress(result) {
+    const comps = result.address_components;
+    // 都道府県、市区町村、町名、番地を抽出
+    let prefecture = '';
+    let city = '';
+    let ward = '';
+    let town = '';
+    let sublocality = '';
+
+    for (const c of comps) {
+      if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
+      if (c.types.includes('locality')) city = c.long_name;
+      if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
+      if (c.types.includes('sublocality_level_2')) town = c.long_name;
+      if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
+    }
+
+    // 簡潔な形式: 市区町村 + 町名 (都道府県は省略可)
+    const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
+    if (parts.length > 0) return parts.join(' ');
+
+    // フォールバック: formatted_address から国名を除去
+    return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setErrors([]);
+
+    // DataServiceのaddEntryに完全委譲（バリデーション含む）
+    const result = DataService.addEntry(form);
+    if (!result.success) {
+      setErrors(result.errors);
+      return;
+    }
+
+    setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+    setGpsInfo({ pickup: null, dropoff: null });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    setRefreshKey(k => k + 1);
+  };
+
+  const handleDelete = useCallback((id) => {
+    DataService.deleteEntry(id);
+    setRefreshKey(k => k + 1);
+  }, []);
+
+  const handleExportCSV = () => {
+    DataService.downloadCSV();
+  };
+
+  const handleClearAll = () => {
+    if (entries.length === 0) return;
+    DataService.clearAllEntries();
+    setRefreshKey(k => k + 1);
+  };
+
+  // 本日の日付文字列
+  const today = new Date().toISOString().split('T')[0];
+  const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
+  const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
+  const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
+
+  // GPS取得ボタンのスタイル
+  const gpsButtonStyle = (loading) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+    padding: '8px 12px', borderRadius: '6px',
+    fontSize: '11px', fontWeight: '600',
+    color: loading ? 'var(--color-secondary)' : '#fff',
+    cursor: loading ? 'wait' : 'pointer',
+    border: '1px solid rgba(255,255,255,0.15)',
+    background: loading ? 'rgba(249,168,37,0.15)' : 'rgba(26,115,232,0.2)',
+    transition: 'all 0.2s ease',
+    whiteSpace: 'nowrap',
+    minWidth: '0',
+    flex: '0 0 auto',
+  });
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'receipt_long'),
+      '売上記録'
+    ),
+
+    // 本日の合計
+    React.createElement(Card, { style: { marginBottom: 'var(--space-lg)', textAlign: 'center' } },
+      React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, '本日の売上合計'),
+      React.createElement('div', {
+        style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '8px 0' },
+      }, `¥${todayTotal.toLocaleString()}`),
+      React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' } },
+        `本日 ${todayEntries.length} 件 / 全 ${entries.length} 件（累計 ¥${allTotal.toLocaleString()}）`
+      )
+    ),
+
+    // 入力フォーム
+    React.createElement(Card, { title: '新規売上を記録', style: { marginBottom: 'var(--space-lg)' } },
+      // バリデーションエラー表示
+      errors.length > 0 && React.createElement('div', {
+        style: {
+          background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
+          borderRadius: '8px', padding: '8px 12px', marginBottom: 'var(--space-md)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '18px', color: 'var(--color-danger)' },
+        }, 'error'),
+        React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' } },
+          errors.join('、')
+        )
+      ),
+
+      // 保存成功メッセージ
+      saved && React.createElement('div', {
+        style: {
+          background: 'rgba(0,200,83,0.1)', border: '1px solid rgba(0,200,83,0.3)',
+          borderRadius: '8px', padding: '8px 12px', marginBottom: 'var(--space-md)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '18px', color: 'var(--color-accent)' },
+        }, 'check_circle'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-accent)' } },
+          '記録を追加しました'
+        )
+      ),
+
+      React.createElement('form', { onSubmit: handleSubmit },
+        React.createElement('div', { className: 'grid grid--2' },
+          // 日付（自動：本日 + 曜日・祝日を自動計算）
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              '日付 *',
+              React.createElement('span', {
+                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
+              }, '自動')
+            ),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'date',
+              value: form.date,
+              onChange: (e) => setForm({ ...form, date: e.target.value }),
+              required: true,
+              style: { colorScheme: 'dark' },
+            }),
+            // 曜日・祝日の自動表示
+            form.date && (() => {
+              const info = JapaneseHolidays.getDateInfo(form.date);
+              const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-secondary)';
+              return React.createElement('div', {
+                style: { marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+              },
+                React.createElement('span', {
+                  style: {
+                    fontSize: '13px', fontWeight: '600', color: dayColor,
+                    padding: '2px 10px', borderRadius: '4px',
+                    background: info.isSunday || info.isHoliday ? 'rgba(239,68,68,0.12)' : info.isSaturday ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.06)',
+                  },
+                }, `${info.dayOfWeek}曜日`),
+                info.holiday && React.createElement('span', {
+                  style: {
+                    fontSize: '12px', fontWeight: '600', color: '#ef4444',
+                    padding: '2px 10px', borderRadius: '4px',
+                    background: 'rgba(239,68,68,0.12)',
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '13px' } }, '🎌'),
+                  info.holiday
+                )
+              );
+            })()
+          ),
+
+          // 天候（自動取得 + 手動変更可）
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              '天候',
+              weatherLoading && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: '400', animation: 'pulse 1.5s ease-in-out infinite' },
+              }, '取得中...'),
+              !weatherLoading && form.weather && React.createElement('span', {
+                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
+              }, '自動取得済')
+            ),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...[
+                { value: '晴れ', icon: '☀️' },
+                { value: '曇り', icon: '☁️' },
+                { value: '雨', icon: '🌧️' },
+                { value: '雪', icon: '❄️' },
+              ].map(w =>
+                React.createElement('button', {
+                  key: w.value,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, weather: form.weather === w.value ? '' : w.value }),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '8px 14px', borderRadius: '8px',
+                    fontSize: '13px', fontWeight: form.weather === w.value ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.weather === w.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.weather === w.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.weather === w.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '16px' } }, w.icon),
+                  w.value
+                )
+              )
+            )
+          ),
+
+          // 金額
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '金額 (円) *'),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'number',
+              min: '1',
+              max: '1000000',
+              placeholder: '3500',
+              value: form.amount,
+              onChange: (e) => { setForm({ ...form, amount: e.target.value }); setErrors([]); },
+              required: true,
+            })
+          ),
+
+          // 乗車地（GPS付き）
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '乗車地'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'text',
+                placeholder: '東京駅',
+                value: form.pickup,
+                onChange: (e) => { setForm({ ...form, pickup: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, pickup: null })); },
+                style: { flex: 1, minWidth: 0 },
+              }),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => getGpsLocation('pickup'),
+                disabled: gpsLoading.pickup,
+                style: gpsButtonStyle(gpsLoading.pickup),
+                title: 'GPSで現在地を取得',
+              },
+                React.createElement('span', {
+                  className: 'material-icons-round',
+                  style: { fontSize: '16px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
+                }, gpsLoading.pickup ? 'sync' : 'my_location'),
+                gpsLoading.pickup ? '取得中' : 'GPS'
+              )
+            ),
+            // GPS取得結果の住所・座標表示
+            gpsInfo.pickup && React.createElement('div', {
+              style: {
+                marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
+                background: 'rgba(26,115,232,0.08)', border: '1px solid rgba(26,115,232,0.15)',
+                fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.5',
+              },
+            },
+              gpsInfo.pickup.address && React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '4px', marginBottom: '3px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px', color: 'var(--color-primary-light)', marginTop: '1px', flexShrink: 0 } }, 'place'),
+                React.createElement('span', { style: { fontWeight: '600', color: 'var(--color-primary-light)', wordBreak: 'break-all' } }, gpsInfo.pickup.address)
+              ),
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', flexShrink: 0 } }, 'gps_fixed'),
+                `${gpsInfo.pickup.lat.toFixed(6)}, ${gpsInfo.pickup.lng.toFixed(6)}`
+              )
+            )
+          ),
+
+          // 乗車時間
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '乗車時間'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'time',
+                value: form.pickupTime,
+                onChange: (e) => setForm({ ...form, pickupTime: e.target.value }),
+                style: { flex: 1, minWidth: 0, colorScheme: 'dark' },
+              }),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => setForm({ ...form, pickupTime: getNowTime() }),
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                  color: '#fff', cursor: 'pointer',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'rgba(0,200,83,0.2)',
+                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                },
+                title: '現在時刻をセット',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
+                '現在'
+              )
+            )
+          ),
+
+          // 降車地（GPS付き）
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '降車地'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'text',
+                placeholder: '渋谷駅',
+                value: form.dropoff,
+                onChange: (e) => { setForm({ ...form, dropoff: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, dropoff: null })); },
+                style: { flex: 1, minWidth: 0 },
+              }),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => getGpsLocation('dropoff'),
+                disabled: gpsLoading.dropoff,
+                style: gpsButtonStyle(gpsLoading.dropoff),
+                title: 'GPSで現在地を取得',
+              },
+                React.createElement('span', {
+                  className: 'material-icons-round',
+                  style: { fontSize: '16px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
+                }, gpsLoading.dropoff ? 'sync' : 'my_location'),
+                gpsLoading.dropoff ? '取得中' : 'GPS'
+              )
+            ),
+            // GPS取得結果の住所・座標表示
+            gpsInfo.dropoff && React.createElement('div', {
+              style: {
+                marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
+                background: 'rgba(0,200,83,0.08)', border: '1px solid rgba(0,200,83,0.15)',
+                fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.5',
+              },
+            },
+              gpsInfo.dropoff.address && React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '4px', marginBottom: '3px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px', color: 'var(--color-accent)', marginTop: '1px', flexShrink: 0 } }, 'place'),
+                React.createElement('span', { style: { fontWeight: '600', color: 'var(--color-accent)', wordBreak: 'break-all' } }, gpsInfo.dropoff.address)
+              ),
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)', fontSize: '10px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', flexShrink: 0 } }, 'gps_fixed'),
+                `${gpsInfo.dropoff.lat.toFixed(6)}, ${gpsInfo.dropoff.lng.toFixed(6)}`
+              )
+            )
+          ),
+
+          // 降車時間
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '降車時間'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'time',
+                value: form.dropoffTime,
+                onChange: (e) => setForm({ ...form, dropoffTime: e.target.value }),
+                style: { flex: 1, minWidth: 0, colorScheme: 'dark' },
+              }),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => setForm({ ...form, dropoffTime: getNowTime() }),
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                  color: '#fff', cursor: 'pointer',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'rgba(0,200,83,0.2)',
+                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                },
+                title: '現在時刻をセット',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
+                '現在'
+              )
+            )
+          ),
+
+          // お客様人数
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, 'お客様人数'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...['1', '2', '3', '4'].map(n =>
+                React.createElement('button', {
+                  key: n,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, passengers: n }),
+                  style: {
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: '44px', height: '44px', borderRadius: '8px',
+                    fontSize: '15px', fontWeight: form.passengers === n ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.passengers === n ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.passengers === n ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.passengers === n ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                }, `${n}名`)
+              ),
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'number',
+                min: '1',
+                max: '99',
+                placeholder: '5+',
+                value: !['1','2','3','4'].includes(form.passengers) ? form.passengers : '',
+                onChange: (e) => setForm({ ...form, passengers: e.target.value }),
+                onFocus: () => { if (['1','2','3','4'].includes(form.passengers)) setForm({ ...form, passengers: '' }); },
+                style: { width: '60px', minWidth: '60px', flex: '0 0 auto', textAlign: 'center', fontSize: '14px' },
+              })
+            )
+          ),
+
+          // お客様性別
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, 'お客様性別'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...[
+                { value: '男性', icon: '👨' },
+                { value: '女性', icon: '👩' },
+                { value: '混合', icon: '👥' },
+              ].map(g =>
+                React.createElement('button', {
+                  key: g.value,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, gender: form.gender === g.value ? '' : g.value }),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '8px 14px', borderRadius: '8px',
+                    fontSize: '13px', fontWeight: form.gender === g.value ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.gender === g.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.gender === g.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.gender === g.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '16px' } }, g.icon),
+                  g.value
+                )
+              )
+            )
+          ),
+
+          // 用途
+          React.createElement('div', { className: 'form-group', style: { gridColumn: '1 / -1' } },
+            React.createElement('label', { className: 'form-label' }, '用途'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...[
+                { value: '通勤', icon: '🏢' },
+                { value: '通院', icon: '🏥' },
+                { value: '買物', icon: '🛒' },
+                { value: '観光', icon: '📸' },
+                { value: '出張', icon: '💼' },
+                { value: '送迎', icon: '🚗' },
+                { value: '空港', icon: '✈️' },
+                { value: '飲食', icon: '🍺' },
+                { value: 'その他', icon: '📝' },
+              ].map(p =>
+                React.createElement('button', {
+                  key: p.value,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, purpose: form.purpose === p.value ? '' : p.value }),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '8px 12px', borderRadius: '8px',
+                    fontSize: '12px', fontWeight: form.purpose === p.value ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.purpose === p.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.purpose === p.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.purpose === p.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '14px' } }, p.icon),
+                  p.value
+                )
+              )
+            )
+          ),
+
+          // メモ
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, 'メモ'),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'text',
+              placeholder: '任意のメモ',
+              value: form.memo,
+              onChange: (e) => setForm({ ...form, memo: e.target.value }),
+            })
+          )
+        ),
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'add',
+          style: { marginTop: 'var(--space-sm)' },
+        }, '記録を追加')
+      )
+    ),
+
+    // データ管理ツールバー
+    React.createElement(Card, { style: { marginBottom: 'var(--space-md)' } },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-primary-light)' } }, 'folder'),
+        React.createElement('span', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' } }, 'データ管理'),
+        entries.length > 0 && React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', marginLeft: 'auto' } },
+          `全 ${entries.length} 件の記録`
+        )
+      ),
+      React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+        // 保存先フォルダ選択
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: DataService.hasSaveFolder() ? 'folder_open' : 'create_new_folder',
+          onClick: async () => {
+            const result = await DataService.selectSaveFolder();
+            if (result.success) {
+              setSaved(false); setErrors([]);
+              alert('保存先フォルダを設定しました: ' + result.folderName + '\n\n記録の追加時に自動保存されます。');
+              setRefreshKey(k => k + 1);
+            } else {
+              if (result.message) alert(result.message);
+            }
+          },
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, DataService.hasSaveFolder() ? '保存先変更' : '保存先フォルダ設定'),
+        // 手動保存
+        entries.length > 0 && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'save',
+          onClick: () => DataService.autoSaveToFile(),
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, 'JSON保存'),
+        // CSVエクスポート
+        entries.length > 0 && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'download',
+          onClick: handleExportCSV,
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, 'CSV出力'),
+        // ファイルから復元
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'upload_file',
+          onClick: async () => {
+            const result = await DataService.importFromFile();
+            if (result.success) {
+              setRefreshKey(k => k + 1);
+              alert(result.message);
+            } else {
+              if (result.message) alert(result.message);
+            }
+          },
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, 'ファイル復元'),
+        // 全削除
+        entries.length > 0 && React.createElement(Button, {
+          variant: 'danger',
+          icon: 'delete_forever',
+          onClick: () => { if (confirm('全ての売上記録を削除しますか？この操作は取り消せません。')) handleClearAll(); },
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, '全削除')
+      ),
+      // 保存先フォルダ状態表示
+      React.createElement('div', {
+        style: { marginTop: '8px', fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
+        DataService.hasSaveFolder()
+          ? '保存先フォルダ設定済み — 記録追加時に自動保存されます'
+          : '保存先フォルダ未設定 — 記録追加時にダウンロードとして保存されます'
+      )
+    ),
+
+    // 記録一覧
+    entries.length > 0 && React.createElement(Card, { title: `記録一覧（${entries.length}件）` },
+      entries.map(entry =>
+        React.createElement('div', {
+          key: entry.id,
+          style: {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 0',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          },
+        },
+          React.createElement('div', { style: { flex: 1 } },
+            React.createElement('div', { style: { fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } },
+              entry.pickupTime && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--color-primary-light)', fontWeight: '600', padding: '1px 6px', borderRadius: '3px', background: 'rgba(26,115,232,0.12)' },
+              }, entry.pickupTime),
+              React.createElement('span', null, `${entry.pickup || '---'}`),
+              React.createElement('span', { style: { color: 'var(--text-muted)', margin: '0 2px' } }, '→'),
+              entry.dropoffTime && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--color-accent)', fontWeight: '600', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.12)' },
+              }, entry.dropoffTime),
+              React.createElement('span', null, `${entry.dropoff || '---'}`)
+            ),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px' } },
+              (() => {
+                const eDate = entry.date || new Date(entry.timestamp).toISOString().split('T')[0];
+                const info = entry.dayOfWeek ? { dayOfWeek: entry.dayOfWeek, holiday: entry.holiday, isSunday: entry.dayOfWeek === '日', isSaturday: entry.dayOfWeek === '土', isHoliday: !!entry.holiday } : JapaneseHolidays.getDateInfo(eDate);
+                const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
+                return React.createElement(React.Fragment, null,
+                  React.createElement('span', null, eDate),
+                  React.createElement('span', { style: { color: dayColor, fontWeight: '600' } }, `(${info.dayOfWeek})`),
+                  info.holiday && React.createElement('span', {
+                    style: { color: '#ef4444', fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(239,68,68,0.1)' },
+                  }, info.holiday),
+                  entry.weather && React.createElement('span', null, entry.weather),
+                  entry.passengers && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' },
+                  }, `${entry.passengers}名`),
+                  entry.gender && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' },
+                  }, entry.gender),
+                  entry.purpose && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(26,115,232,0.1)', color: 'var(--color-primary-light)' },
+                  }, entry.purpose),
+                  React.createElement('span', null, new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })),
+                  entry.memo && React.createElement('span', null, `| ${entry.memo}`)
+                );
+              })()
+            )
+          ),
+          React.createElement('div', {
+            style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: 'var(--font-size-lg)', marginRight: '12px' },
+          }, `¥${entry.amount.toLocaleString()}`),
+          React.createElement('button', {
+            onClick: () => handleDelete(entry.id),
+            style: {
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text-muted)', padding: '4px',
+              borderRadius: '4px', transition: 'color 0.2s',
+            },
+            title: '削除',
+          },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '18px' },
+            }, 'delete_outline')
+          )
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/Analytics.jsx
+// ============================================================
+(function() {
+// Analytics.jsx - 売上分析ページ（DataServiceによるリアルデータ分析）
+// v0.3.1: useMemoの依存配列修正 — データ追加後に分析結果が更新されるようにrefreshKeyを導入
+window.AnalyticsPage = () => {
+  const { useState, useEffect, useMemo } = React;
+  const [tab, setTab] = useState('daily');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // localStorageの変更を監視して自動更新（Dashboardと同じパターン）
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
+        setRefreshKey(k => k + 1);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // 画面に戻った時も更新
+    const handleVisibility = () => {
+      if (!document.hidden) setRefreshKey(k => k + 1);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  const daily = useMemo(() => DataService.getDailyBreakdown(30), [refreshKey]);
+  const dayOfWeek = useMemo(() => DataService.getDayOfWeekBreakdown(), [refreshKey]);
+  const hourly = useMemo(() => DataService.getHourlyBreakdown(), [refreshKey]);
+  const areas = useMemo(() => DataService.getAreaBreakdown(), [refreshKey]);
+  const overall = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
+  const monthly = useMemo(() => DataService.getMonthlyBreakdown(), [refreshKey]);
+
+  const hasData = overall.rideCount > 0;
+
+  // バーチャートコンポーネント（CSS純正）
+  const BarChart = ({ data, valueKey, labelKey, color, maxBars = 30, height = 200, prefix = '¥' }) => {
+    const maxVal = Math.max(...data.map(d => d[valueKey]), 1);
+    const barData = data.slice(-maxBars);
+
+    return React.createElement('div', {
+      style: { display: 'flex', alignItems: 'flex-end', gap: '2px', height: `${height}px`, padding: '0 4px' },
+    },
+      barData.map((d, i) => {
+        const pct = (d[valueKey] / maxVal) * 100;
+        return React.createElement('div', {
+          key: i,
+          style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' },
+          title: `${d[labelKey]}: ${prefix}${d[valueKey].toLocaleString()}`,
+        },
+          React.createElement('div', {
+            style: {
+              width: '100%', minHeight: '2px',
+              height: `${Math.max(pct, 1)}%`,
+              background: d[valueKey] === 0 ? 'rgba(255,255,255,0.05)' : color,
+              borderRadius: '3px 3px 0 0',
+              transition: 'height 0.3s ease',
+            },
+          })
+        );
+      })
+    );
+  };
+
+  // 横棒グラフ
+  const HBarChart = ({ data, nameKey, valueKey, color, prefix = '¥' }) => {
+    const maxVal = Math.max(...data.map(d => d[valueKey]), 1);
+    return React.createElement('div', { style: { display: 'grid', gap: '6px' } },
+      data.map((d, i) => {
+        const pct = (d[valueKey] / maxVal) * 100;
+        return React.createElement('div', { key: i },
+          React.createElement('div', {
+            style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginBottom: '2px' },
+          },
+            React.createElement('span', null, d[nameKey]),
+            React.createElement('span', { style: { fontWeight: 500, color: 'var(--text-primary)' } }, `${prefix}${d[valueKey].toLocaleString()}`)
+          ),
+          React.createElement('div', {
+            style: { background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '8px', overflow: 'hidden' },
+          },
+            React.createElement('div', {
+              style: { width: `${pct}%`, height: '100%', background: color, borderRadius: '4px', transition: 'width 0.3s ease' },
+            })
+          )
+        );
+      })
+    );
+  };
+
+  // データなし画面
+  if (!hasData) {
+    return React.createElement('div', null,
+      React.createElement('h1', { className: 'page-title' },
+        React.createElement('span', { className: 'material-icons-round' }, 'analytics'),
+        '売上分析'
+      ),
+      React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '64px', color: 'var(--text-muted)', marginBottom: '16px' },
+        }, 'bar_chart'),
+        React.createElement('h3', { style: { marginBottom: '8px' } }, 'まだデータがありません'),
+        React.createElement('p', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } },
+          '売上記録ページからデータを追加すると、ここに分析結果が表示されます。'
+        )
+      )
+    );
+  }
+
+  const tabs = [
+    { id: 'daily', label: '日別', icon: 'calendar_today' },
+    { id: 'dayOfWeek', label: '曜日別', icon: 'date_range' },
+    { id: 'hourly', label: '時間帯別', icon: 'schedule' },
+    { id: 'area', label: 'エリア別', icon: 'place' },
+  ];
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'analytics'),
+      '売上分析'
+    ),
+
+    // サマリーカード
+    React.createElement('div', { className: 'grid grid--4', style: { marginBottom: 'var(--space-lg)' } },
+      [
+        { label: '累計売上', value: `¥${overall.totalAmount.toLocaleString()}`, icon: 'payments', color: 'var(--color-secondary)' },
+        { label: '累計乗車', value: `${overall.rideCount}回`, icon: 'people', color: 'var(--color-primary-light)' },
+        { label: '平均単価', value: `¥${overall.avgAmount.toLocaleString()}`, icon: 'price_check', color: 'var(--color-accent)' },
+        { label: '日平均', value: `¥${overall.dailyAvg.toLocaleString()}`, icon: 'trending_up', color: 'var(--color-warning)' },
+      ].map((s, i) =>
+        React.createElement(Card, { key: i, className: 'stat-card' },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '28px', color: s.color, marginBottom: '4px' },
+          }, s.icon),
+          React.createElement('div', { className: 'stat-card__value', style: { fontSize: 'var(--font-size-xl)' } }, s.value),
+          React.createElement('div', { className: 'stat-card__label' }, s.label)
+        )
+      )
+    ),
+
+    // タブ切り替え
+    React.createElement('div', {
+      style: { display: 'flex', gap: '4px', marginBottom: 'var(--space-lg)', flexWrap: 'wrap' },
+    },
+      tabs.map(t =>
+        React.createElement('button', {
+          key: t.id,
+          onClick: () => setTab(t.id),
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 16px', border: 'none', borderRadius: '20px', cursor: 'pointer',
+            fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-family)',
+            background: tab === t.id ? 'rgba(26,115,232,0.2)' : 'rgba(255,255,255,0.04)',
+            color: tab === t.id ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, t.icon),
+          t.label
+        )
+      )
+    ),
+
+    // 日別タブ
+    tab === 'daily' && React.createElement(React.Fragment, null,
+      React.createElement(Card, { title: '過去30日間の売上推移', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(BarChart, { data: daily, valueKey: 'amount', labelKey: 'date', color: 'var(--color-primary-light)', height: 180 }),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '8px', padding: '0 4px' },
+        },
+          React.createElement('span', null, daily.length > 0 ? daily[0].date.slice(5) : ''),
+          React.createElement('span', null, '今日')
+        )
+      ),
+      monthly.length > 0 && React.createElement(Card, { title: '月別集計', style: { marginBottom: 'var(--space-lg)' } },
+        monthly.map((m, i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+          },
+            React.createElement('span', { style: { fontWeight: 500 } }, m.month),
+            React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'center' } },
+              React.createElement('span', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, `${m.count}回`),
+              React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${m.amount.toLocaleString()}`)
+            )
+          )
+        )
+      )
+    ),
+
+    // 曜日別タブ
+    tab === 'dayOfWeek' && React.createElement(React.Fragment, null,
+      React.createElement(Card, { title: '曜日別売上合計', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(BarChart, { data: dayOfWeek, valueKey: 'amount', labelKey: 'name', color: 'var(--color-accent)', height: 160 }),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-around', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px' },
+        }, dayOfWeek.map(d => React.createElement('span', { key: d.name }, d.name)))
+      ),
+      React.createElement(Card, { title: '曜日別詳細' },
+        dayOfWeek.map((d, i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'grid', gridTemplateColumns: '40px 1fr 80px 80px', gap: '8px', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+          },
+            React.createElement('span', {
+              style: { fontWeight: 700, color: (d.index === 0 || d.index === 6) ? 'var(--color-danger)' : 'var(--text-primary)' },
+            }, d.name),
+            React.createElement('div', {
+              style: { background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '6px', overflow: 'hidden' },
+            },
+              React.createElement('div', {
+                style: { width: `${d.count > 0 ? (d.amount / Math.max(...dayOfWeek.map(x => x.amount), 1)) * 100 : 0}%`, height: '100%', background: 'var(--color-accent)', borderRadius: '4px' },
+              })
+            ),
+            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', textAlign: 'right' } }, `${d.count}回`),
+            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500, textAlign: 'right' } }, `¥${d.amount.toLocaleString()}`)
+          )
+        )
+      )
+    ),
+
+    // 時間帯別タブ
+    tab === 'hourly' && React.createElement(React.Fragment, null,
+      React.createElement(Card, { title: '時間帯別売上', subtitle: '各時間帯の合計売上額', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(BarChart, { data: hourly, valueKey: 'amount', labelKey: 'label', color: 'var(--color-warning)', height: 160, maxBars: 24 }),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px' },
+        },
+          React.createElement('span', null, '0時'),
+          React.createElement('span', null, '6時'),
+          React.createElement('span', null, '12時'),
+          React.createElement('span', null, '18時'),
+          React.createElement('span', null, '23時')
+        )
+      ),
+      React.createElement(Card, { title: '売上上位の時間帯' },
+        (() => {
+          const sorted = [...hourly].filter(h => h.count > 0).sort((a, b) => b.amount - a.amount).slice(0, 5);
+          return sorted.length > 0
+            ? React.createElement(HBarChart, { data: sorted, nameKey: 'label', valueKey: 'amount', color: 'var(--color-warning)' })
+            : React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' } }, 'データなし');
+        })()
+      )
+    ),
+
+    // エリア別タブ
+    tab === 'area' && React.createElement('div', { className: 'grid grid--2', style: { gap: 'var(--space-lg)' } },
+      // 乗車地
+      React.createElement(Card, { title: '乗車地ランキング', subtitle: `上位 ${Math.min(areas.pickups.length, 10)} 件` },
+        areas.pickups.length === 0
+          ? React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' } }, '乗車地データなし')
+          : areas.pickups.map((p, i) =>
+              React.createElement('div', {
+                key: i,
+                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+              },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                  React.createElement('span', {
+                    style: {
+                      width: '24px', height: '24px', borderRadius: '50%',
+                      background: i < 3 ? 'var(--color-secondary)' : 'rgba(255,255,255,0.1)',
+                      color: i < 3 ? 'var(--text-dark)' : 'var(--text-secondary)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--font-size-xs)', fontWeight: 700,
+                    },
+                  }, `${i + 1}`),
+                  React.createElement('span', { style: { fontSize: 'var(--font-size-sm)' } }, p.name)
+                ),
+                React.createElement('div', { style: { textAlign: 'right' } },
+                  React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500 } }, `${p.count}回`),
+                  React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--color-secondary)' } }, `¥${p.amount.toLocaleString()}`)
+                )
+              )
+            )
+      ),
+      // 降車地
+      React.createElement(Card, { title: '降車地ランキング', subtitle: `上位 ${Math.min(areas.dropoffs.length, 10)} 件` },
+        areas.dropoffs.length === 0
+          ? React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' } }, '降車地データなし')
+          : areas.dropoffs.map((p, i) =>
+              React.createElement('div', {
+                key: i,
+                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+              },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                  React.createElement('span', {
+                    style: {
+                      width: '24px', height: '24px', borderRadius: '50%',
+                      background: i < 3 ? 'var(--color-accent)' : 'rgba(255,255,255,0.1)',
+                      color: i < 3 ? '#fff' : 'var(--text-secondary)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--font-size-xs)', fontWeight: 700,
+                    },
+                  }, `${i + 1}`),
+                  React.createElement('span', { style: { fontSize: 'var(--font-size-sm)' } }, p.name)
+                ),
+                React.createElement('div', { style: { textAlign: 'right' } },
+                  React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500 } }, `${p.count}回`),
+                  React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)' } }, `¥${p.amount.toLocaleString()}`)
+                )
+              )
+            )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/Settings.jsx
+// ============================================================
+(function() {
+// Settings.jsx - 設定ページ
+window.SettingsPage = () => {
+  const { useState } = React;
+  const { apiKey, setApiKey } = useAppContext();
+  const [inputKey, setInputKey] = useState(apiKey);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    setApiKey(inputKey.trim());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleClear = () => {
+    setApiKey('');
+    setInputKey('');
+    // Google Maps のスクリプトをリロードするために状態をリセット
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (existingScript) existingScript.remove();
+    if (window.google && window.google.maps) {
+      delete window.google.maps;
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'settings'),
+      '設定'
+    ),
+
+    // Google Maps API キー
+    React.createElement(Card, { title: 'Google Maps API キー', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, 'Google Maps を表示するにはAPIキーが必要です。'),
+
+      React.createElement('div', { className: 'form-group' },
+        React.createElement('label', { className: 'form-label' }, 'APIキー'),
+        React.createElement('input', {
+          className: 'form-input',
+          type: 'text',
+          placeholder: 'AIzaSy...',
+          value: inputKey,
+          onChange: (e) => setInputKey(e.target.value),
+          style: { fontFamily: 'monospace' },
+        })
+      ),
+
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'save',
+          onClick: handleSave,
+        }, '保存'),
+        inputKey && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'delete',
+          onClick: handleClear,
+        }, 'クリア'),
+        saved && React.createElement('span', {
+          style: { color: 'var(--color-accent)', fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
+          '保存しました'
+        ),
+        apiKey && React.createElement('span', { className: 'badge badge--success' }, 'APIキー設定済み'),
+        !apiKey && React.createElement('span', { className: 'badge badge--warning' }, 'デモモード')
+      ),
+
+      // トラブルシューティング
+      apiKey && React.createElement('div', {
+        style: {
+          marginTop: 'var(--space-md)', padding: 'var(--space-md)',
+          background: 'rgba(249, 168, 37, 0.08)', borderRadius: '8px', border: '1px solid rgba(249, 168, 37, 0.2)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-secondary)' } }, 'info'),
+          React.createElement('strong', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-secondary)' } }, '地図が正しく表示されない場合')
+        ),
+        React.createElement('div', {
+          style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', lineHeight: 1.8 },
+        },
+          React.createElement('p', { style: { margin: '4px 0' } }, '「For development purposes only」と表示される場合：'),
+          React.createElement('p', { style: { margin: '2px 0', paddingLeft: '12px' } }, '① Google Cloud Console で請求先アカウント（Billing）を有効にしてください'),
+          React.createElement('p', { style: { margin: '2px 0', paddingLeft: '12px' } }, '② 「Maps JavaScript API」が有効になっていることを確認してください'),
+          React.createElement('p', { style: { margin: '4px 0', marginTop: '8px' } }, '地図が全く表示されない場合：'),
+          React.createElement('p', { style: { margin: '2px 0', paddingLeft: '12px' } }, '③ APIキーの「アプリケーションの制限」で HTTP リファラーを「なし」に設定してください'),
+          React.createElement('p', { style: { margin: '2px 0', paddingLeft: '12px' } }, '④ ローカルファイルから開く場合、リファラー制限があると動作しません')
+        )
+      ),
+
+      // 取得手順
+      React.createElement('details', {
+        style: { marginTop: 'var(--space-md)', cursor: 'pointer' },
+      },
+        React.createElement('summary', {
+          style: { color: 'var(--color-primary-light)', fontSize: 'var(--font-size-sm)' },
+        }, 'APIキーの取得方法（初めての方）'),
+        React.createElement('div', {
+          style: { padding: 'var(--space-md)', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', lineHeight: 1.8 },
+        },
+          React.createElement('p', null, '1. Google Cloud Console（https://console.cloud.google.com）にアクセス'),
+          React.createElement('p', null, '2. プロジェクトを作成または選択'),
+          React.createElement('p', { style: { color: 'var(--color-warning)' } }, '3. 「お支払い」から請求先アカウントを設定（月$200分の無料枠あり）'),
+          React.createElement('p', null, '4. 「APIとサービス」→「ライブラリ」から「Maps JavaScript API」を有効化'),
+          React.createElement('p', null, '5. 「認証情報」→「認証情報を作成」→「APIキー」を選択'),
+          React.createElement('p', { style: { color: 'var(--color-warning)' } }, '6. APIキーの「アプリケーションの制限」は「なし」に設定'),
+          React.createElement('p', null, '7. 上のフォームにAPIキーを貼り付けて保存'),
+          React.createElement('p', {
+            style: { marginTop: '8px', padding: '8px 12px', background: 'rgba(0,200,83,0.08)', borderRadius: '6px', color: 'var(--color-accent)' },
+          }, '※ 月$200の無料クレジットがあるため、個人利用では通常料金はかかりません。')
+        )
+      )
+    ),
+
+    // GPS設定
+    React.createElement(Card, { title: 'GPS設定', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '高精度モード'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPSの精度を最大にする（バッテリー消費が増えます）')
+        ),
+        React.createElement('span', { className: 'badge badge--success' }, '有効')
+      ),
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'バックグラウンド追跡'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'アプリがバックグラウンドでも位置を追跡')
+        ),
+        React.createElement('span', { className: 'badge badge--warning' }, 'PWA必要')
+      )
+    ),
+
+    // アプリ情報
+    React.createElement(Card, { title: 'アプリ情報' },
+      React.createElement('div', { style: { display: 'grid', gap: '8px', fontSize: 'var(--font-size-sm)' } },
+        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+          React.createElement('span', { style: { color: 'var(--text-secondary)' } }, 'バージョン'),
+          React.createElement('span', null, APP_CONSTANTS.VERSION)
+        ),
+        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+          React.createElement('span', { style: { color: 'var(--text-secondary)' } }, 'ビルド'),
+          React.createElement('span', null, 'CDN (開発版)')
+        ),
+        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+          React.createElement('span', { style: { color: 'var(--text-secondary)' } }, 'React'),
+          React.createElement('span', null, React.version)
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/dev/Logs.jsx
+// ============================================================
+(function() {
+// Logs.jsx - ログビューアページ
+window.LogsPage = () => {
+  const { useState, useMemo } = React;
+  const { logs, clearLogs } = useLogContext();
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+
+  const filteredLogs = useMemo(() => {
+    let result = [...logs].reverse();
+    if (filter !== 'all') {
+      result = result.filter(log => log.level === filter);
+    }
+    if (search) {
+      const s = search.toLowerCase();
+      result = result.filter(log => log.message.toLowerCase().includes(s));
+    }
+    return result;
+  }, [logs, filter, search]);
+
+  const counts = useMemo(() => ({
+    all: logs.length,
+    info: logs.filter(l => l.level === 'info').length,
+    warn: logs.filter(l => l.level === 'warn').length,
+    error: logs.filter(l => l.level === 'error').length,
+    debug: logs.filter(l => l.level === 'debug').length,
+  }), [logs]);
+
+  const formatTime = (ts) => {
+    const d = new Date(ts);
+    return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'terminal'),
+      'ログビューア'
+    ),
+
+    // フィルター
+    React.createElement('div', {
+      style: { display: 'flex', gap: '8px', marginBottom: 'var(--space-md)', flexWrap: 'wrap', alignItems: 'center' },
+    },
+      ['all', 'info', 'warn', 'error', 'debug'].map(level =>
+        React.createElement('button', {
+          key: level,
+          className: `tab ${filter === level ? 'active' : ''}`,
+          onClick: () => setFilter(level),
+          style: { border: 'none', background: filter === level ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.04)', borderRadius: '20px', padding: '4px 12px' },
+        },
+          `${level === 'all' ? '全て' : level.toUpperCase()} (${counts[level]})`
+        )
+      ),
+
+      React.createElement('input', {
+        className: 'form-input',
+        type: 'text',
+        placeholder: '検索...',
+        value: search,
+        onChange: (e) => setSearch(e.target.value),
+        style: { maxWidth: '200px', padding: '4px 12px', marginLeft: 'auto' },
+      }),
+
+      React.createElement(Button, {
+        variant: 'danger',
+        icon: 'delete',
+        onClick: clearLogs,
+        style: { padding: '4px 12px', fontSize: '12px' },
+      }, 'クリア')
+    ),
+
+    // ログ一覧
+    React.createElement(Card, { style: { padding: 0, maxHeight: '600px', overflowY: 'auto' } },
+      filteredLogs.length === 0
+        ? React.createElement('div', {
+            style: { padding: 'var(--space-2xl)', textAlign: 'center', color: 'var(--text-muted)' },
+          }, 'ログはありません')
+        : filteredLogs.map(log =>
+            React.createElement('div', { key: log.id, className: 'dev-log-entry' },
+              React.createElement('span', { className: 'dev-log-entry__time' }, formatTime(log.timestamp)),
+              React.createElement('span', { className: `dev-log-entry__level dev-log-entry__level--${log.level}` },
+                log.level.toUpperCase()
+              ),
+              React.createElement('span', { className: 'dev-log-entry__message' }, log.message)
+            )
+          )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/dev/Structure.jsx
+// ============================================================
+(function() {
+// Structure.jsx - サイト構造ビューアページ
+window.StructurePage = () => {
+  const { useState } = React;
+
+  const iconMap = {
+    folder: { icon: 'folder', class: 'file-tree__icon--folder' },
+    react: { icon: 'description', class: 'file-tree__icon--react' },
+    js: { icon: 'javascript', class: 'file-tree__icon--js' },
+    css: { icon: 'style', class: 'file-tree__icon--css' },
+    html: { icon: 'html', class: 'file-tree__icon--html' },
+    md: { icon: 'article', class: 'file-tree__icon--md' },
+    file: { icon: 'insert_drive_file', class: 'file-tree__icon--file' },
+  };
+
+  const TreeNode = ({ node, depth = 0 }) => {
+    const [expanded, setExpanded] = useState(depth < 2);
+    const isFolder = node.type === 'folder';
+    const iconInfo = iconMap[node.type] || iconMap.file;
+
+    return React.createElement('div', { style: { marginLeft: `${depth * 16}px` } },
+      React.createElement('div', {
+        className: 'file-tree__item',
+        onClick: isFolder ? () => setExpanded(!expanded) : undefined,
+        style: { cursor: isFolder ? 'pointer' : 'default' },
+      },
+        isFolder && React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '14px', color: 'var(--text-muted)', transition: 'transform 0.15s', transform: expanded ? 'rotate(90deg)' : 'rotate(0)' },
+        }, 'chevron_right'),
+
+        React.createElement('span', {
+          className: `material-icons-round file-tree__icon ${iconInfo.class}`,
+        }, iconInfo.icon),
+
+        React.createElement('span', {
+          style: { color: isFolder ? 'var(--color-secondary)' : 'var(--text-primary)' },
+        }, node.name),
+
+        node.desc && React.createElement('span', {
+          style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)', marginLeft: '8px' },
+        }, `— ${node.desc}`)
+      ),
+
+      isFolder && expanded && node.children && node.children.map((child, i) =>
+        React.createElement(TreeNode, { key: i, node: child, depth: depth + 1 })
+      )
+    );
+  };
+
+  // ルート構造
+  const routes = [
+    { path: '/', page: 'dashboard', desc: 'ダッシュボード（ホーム画面）' },
+    { path: '/map', page: 'map', desc: 'Google Maps + GPS地図表示' },
+    { path: '/revenue', page: 'revenue', desc: '売上記録・管理' },
+    { path: '/analytics', page: 'analytics', desc: '売上分析・統計' },
+    { path: '/settings', page: 'settings', desc: '設定（APIキー設定含む）' },
+    { path: '/dev', page: 'dev', desc: '開発者ツールハブ' },
+    { path: '/dev/structure', page: 'dev-structure', desc: 'サイト構造ビューア（このページ）' },
+    { path: '/dev/logs', page: 'dev-logs', desc: 'アプリケーションログ' },
+    { path: '/dev/api-status', page: 'dev-api', desc: 'API接続ステータス' },
+  ];
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'account_tree'),
+      'サイト構造'
+    ),
+
+    // ルーティング一覧
+    React.createElement(Card, {
+      title: 'ページルーティング',
+      subtitle: 'アプリ内のすべてのページとそのパス',
+      style: { marginBottom: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { display: 'grid', gap: '4px' } },
+        routes.map((route, i) =>
+          React.createElement('div', {
+            key: i,
+            style: {
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              background: 'rgba(255,255,255,0.02)',
+              fontSize: 'var(--font-size-sm)',
+            },
+          },
+            React.createElement('code', {
+              style: { color: 'var(--color-primary-light)', fontFamily: 'monospace', minWidth: '160px' },
+            }, route.path),
+            React.createElement('span', {
+              style: { color: 'var(--text-muted)', fontSize: '14px' },
+            }, '→'),
+            React.createElement('span', { style: { color: 'var(--text-secondary)' } }, route.desc)
+          )
+        )
+      )
+    ),
+
+    // ファイルツリー
+    React.createElement(Card, {
+      title: 'ファイル構造',
+      subtitle: 'プロジェクトのディレクトリ構造（クリックで展開/折りたたみ）',
+    },
+      React.createElement('div', { className: 'file-tree', style: { padding: '8px 0' } },
+        React.createElement(TreeNode, { node: APP_CONSTANTS.SITE_STRUCTURE })
+      )
+    ),
+
+    // コンポーネント依存関係
+    React.createElement(Card, {
+      title: 'コンポーネント階層',
+      subtitle: 'Reactコンポーネントのツリー構造',
+      style: { marginTop: 'var(--space-lg)' },
+    },
+      React.createElement('pre', {
+        style: {
+          fontFamily: 'monospace',
+          fontSize: 'var(--font-size-sm)',
+          color: 'var(--text-secondary)',
+          lineHeight: 1.8,
+          overflowX: 'auto',
+        },
+      },
+`App
+├── AppProvider (グローバル状態)
+│   ├── MapProvider (地図状態)
+│   │   └── LogProvider (ログ状態)
+│   │       └── Layout
+│   │           ├── Header (ヘッダー)
+│   │           ├── Sidebar (PC用サイドバー)
+│   │           ├── BottomNav (モバイル用ナビ)
+│   │           └── [CurrentPage]
+│   │               ├── DashboardPage
+│   │               ├── MapViewPage
+│   │               │   ├── GoogleMapView
+│   │               │   └── GpsTracker
+│   │               ├── RevenuePage
+│   │               ├── AnalyticsPage
+│   │               ├── SettingsPage
+│   │               └── DevToolsPage
+│   │                   ├── StructurePage
+│   │                   ├── LogsPage
+│   │                   └── ApiStatusPage
+`)
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/dev/ApiStatus.jsx
+// ============================================================
+(function() {
+// ApiStatus.jsx - API接続ステータスページ
+window.ApiStatusPage = () => {
+  const { useState, useEffect } = React;
+  const { apiKey } = useAppContext();
+  const { isTracking, currentPosition } = useMapContext();
+
+  const [checks, setChecks] = useState([]);
+
+  useEffect(() => {
+    const results = [
+      {
+        name: 'Google Maps JavaScript API',
+        status: apiKey ? (window.google && window.google.maps ? 'connected' : 'error') : 'not_configured',
+        detail: apiKey
+          ? (window.google && window.google.maps ? '正常に読み込まれています' : 'APIの読み込みに失敗しました')
+          : 'APIキーが設定されていません（設定画面で入力してください）',
+        icon: 'map',
+      },
+      {
+        name: 'Geolocation API (GPS)',
+        status: 'geolocation' in navigator ? 'connected' : 'error',
+        detail: 'geolocation' in navigator
+          ? (isTracking ? `追跡中 (${currentPosition ? `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}` : '取得中...'})` : '利用可能（追跡停止中）')
+          : 'このブラウザはGeolocation APIに対応していません',
+        icon: 'gps_fixed',
+      },
+      {
+        name: 'localStorage',
+        status: (() => { try { localStorage.setItem('_test', '1'); localStorage.removeItem('_test'); return 'connected'; } catch { return 'error'; } })(),
+        detail: (() => { try { localStorage.setItem('_test', '1'); localStorage.removeItem('_test'); return '正常に動作しています'; } catch { return 'localStorageが利用できません'; } })(),
+        icon: 'storage',
+      },
+      {
+        name: 'Service Worker (PWA)',
+        status: 'serviceWorker' in navigator ? 'available' : 'not_available',
+        detail: 'serviceWorker' in navigator ? '利用可能（未登録）' : 'このブラウザはService Workerに対応していません',
+        icon: 'install_mobile',
+      },
+      {
+        name: 'HTTPS',
+        status: location.protocol === 'https:' ? 'connected' : 'warning',
+        detail: location.protocol === 'https:'
+          ? 'HTTPS接続です'
+          : `HTTP接続です（${location.protocol}）。GPSやPWAにはHTTPSが必要な場合があります`,
+        icon: 'lock',
+      },
+    ];
+
+    setChecks(results);
+  }, [apiKey, isTracking, currentPosition]);
+
+  const statusIcon = (status) => {
+    switch (status) {
+      case 'connected': return { icon: 'check_circle', color: 'var(--color-accent)' };
+      case 'error': return { icon: 'error', color: 'var(--color-danger)' };
+      case 'warning': return { icon: 'warning', color: 'var(--color-warning)' };
+      case 'not_configured': return { icon: 'settings', color: 'var(--color-warning)' };
+      default: return { icon: 'help', color: 'var(--text-muted)' };
+    }
+  };
+
+  const statusBadge = (status) => {
+    switch (status) {
+      case 'connected': return 'badge--success';
+      case 'error': return 'badge--error';
+      case 'warning': return 'badge--warning';
+      case 'not_configured': return 'badge--warning';
+      default: return 'badge--info';
+    }
+  };
+
+  const statusLabel = (status) => {
+    switch (status) {
+      case 'connected': return '接続済み';
+      case 'error': return 'エラー';
+      case 'warning': return '警告';
+      case 'not_configured': return '未設定';
+      case 'available': return '利用可能';
+      default: return '不明';
+    }
+  };
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'cloud'),
+      'API接続状態'
+    ),
+
+    // ステータス一覧
+    React.createElement('div', { style: { display: 'grid', gap: 'var(--space-md)' } },
+      checks.map((check, i) => {
+        const si = statusIcon(check.status);
+        return React.createElement(Card, { key: i },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '16px' } },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '32px', color: si.color },
+            }, check.icon),
+            React.createElement('div', { style: { flex: 1 } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' } },
+                React.createElement('span', { style: { fontWeight: 500 } }, check.name),
+                React.createElement('span', { className: `badge ${statusBadge(check.status)}` },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, si.icon),
+                  statusLabel(check.status)
+                )
+              ),
+              React.createElement('div', {
+                style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' },
+              }, check.detail)
+            )
+          )
+        );
+      })
+    ),
+
+    // ブラウザ情報
+    React.createElement(Card, {
+      title: 'ブラウザ環境',
+      style: { marginTop: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { display: 'grid', gap: '8px', fontSize: 'var(--font-size-sm)' } },
+        [
+          ['ユーザーエージェント', navigator.userAgent.substring(0, 80) + '...'],
+          ['プラットフォーム', navigator.platform || 'N/A'],
+          ['言語', navigator.language],
+          ['オンライン', navigator.onLine ? 'はい' : 'いいえ'],
+          ['画面サイズ', `${window.innerWidth} x ${window.innerHeight}`],
+          ['デバイスピクセル比', window.devicePixelRatio],
+          ['React バージョン', React.version],
+        ].map(([label, value], i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+          },
+            React.createElement('span', { style: { color: 'var(--text-muted)' } }, label),
+            React.createElement('span', { style: { fontFamily: 'monospace', textAlign: 'right', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' } }, String(value))
+          )
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/dev/DevTools.jsx
+// ============================================================
+(function() {
+// DevTools.jsx - 開発者ツールハブ
+window.DevToolsPage = () => {
+  const { navigate } = useAppContext();
+  const { logs } = useLogContext();
+
+  const tools = [
+    {
+      id: 'dev-structure',
+      title: 'サイト構造',
+      desc: 'ファイル構造、ルーティング、コンポーネント階層を確認',
+      icon: 'account_tree',
+      color: 'var(--color-primary-light)',
+      badge: null,
+    },
+    {
+      id: 'dev-logs',
+      title: 'ログビューア',
+      desc: 'アプリケーションのリアルタイムログを確認・検索',
+      icon: 'terminal',
+      color: 'var(--color-accent)',
+      badge: `${logs.length} 件`,
+    },
+    {
+      id: 'dev-api',
+      title: 'API接続状態',
+      desc: 'Google Maps API、GPS、ブラウザAPIの接続状態を確認',
+      icon: 'cloud',
+      color: 'var(--color-secondary)',
+      badge: null,
+    },
+  ];
+
+  return React.createElement('div', null,
+    React.createElement('h1', { className: 'page-title' },
+      React.createElement('span', { className: 'material-icons-round' }, 'code'),
+      '開発者ツール'
+    ),
+
+    React.createElement('p', {
+      style: { color: 'var(--text-secondary)', marginBottom: 'var(--space-lg)', fontSize: 'var(--font-size-sm)' },
+    }, 'アプリの内部構造やログ、API接続状態を確認できます。生成AIでの開発時にこのページを参照してください。'),
+
+    // ツール一覧
+    React.createElement('div', { className: 'grid grid--3' },
+      tools.map(tool =>
+        React.createElement(Card, {
+          key: tool.id,
+          onClick: () => navigate(tool.id),
+          style: { cursor: 'pointer', textAlign: 'center', padding: 'var(--space-xl)' },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '48px', color: tool.color, marginBottom: '12px' },
+          }, tool.icon),
+          React.createElement('div', { style: { fontWeight: 700, marginBottom: '8px' } }, tool.title),
+          React.createElement('div', {
+            style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' },
+          }, tool.desc),
+          tool.badge && React.createElement('span', { className: 'badge badge--info' }, tool.badge)
+        )
+      )
+    ),
+
+    // 最新ログプレビュー
+    React.createElement(Card, {
+      title: '最新ログ（直近5件）',
+      style: { marginTop: 'var(--space-lg)' },
+    },
+      logs.length === 0
+        ? React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' } }, 'ログはまだありません')
+        : [...logs].reverse().slice(0, 5).map(log =>
+            React.createElement('div', { key: log.id, className: 'dev-log-entry' },
+              React.createElement('span', { className: 'dev-log-entry__time' },
+                new Date(log.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+              ),
+              React.createElement('span', { className: `dev-log-entry__level dev-log-entry__level--${log.level}` },
+                log.level.toUpperCase()
+              ),
+              React.createElement('span', { className: 'dev-log-entry__message' }, log.message)
+            )
+          ),
+      logs.length > 5 && React.createElement(Button, {
+        variant: 'secondary',
+        icon: 'arrow_forward',
+        onClick: () => navigate('dev-logs'),
+        style: { marginTop: 'var(--space-md)' },
+      }, 'すべてのログを表示')
+    ),
+
+    // クイック情報
+    React.createElement(Card, {
+      title: 'プロジェクト情報',
+      style: { marginTop: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: 'var(--font-size-sm)' } },
+        [
+          ['フレームワーク', `React ${React.version}`],
+          ['ビルド', 'CDN (Babel トランスパイル)'],
+          ['地図', 'Google Maps JavaScript API'],
+          ['バージョン', APP_CONSTANTS.VERSION],
+          ['GPS', 'Geolocation API'],
+          ['レスポンシブ', 'PC / タブレット / Android'],
+        ].map(([k, v], i) =>
+          React.createElement('div', { key: i },
+            React.createElement('span', { style: { color: 'var(--text-muted)' } }, `${k}: `),
+            React.createElement('span', null, v)
+          )
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/App.jsx
+// ============================================================
+(function() {
+// App.jsx - ルートコンポーネント（ハッシュルーティング対応）
+window.App = () => {
+  const { currentPage, navigate } = useAppContext();
+
+  // レガシー: カスタムイベントでのナビゲーション対応（後方互換性）
+  React.useEffect(() => {
+    const handler = (e) => navigate(e.detail);
+    document.addEventListener('navigate', handler);
+    return () => document.removeEventListener('navigate', handler);
+  }, [navigate]);
+
+  // ページルーティング（useMemoで不要な再生成を防止）
+  const page = React.useMemo(() => {
+    switch (currentPage) {
+      case 'dashboard': return React.createElement(DashboardPage);
+      case 'map': return React.createElement(MapViewPage);
+      case 'revenue': return React.createElement(RevenuePage);
+      case 'analytics': return React.createElement(AnalyticsPage);
+      case 'settings': return React.createElement(SettingsPage);
+      case 'dev': return React.createElement(DevToolsPage);
+      case 'dev-logs': return React.createElement(LogsPage);
+      case 'dev-structure': return React.createElement(StructurePage);
+      case 'dev-api': return React.createElement(ApiStatusPage);
+      default: return React.createElement(DashboardPage);
+    }
+  }, [currentPage]);
+
+  return React.createElement(Layout, null, page);
+};
+
+})();
+
+// ============================================================
+// FILE: src/main.jsx
+// ============================================================
+(function() {
+// main.jsx - エントリーポイント（TaxiApp名前空間登録 + アプリ起動）
+(() => {
+  // ============================================================
+  // TaxiApp 名前空間にすべてのグローバルを整理
+  // window.XXX は後方互換のために残すが、正規の参照先は TaxiApp
+  // ============================================================
+  const T = window.TaxiApp;
+
+  // Utils
+  T.utils.constants = APP_CONSTANTS;
+  T.utils.logger = AppLogger;
+  T.utils.storage = AppStorage;
+  T.utils.dataService = DataService;
+
+  // Contexts
+  T.contexts.AppContext = AppContext;
+  T.contexts.AppProvider = AppProvider;
+  T.contexts.MapContext = MapContext;
+  T.contexts.MapProvider = MapProvider;
+  T.contexts.LogContext = LogContext;
+  T.contexts.LogProvider = LogProvider;
+
+  // Hooks
+  T.hooks.useAppContext = useAppContext;
+  T.hooks.useMapContext = useMapContext;
+  T.hooks.useLogContext = useLogContext;
+  T.hooks.useGeolocation = useGeolocation;
+  T.hooks.useGoogleMaps = useGoogleMaps;
+  T.hooks.useLogger = useLogger;
+
+  // Components
+  T.components.Loading = Loading;
+  T.components.Card = Card;
+  T.components.Button = Button;
+  T.components.ErrorBoundary = ErrorBoundary;
+  T.components.Header = Header;
+  T.components.Sidebar = Sidebar;
+  T.components.BottomNav = BottomNav;
+  T.components.Layout = Layout;
+  T.components.GoogleMapView = GoogleMapView;
+  T.components.GpsTracker = GpsTracker;
+  T.components.MapControls = MapControls;
+  T.components.TrafficLegend = TrafficLegend;
+
+  // Pages
+  T.pages.Dashboard = DashboardPage;
+  T.pages.MapView = MapViewPage;
+  T.pages.Revenue = RevenuePage;
+  T.pages.Analytics = AnalyticsPage;
+  T.pages.Settings = SettingsPage;
+  T.pages.DevTools = DevToolsPage;
+  T.pages.Logs = LogsPage;
+  T.pages.Structure = StructurePage;
+  T.pages.ApiStatus = ApiStatusPage;
+
+  // App
+  T.App = App;
+
+  // ============================================================
+  // アプリケーション起動
+  // ============================================================
+  AppLogger.info('アプリケーション起動中...');
+  AppLogger.info(`バージョン: ${APP_CONSTANTS.VERSION}`);
+  AppLogger.info(`React バージョン: ${React.version}`);
+
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+
+  root.render(
+    React.createElement(ErrorBoundary, null,
+      React.createElement(AppProvider, null,
+        React.createElement(MapProvider, null,
+          React.createElement(LogProvider, null,
+            React.createElement(App)
+          )
+        )
+      )
+    )
+  );
+
+  AppLogger.info('アプリケーション起動完了');
+  AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
+})();
+
+})();
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+/* タブレット */
+@media (max-width: 1023px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    margin-left: 0;
+  }
+
+  .map-container--fullscreen {
+    left: 0;
+  }
+
+  .header__menu-toggle {
+    display: block;
+  }
+
+  .header__nav {
+    display: none;
+  }
+
+  .grid--3 { grid-template-columns: repeat(2, 1fr); }
+  .grid--4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* モバイル (Android) */
+@media (max-width: 767px) {
+  html {
+    font-size: 14px;
+  }
+
+  .sidebar {
+    width: 100%;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .bottom-nav {
+    display: block;
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: var(--space-md);
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-md));
+  }
+
+  .map-container {
+    height: 350px;
+  }
+
+  .map-container--fullscreen {
+    left: 0;
+    bottom: var(--bottom-nav-height);
+  }
+
+  .grid--2,
+  .grid--3,
+  .grid--4 {
+    grid-template-columns: 1fr;
+  }
+
+  .page-title {
+    font-size: var(--font-size-lg);
+  }
+
+  .card {
+    padding: var(--space-md);
+  }
+
+  .gps-panel {
+    bottom: var(--space-sm);
+    left: var(--space-sm);
+    right: var(--space-sm);
+    padding: var(--space-sm);
+  }
+
+  .header__nav-btn span:not(.material-icons-round) {
+    display: none;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 小型モバイル */
+@media (max-width: 375px) {
+  .bottom-nav__item {
+    min-width: 48px;
+    font-size: 10px;
+  }
+
+  .bottom-nav__item .material-icons-round {
+    font-size: 20px;
+  }
+}
+
+/* ランドスケープモード */
+@media (max-height: 500px) and (orientation: landscape) {
+  .header {
+    height: 44px;
+  }
+
+  .main-content {
+    margin-top: 44px;
+  }
+
+  .map-container {
+    height: 250px;
+  }
+}
+
+/* PC大画面 */
+@media (min-width: 1440px) {
+  .main-content {
+    max-width: 1200px;
+  }
+
+  .grid--4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ダークモード対応（システム設定連動） */
+@media (prefers-color-scheme: light) {
+  /* 将来のライトモード対応用 */
+}
+
+/* タッチデバイス対応 */
+@media (hover: none) {
+  .card:hover {
+    background: var(--bg-card);
+    border-color: rgba(255,255,255,0.06);
+  }
+
+  .btn:active {
+    transform: scale(0.97);
+  }
+
+  .sidebar__item:active {
+    background: rgba(255,255,255,0.08);
+  }
+}
+
+/* 印刷用 */
+@media print {
+  .header, .sidebar, .bottom-nav {
+    display: none !important;
+  }
+
+  .main-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}

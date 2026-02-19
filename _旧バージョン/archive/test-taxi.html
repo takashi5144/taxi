@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TaxiBoost Test</title>
+<style>* { margin: 0; padding: 0; box-sizing: border-box; } body { overflow-x: hidden; }</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useMemo, useEffect, useCallback, useRef } = React;
+const {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area
+} = Recharts;
+
+// ============================================================
+// 定数・ユーティリティ
+// ============================================================
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"];
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+const AREAS = [
+  { name: "東京駅", lat: 35.6812, lng: 139.7671 },
+  { name: "新宿", lat: 35.6896, lng: 139.7006 },
+  { name: "渋谷", lat: 35.6580, lng: 139.7016 },
+  { name: "池袋", lat: 35.7295, lng: 139.7109 },
+  { name: "品川", lat: 35.6284, lng: 139.7387 },
+  { name: "六本木", lat: 35.6627, lng: 139.7312 },
+  { name: "銀座", lat: 35.6717, lng: 139.7649 },
+  { name: "上野", lat: 35.7141, lng: 139.7774 },
+  { name: "浅草", lat: 35.7148, lng: 139.7967 },
+  { name: "お台場", lat: 35.6267, lng: 139.7756 },
+  { name: "秋葉原", lat: 35.7023, lng: 139.7745 },
+  { name: "中野", lat: 35.7074, lng: 139.6659 },
+  { name: "吉祥寺", lat: 35.7030, lng: 139.5794 },
+  { name: "立川", lat: 35.6980, lng: 139.4140 },
+  { name: "町田", lat: 35.5421, lng: 139.4465 },
+];
+
+const WEATHER_OPTIONS = [
+  { value: "sunny", label: "晴れ", icon: "☀️" },
+  { value: "cloudy", label: "曇り", icon: "☁️" },
+  { value: "rainy", label: "雨", icon: "🌧️" },
+  { value: "heavy_rain", label: "大雨", icon: "⛈️" },
+  { value: "snow", label: "雪", icon: "❄️" },
+  { value: "typhoon", label: "台風", icon: "🌀" },
+];
+
+const TRAFFIC_OPTIONS = [
+  { value: "smooth", label: "スムーズ", icon: "🟢", color: "#10b981" },
+  { value: "normal", label: "通常", icon: "🟡", color: "#f59e0b" },
+  { value: "congested", label: "混雑", icon: "🟠", color: "#f97316" },
+  { value: "heavy", label: "渋滞", icon: "🔴", color: "#ef4444" },
+];
+
+function getWeatherIcon(v) { return WEATHER_OPTIONS.find(w => w.value === v)?.icon || ""; }
+function getWeatherLabel(v) { return WEATHER_OPTIONS.find(w => w.value === v)?.label || v; }
+function getTrafficIcon(v) { return TRAFFIC_OPTIONS.find(t => t.value === v)?.icon || ""; }
+function getTrafficLabel(v) { return TRAFFIC_OPTIONS.find(t => t.value === v)?.label || v; }
+function getTrafficColor(v) { return TRAFFIC_OPTIONS.find(t => t.value === v)?.color || "#94a3b8"; }
+
+function getNearestArea(lat, lng) {
+  let minD = Infinity, nearest = AREAS[0];
+  AREAS.forEach(a => { const d = Math.sqrt((a.lat - lat) ** 2 + (a.lng - lng) ** 2); if (d < minD) { minD = d; nearest = a; } });
+  return nearest.name;
+}
+
+function formatDateTime(d) {
+  const dt = new Date(d);
+  return { date: `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`, time: `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`, weekday: WEEKDAYS[dt.getDay()], hour: dt.getHours() };
+}
+
+// ============================================================
+// サンプルデータ
+// ============================================================
+function generateDemandData() {
+  const data = [];
+  HOURS.forEach(hour => {
+    AREAS.forEach(a => {
+      let base = 20;
+      if (hour >= 7 && hour <= 9) base = 60 + Math.random() * 30;
+      else if (hour >= 11 && hour <= 14) base = 40 + Math.random() * 20;
+      else if (hour >= 17 && hour <= 19) base = 55 + Math.random() * 35;
+      else if (hour >= 21) base = 45 + Math.random() * 40;
+      else if (hour <= 5) base = 15 + Math.random() * 25;
+      else base = 25 + Math.random() * 20;
+      if (["六本木", "渋谷", "新宿"].includes(a.name) && hour >= 21) base = Math.min(100, base * 1.5);
+      if (["東京駅", "品川"].includes(a.name) && (hour >= 7 && hour <= 9 || hour >= 17 && hour <= 19)) base = Math.min(100, base * 1.4);
+      data.push({ hour, area: a.name, demand: Math.round(Math.min(100, base)) });
+    });
+  });
+  return data;
+}
+
+// エリア別リアルタイム交通状況（シミュレーション）
+function generateTrafficStatus(hour) {
+  return AREAS.map(a => {
+    let congestion = 30;
+    if (hour >= 7 && hour <= 9) congestion = 60 + Math.random() * 30;
+    else if (hour >= 17 && hour <= 19) congestion = 55 + Math.random() * 35;
+    else if (hour >= 12 && hour <= 14) congestion = 40 + Math.random() * 20;
+    else if (hour >= 21) congestion = 35 + Math.random() * 25;
+    else if (hour <= 5) congestion = 10 + Math.random() * 15;
+    else congestion = 25 + Math.random() * 20;
+    if (["東京駅", "新宿", "渋谷", "池袋"].includes(a.name)) congestion = Math.min(100, congestion * 1.3);
+    if (["町田", "立川", "吉祥寺"].includes(a.name)) congestion *= 0.7;
+    const level = congestion >= 75 ? "heavy" : congestion >= 50 ? "congested" : congestion >= 30 ? "normal" : "smooth";
+    const avgSpeed = Math.round(level === "heavy" ? 8 + Math.random() * 5 : level === "congested" ? 15 + Math.random() * 10 : level === "normal" ? 25 + Math.random() * 10 : 35 + Math.random() * 15);
+    const estDelay = level === "heavy" ? Math.round(15 + Math.random() * 20) : level === "congested" ? Math.round(5 + Math.random() * 10) : 0;
+    return { ...a, congestion: Math.round(Math.min(100, congestion)), level, avgSpeed, estDelay };
+  });
+}
+
+function generateRideHistory() {
+  const records = [];
+  const weathers = ["sunny", "sunny", "sunny", "cloudy", "cloudy", "rainy", "heavy_rain"];
+  const traffics = ["smooth", "smooth", "normal", "normal", "congested", "heavy"];
+  for (let i = 0; i < 40; i++) {
+    const pickup = AREAS[Math.floor(Math.random() * AREAS.length)];
+    const dropoff = AREAS[Math.floor(Math.random() * AREAS.length)];
+    const hour = Math.floor(Math.random() * 24), min = Math.floor(Math.random() * 60);
+    const day = Math.ceil(Math.random() * 14), dt = new Date(2026, 1, day, hour, min);
+    const dist = +(1 + Math.random() * 15).toFixed(1);
+    const weather = weathers[Math.floor(Math.random() * weathers.length)];
+    const traffic = traffics[Math.floor(Math.random() * traffics.length)];
+    const fare = Math.round((410 + dist * 280) * (weather.includes("rain") ? 1.1 : 1) * (traffic === "heavy" ? 1.15 : traffic === "congested" ? 1.05 : 1) * (hour >= 22 || hour <= 5 ? 1.25 : 1));
+    records.push({ id: `ride-${Date.now()}-${i}`, timestamp: dt.getTime(), 日付: `2026/02/${String(day).padStart(2, "0")}`, 時刻: `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`, 曜日: WEEKDAYS[dt.getDay()], 乗車地: pickup.name, 乗車GPS: { lat: pickup.lat + (Math.random() - 0.5) * 0.005, lng: pickup.lng + (Math.random() - 0.5) * 0.005 }, 降車地: dropoff.name, 降車GPS: { lat: dropoff.lat + (Math.random() - 0.5) * 0.005, lng: dropoff.lng + (Math.random() - 0.5) * 0.005 }, 距離: dist, 運賃: fare, 天気: weather, 交通状況: traffic, 深夜: hour >= 22 || hour <= 5, メモ: "" });
+  }
+  return records.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function generateMonthlySales() {
+  return ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"].map(m => {
+    const b = 350000 + Math.random() * 150000, r = Math.round(180 + Math.random() * 80);
+    return { month: m, 売上: Math.round(b), 乗車回数: r, 平均単価: Math.round(b / r), 実車率: Math.round(55 + Math.random() * 20) };
+  });
+}
+
+function generateWeeklySales() { return WEEKDAY_LABELS.map(d => ({ day: d, 売上: Math.round(40000 + Math.random() * 30000) })); }
+function generateHourlySales() { return HOURS.map(h => ({ 時間: `${h}時`, 売上: Math.round(h >= 7 && h <= 9 ? 8000 + Math.random() * 5000 : h >= 17 && h <= 20 ? 7000 + Math.random() * 6000 : h >= 21 ? 6000 + Math.random() * 8000 : h <= 5 ? 2000 + Math.random() * 4000 : 3000 + Math.random() * 4000) })); }
+
+const DEMAND_DATA = generateDemandData();
+const INITIAL_RIDES = generateRideHistory();
+const MONTHLY_SALES = generateMonthlySales();
+const WEEKLY_SALES = generateWeeklySales();
+const HOURLY_SALES = generateHourlySales();
+
+// ============================================================
+// スタイル定数
+// ============================================================
+const C = { primary: "#2563eb", secondary: "#7c3aed", accent: "#f59e0b", success: "#10b981", danger: "#ef4444", bg: "#0a0e1a", card: "rgba(30,41,59,0.7)", cardSolid: "#1e293b", cardHover: "#334155", text: "#f1f5f9", textMuted: "#94a3b8", border: "rgba(51,65,85,0.5)", glow1: "#2563eb", glow2: "#7c3aed" };
+const PIE_COLORS = ["#2563eb", "#7c3aed", "#f59e0b", "#10b981", "#ef4444", "#06b6d4", "#ec4899"];
+const getDemandColor = v => v >= 80 ? "#ef4444" : v >= 60 ? "#f59e0b" : v >= 40 ? "#22c55e" : v >= 20 ? "#3b82f6" : "#334155";
+const tooltipStyle = { background: "rgba(15,23,42,0.95)", border: `1px solid rgba(37,99,235,0.3)`, borderRadius: 10, color: C.text, backdropFilter: "blur(12px)" };
+const btnBase = { border: "none", borderRadius: 12, cursor: "pointer", fontWeight: 700, fontSize: 16, padding: "16px 32px", transition: "all 0.3s cubic-bezier(0.4,0,0.2,1)", display: "flex", alignItems: "center", gap: 8 };
+
+// ============================================================
+// アニメーション背景コンポーネント
+// ============================================================
+function AnimatedBackground() {
+  // 動的パーティクル（都市の灯りイメージ）
+  const particles = useMemo(() => Array.from({ length: 50 }, (_, i) => ({
+    id: i,
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    size: 1 + Math.random() * 3,
+    opacity: 0.1 + Math.random() * 0.4,
+    dur: 3 + Math.random() * 7,
+    delay: Math.random() * 5,
+    color: ["#2563eb", "#7c3aed", "#f59e0b", "#10b981"][Math.floor(Math.random() * 4)],
+  })), []);
+
+  // 道路グリッドライン
+  const gridLines = useMemo(() => Array.from({ length: 12 }, (_, i) => ({
+    id: i,
+    isVertical: i < 6,
+    pos: 10 + (i % 6) * 18,
+    dur: 15 + Math.random() * 10,
+    delay: Math.random() * 8,
+  })), []);
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0, overflow: "hidden", pointerEvents: "none" }}>
+      {/* メインのグラデーション背景 */}
+      <div style={{
+        position: "absolute", inset: 0,
+        background: `
+          radial-gradient(ellipse 80% 50% at 20% 20%, rgba(37,99,235,0.12) 0%, transparent 60%),
+          radial-gradient(ellipse 60% 40% at 80% 80%, rgba(124,58,237,0.10) 0%, transparent 60%),
+          radial-gradient(ellipse 50% 50% at 50% 50%, rgba(245,158,11,0.05) 0%, transparent 50%),
+          linear-gradient(180deg, #0a0e1a 0%, #0d1323 30%, #0f172a 60%, #0a0e1a 100%)
+        `,
+      }} />
+
+      {/* SVGパーティクル + グリッド */}
+      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0 }}>
+        <defs>
+          <radialGradient id="particleGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#fff" stopOpacity="1" />
+            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+          </radialGradient>
+          <filter id="bgBlur">
+            <feGaussianBlur stdDeviation="1.5" />
+          </filter>
+        </defs>
+
+        {/* 道路風グリッドライン（流れるアニメーション） */}
+        {gridLines.map(line => (
+          <g key={`grid-${line.id}`} opacity="0.04">
+            {line.isVertical ? (
+              <line x1={`${line.pos}%`} y1="0%" x2={`${line.pos}%`} y2="100%" stroke="#94a3b8" strokeWidth="1" strokeDasharray="8 16">
+                <animate attributeName="stroke-dashoffset" values="0;-48" dur={`${line.dur}s`} repeatCount="indefinite" />
+              </line>
+            ) : (
+              <line x1="0%" y1={`${line.pos}%`} x2="100%" y2={`${line.pos}%`} stroke="#94a3b8" strokeWidth="1" strokeDasharray="8 16">
+                <animate attributeName="stroke-dashoffset" values="0;-48" dur={`${line.dur}s`} repeatCount="indefinite" />
+              </line>
+            )}
+          </g>
+        ))}
+
+        {/* パーティクル（都市の灯り） */}
+        {particles.map(p => (
+          <circle key={p.id} cx={`${p.x}%`} cy={`${p.y}%`} r={p.size} fill={p.color} filter="url(#bgBlur)">
+            <animate attributeName="opacity" values={`${p.opacity};${p.opacity * 0.2};${p.opacity}`} dur={`${p.dur}s`} begin={`${p.delay}s`} repeatCount="indefinite" />
+            <animate attributeName="r" values={`${p.size};${p.size * 1.5};${p.size}`} dur={`${p.dur}s`} begin={`${p.delay}s`} repeatCount="indefinite" />
+          </circle>
+        ))}
+
+        {/* 移動する光点（タクシーイメージ） */}
+        {[0, 1, 2, 3, 4].map(i => {
+          const startX = Math.random() * 100;
+          const startY = Math.random() * 100;
+          const endX = Math.random() * 100;
+          const endY = Math.random() * 100;
+          return (
+            <circle key={`taxi-${i}`} r="2" fill="#f59e0b" opacity="0.6" filter="url(#bgBlur)">
+              <animate attributeName="cx" values={`${startX}%;${endX}%;${startX}%`} dur={`${20 + i * 5}s`} repeatCount="indefinite" />
+              <animate attributeName="cy" values={`${startY}%;${endY}%;${startY}%`} dur={`${20 + i * 5}s`} repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0;0.6;0.6;0" dur={`${20 + i * 5}s`} repeatCount="indefinite" />
+            </circle>
+          );
+        })}
+      </svg>
+
+      {/* 上部グロー効果 */}
+      <div style={{
+        position: "absolute", top: -200, left: "50%", transform: "translateX(-50%)",
+        width: 800, height: 400, borderRadius: "50%",
+        background: "radial-gradient(ellipse, rgba(37,99,235,0.08) 0%, transparent 70%)",
+        filter: "blur(40px)",
+      }} />
+
+      {/* ノイズテクスチャオーバーレイ */}
+      <div style={{
+        position: "absolute", inset: 0,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E")`,
+        opacity: 0.5,
+      }} />
+    </div>
+  );
+}
+
+// ============================================================
+// 共通コンポーネント
+// ============================================================
+const glassCard = {
+  background: "rgba(30,41,59,0.55)",
+  backdropFilter: "blur(16px)",
+  WebkitBackdropFilter: "blur(16px)",
+  border: "1px solid rgba(148,163,184,0.08)",
+  boxShadow: "0 4px 30px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05)",
+};
+
+const glassCardHover = {
+  ...glassCard,
+  boxShadow: "0 8px 40px rgba(37,99,235,0.15), inset 0 1px 0 rgba(255,255,255,0.08)",
+};
+
+function StatCard({ label, value, sub, icon, trend }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        ...(hovered ? glassCardHover : glassCard),
+        borderRadius: 14,
+        padding: "16px 18px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        flex: 1,
+        minWidth: 170,
+        transition: "all 0.3s cubic-bezier(0.4,0,0.2,1)",
+        transform: hovered ? "translateY(-2px)" : "translateY(0)",
+      }}
+    >
+      <div style={{
+        width: 44, height: 44, borderRadius: 12,
+        background: `linear-gradient(135deg, ${C.primary}33, ${C.secondary}22)`,
+        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+        boxShadow: `0 0 20px ${C.primary}22`,
+      }}>{icon}</div>
+      <div>
+        <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+        <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>{value}</div>
+        {sub && <div style={{ fontSize: 11, color: trend === "up" ? C.success : trend === "down" ? C.danger : C.textMuted, fontWeight: 600 }}>{trend === "up" ? "▲ " : trend === "down" ? "▼ " : ""}{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ children }) {
+  return (
+    <h2 style={{
+      color: C.text, fontSize: 16, fontWeight: 800, margin: "28px 0 14px",
+      display: "flex", alignItems: "center", gap: 8,
+      background: "linear-gradient(90deg, rgba(37,99,235,0.1) 0%, transparent 100%)",
+      padding: "10px 16px", borderRadius: 10,
+      borderLeft: `3px solid ${C.primary}`,
+    }}>{children}</h2>
+  );
+}
+
+function Badge({ children, color }) {
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      background: `${color}18`, color,
+      padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+      border: `1px solid ${color}30`,
+      backdropFilter: "blur(8px)",
+    }}>{children}</span>
+  );
+}
+
+// ============================================================
+// GPS Hook
+// ============================================================
+function useGPS() {
+  const [position, setPosition] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const watchRef = useRef(null);
+  const getCurrentPosition = useCallback(() => {
+    if (!navigator.geolocation) { setError("GPS非対応"); return; }
+    setLoading(true); setError(null);
+    navigator.geolocation.getCurrentPosition(p => { setPosition({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); setLoading(false); }, e => { setError(e.code === 1 ? "位置情報の許可が必要です" : "位置取得エラー"); setLoading(false); }, { enableHighAccuracy: true, timeout: 10000 });
+  }, []);
+  const startWatching = useCallback(() => { if (!navigator.geolocation) return; watchRef.current = navigator.geolocation.watchPosition(p => setPosition({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }), () => {}, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }); }, []);
+  const stopWatching = useCallback(() => { if (watchRef.current !== null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; } }, []);
+  return { position, error, loading, getCurrentPosition, startWatching, stopWatching };
+}
+
+// ============================================================
+// 天気 Hook (Open-Meteo)
+// ============================================================
+function useWeather(lat, lng) {
+  const [weather, setWeather] = useState(null);
+  const fetchWeather = useCallback(async (la, ln) => {
+    if (!la || !ln) return;
+    try {
+      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${ln}&current=temperature_2m,weather_code,wind_speed_10m&timezone=Asia/Tokyo`);
+      const data = await res.json(); const code = data.current?.weather_code;
+      let condition = "sunny";
+      if (code >= 80) condition = "heavy_rain"; else if (code >= 51) condition = "rainy"; else if (code >= 71) condition = "snow"; else if (code >= 2) condition = "cloudy";
+      setWeather({ condition, temp: data.current?.temperature_2m, windSpeed: data.current?.wind_speed_10m });
+    } catch { setWeather(null); }
+  }, []);
+  useEffect(() => { if (lat && lng) fetchWeather(lat, lng); }, [lat, lng, fetchWeather]);
+  return { weather, fetchWeather };
+}
+
+// ============================================================
+// Google Maps 交通状況マップ
+// ============================================================
+function GoogleTrafficMap({ center, zoom = 13, selectedArea, rides }) {
+  const mapSrc = `https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d${zoom === 11 ? 80000 : zoom === 12 ? 40000 : 25000}!2d${center.lng}!3d${center.lat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!5e0!3m2!1sja!2sjp!4v1`;
+
+  return (
+    <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", border: "1px solid rgba(148,163,184,0.08)", boxShadow: "0 4px 30px rgba(0,0,0,0.2)" }}>
+      <iframe
+        src={mapSrc}
+        width="100%" height="400"
+        style={{ border: 0, display: "block" }}
+        allowFullScreen loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        title="Google Maps"
+      />
+      {/* オーバーレイ：Google Maps交通情報リンク */}
+      <div style={{ position: "absolute", top: 12, right: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+        <a href={`https://www.google.com/maps/@${center.lat},${center.lng},${zoom}z/data=!5m1!1e1`}
+          target="_blank" rel="noreferrer"
+          style={{ background: C.danger, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
+          🚦 交通状況を表示
+        </a>
+        <a href={`https://www.google.com/maps/dir/?api=1&origin=${center.lat},${center.lng}&destination=${center.lat + 0.02},${center.lng + 0.02}&travelmode=driving`}
+          target="_blank" rel="noreferrer"
+          style={{ background: C.primary, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center", gap: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
+          🗺️ ルート検索
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// エリア別交通状況ビジュアルマップ (SVG)
+// ============================================================
+function AreaTrafficMap({ trafficData, selectedArea, onSelectArea, rides }) {
+  // 座標をSVG空間にマッピング
+  const minLat = 35.52, maxLat = 35.75, minLng = 139.39, maxLng = 139.82;
+  const svgW = 700, svgH = 450;
+  const toSvg = (lat, lng) => ({
+    x: ((lng - minLng) / (maxLng - minLng)) * svgW,
+    y: svgH - ((lat - minLat) / (maxLat - minLat)) * svgH,
+  });
+
+  const congestionColor = (level) => level === "heavy" ? "#ef4444" : level === "congested" ? "#f97316" : level === "normal" ? "#f59e0b" : "#10b981";
+  const congestionRadius = (congestion) => 18 + (congestion / 100) * 22;
+
+  // 乗車記録の線をプロット
+  const rideLines = rides.slice(0, 20).filter(r => r.乗車GPS && r.降車GPS);
+
+  return (
+    <div style={{ ...glassCard, borderRadius: 14, padding: 16, position: "relative" }}>
+      <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: "100%", height: "auto", minHeight: 350 }}>
+        {/* 背景グリッド */}
+        <defs>
+          <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+            <path d="M 50 0 L 0 0 0 50" fill="none" stroke={C.border} strokeWidth="0.5" opacity="0.3" />
+          </pattern>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="3" result="glow" />
+            <feMerge><feMergeNode in="glow" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          <filter id="shadow">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.3" />
+          </filter>
+        </defs>
+        <rect width={svgW} height={svgH} fill={C.bg} rx="8" />
+        <rect width={svgW} height={svgH} fill="url(#grid)" rx="8" />
+
+        {/* 乗車ルート線 */}
+        {rideLines.map((r, i) => {
+          const from = toSvg(r.乗車GPS.lat, r.乗車GPS.lng);
+          const to = toSvg(r.降車GPS.lat, r.降車GPS.lng);
+          return <line key={`line-${i}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={C.primary} strokeWidth="1" opacity="0.2" strokeDasharray="4 2" />;
+        })}
+
+        {/* エリア接続線（主要路線風） */}
+        {[
+          ["東京駅", "銀座"], ["東京駅", "上野"], ["東京駅", "品川"], ["新宿", "渋谷"],
+          ["新宿", "池袋"], ["新宿", "中野"], ["渋谷", "六本木"], ["上野", "浅草"],
+          ["上野", "秋葉原"], ["中野", "吉祥寺"], ["吉祥寺", "立川"], ["品川", "お台場"],
+        ].map(([a, b], i) => {
+          const aData = trafficData.find(t => t.name === a);
+          const bData = trafficData.find(t => t.name === b);
+          if (!aData || !bData) return null;
+          const from = toSvg(aData.lat, aData.lng), to = toSvg(bData.lat, bData.lng);
+          const avgCong = (aData.congestion + bData.congestion) / 2;
+          const lineColor = avgCong >= 75 ? "#ef4444" : avgCong >= 50 ? "#f97316" : avgCong >= 30 ? "#f59e0b" : "#10b981";
+          return <line key={`road-${i}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={lineColor} strokeWidth={avgCong >= 50 ? 3 : 2} opacity="0.6" strokeLinecap="round" />;
+        })}
+
+        {/* エリアポイント */}
+        {trafficData.map(area => {
+          const pos = toSvg(area.lat, area.lng);
+          const r = congestionRadius(area.congestion);
+          const color = congestionColor(area.level);
+          const isSelected = selectedArea === area.name;
+          return (
+            <g key={area.name} onClick={() => onSelectArea(area.name)} style={{ cursor: "pointer" }}>
+              {/* 混雑度の円（パルスアニメーション風） */}
+              <circle cx={pos.x} cy={pos.y} r={r + 8} fill={color} opacity="0.1">
+                <animate attributeName="r" values={`${r + 5};${r + 15};${r + 5}`} dur="3s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.15;0.05;0.15" dur="3s" repeatCount="indefinite" />
+              </circle>
+              <circle cx={pos.x} cy={pos.y} r={r} fill={color} opacity="0.25" filter="url(#glow)" />
+              <circle cx={pos.x} cy={pos.y} r={12} fill={isSelected ? "#fff" : color} stroke={isSelected ? color : "#fff"} strokeWidth={isSelected ? 3 : 2} filter="url(#shadow)" />
+
+              {/* ラベル */}
+              <text x={pos.x} y={pos.y - 18} textAnchor="middle" fill={C.text} fontSize="11" fontWeight="700">{area.name}</text>
+
+              {/* 混雑度数値 */}
+              <text x={pos.x} y={pos.y + 4} textAnchor="middle" fill={isSelected ? color : "#fff"} fontSize="9" fontWeight="800">{area.congestion}</text>
+
+              {/* 速度表示 */}
+              <text x={pos.x} y={pos.y + 30} textAnchor="middle" fill={C.textMuted} fontSize="9">{area.avgSpeed}km/h</text>
+            </g>
+          );
+        })}
+
+        {/* 凡例 */}
+        <g transform={`translate(${svgW - 140}, 15)`}>
+          <rect x="0" y="0" width="130" height="105" rx="6" fill={C.card} opacity="0.9" stroke={C.border} />
+          <text x="10" y="18" fill={C.text} fontSize="10" fontWeight="700">交通状況</text>
+          {[{ c: "#10b981", l: "スムーズ" }, { c: "#f59e0b", l: "通常" }, { c: "#f97316", l: "混雑" }, { c: "#ef4444", l: "渋滞" }].map((item, i) => (
+            <g key={i} transform={`translate(10, ${30 + i * 18})`}>
+              <circle cx="6" cy="0" r="5" fill={item.c} /><text x="18" y="4" fill={C.textMuted} fontSize="10">{item.l}</text>
+            </g>
+          ))}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+// ============================================================
+// エリア詳細パネル
+// ============================================================
+function AreaDetailPanel({ area, trafficData, rides, demandData, currentHour }) {
+  const areaTraffic = trafficData.find(t => t.name === area);
+  const areaRides = rides.filter(r => r.乗車地 === area || r.降車地 === area);
+  const areaDemand = demandData.filter(d => d.area === area && d.hour === currentHour)[0];
+  const areaCoord = AREAS.find(a => a.name === area);
+
+  if (!areaTraffic || !areaCoord) return null;
+
+  const hourlyTraffic = HOURS.map(h => {
+    const t = generateTrafficStatus(h).find(t => t.name === area);
+    return { 時間: `${h}時`, 混雑度: t?.congestion || 0, 平均速度: t?.avgSpeed || 0 };
+  });
+
+  return (
+    <div style={{ ...glassCard, borderRadius: 14, padding: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <div style={{ color: C.text, fontSize: 20, fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
+            📍 {area}
+            <Badge color={getTrafficColor(areaTraffic.level)}>{getTrafficIcon(areaTraffic.level)} {getTrafficLabel(areaTraffic.level)}</Badge>
+          </div>
+          <div style={{ color: C.textMuted, fontSize: 12, marginTop: 4 }}>
+            緯度: {areaCoord.lat.toFixed(4)} / 経度: {areaCoord.lng.toFixed(4)}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <a href={`https://www.google.com/maps/@${areaCoord.lat},${areaCoord.lng},15z/data=!5m1!1e1`}
+            target="_blank" rel="noreferrer"
+            style={{ background: C.danger, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
+            🚦 交通情報
+          </a>
+          <a href={`https://www.google.com/maps/search/タクシー乗り場/@${areaCoord.lat},${areaCoord.lng},15z`}
+            target="_blank" rel="noreferrer"
+            style={{ background: C.primary, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
+            🚕 タクシー乗り場
+          </a>
+        </div>
+      </div>
+
+      {/* KPI */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+        <div style={{ background: C.bg, borderRadius: 10, padding: 14, textAlign: "center" }}>
+          <div style={{ color: C.textMuted, fontSize: 11 }}>混雑度</div>
+          <div style={{ color: getTrafficColor(areaTraffic.level), fontSize: 28, fontWeight: 800 }}>{areaTraffic.congestion}%</div>
+        </div>
+        <div style={{ background: C.bg, borderRadius: 10, padding: 14, textAlign: "center" }}>
+          <div style={{ color: C.textMuted, fontSize: 11 }}>平均速度</div>
+          <div style={{ color: C.text, fontSize: 28, fontWeight: 800 }}>{areaTraffic.avgSpeed}<span style={{ fontSize: 14 }}>km/h</span></div>
+        </div>
+        <div style={{ background: C.bg, borderRadius: 10, padding: 14, textAlign: "center" }}>
+          <div style={{ color: C.textMuted, fontSize: 11 }}>推定遅延</div>
+          <div style={{ color: areaTraffic.estDelay > 0 ? C.danger : C.success, fontSize: 28, fontWeight: 800 }}>{areaTraffic.estDelay > 0 ? `+${areaTraffic.estDelay}` : "0"}<span style={{ fontSize: 14 }}>分</span></div>
+        </div>
+        <div style={{ background: C.bg, borderRadius: 10, padding: 14, textAlign: "center" }}>
+          <div style={{ color: C.textMuted, fontSize: 11 }}>需要スコア</div>
+          <div style={{ color: C.accent, fontSize: 28, fontWeight: 800 }}>{areaDemand?.demand || "—"}</div>
+        </div>
+      </div>
+
+      {/* 時間帯別混雑予測 */}
+      <div style={{ color: C.textMuted, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>📊 時間帯別混雑予測</div>
+      <ResponsiveContainer width="100%" height={180}>
+        <AreaChart data={hourlyTraffic}>
+          <defs>
+            <linearGradient id="congGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={C.danger} stopOpacity={0.3} /><stop offset="95%" stopColor={C.danger} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+          <XAxis dataKey="時間" stroke={C.textMuted} fontSize={10} />
+          <YAxis stroke={C.textMuted} fontSize={10} domain={[0, 100]} />
+          <Tooltip contentStyle={tooltipStyle} />
+          <Area type="monotone" dataKey="混雑度" stroke={C.danger} fill="url(#congGrad)" strokeWidth={2} />
+        </AreaChart>
+      </ResponsiveContainer>
+
+      {/* このエリアの乗車履歴 */}
+      {areaRides.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ color: C.textMuted, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>🚕 このエリアの乗車記録 ({areaRides.length}件)</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {areaRides.slice(0, 6).map(r => (
+              <div key={r.id} style={{ background: C.bg, borderRadius: 8, padding: "8px 12px", fontSize: 12, minWidth: 140 }}>
+                <div style={{ color: C.text, fontWeight: 600 }}>{r.乗車地} → {r.降車地}</div>
+                <div style={{ color: C.textMuted }}>{r.日付} {r.時刻}</div>
+                <div style={{ color: C.accent, fontWeight: 700 }}>¥{r.運賃.toLocaleString()} {getWeatherIcon(r.天気)} {getTrafficIcon(r.交通状況)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// 乗車記録フォーム
+// ============================================================
+function RideRecorder({ onSave }) {
+  const gps = useGPS();
+  const [phase, setPhase] = useState("idle");
+  const [pickupData, setPickupData] = useState(null);
+  const [dropoffData, setDropoffData] = useState(null);
+  const [manualFare, setManualFare] = useState("");
+  const [manualDist, setManualDist] = useState("");
+  const [traffic, setTraffic] = useState("normal");
+  const [weatherOverride, setWeatherOverride] = useState("");
+  const [memo, setMemo] = useState("");
+  const [currentWeather, setCurrentWeather] = useState(null);
+  const wh = useWeather(gps.position?.lat, gps.position?.lng);
+  useEffect(() => { if (wh.weather) setCurrentWeather(wh.weather); }, [wh.weather]);
+
+  const handlePickup = () => {
+    gps.getCurrentPosition();
+    setTimeout(() => {
+      const pos = gps.position || { lat: 35.6812 + (Math.random() - 0.5) * 0.02, lng: 139.7671 + (Math.random() - 0.5) * 0.02 };
+      const now = new Date();
+      setPickupData({ gps: pos, area: getNearestArea(pos.lat, pos.lng), time: now, ...formatDateTime(now) });
+      setPhase("riding"); gps.startWatching();
+    }, 500);
+  };
+
+  const handleDropoff = () => {
+    gps.stopWatching();
+    const pos = gps.position || { lat: 35.6580 + (Math.random() - 0.5) * 0.02, lng: 139.7016 + (Math.random() - 0.5) * 0.02 };
+    const now = new Date();
+    setDropoffData({ gps: pos, area: getNearestArea(pos.lat, pos.lng), time: now, ...formatDateTime(now) });
+    setPhase("confirm");
+  };
+
+  const handleSave = () => {
+    if (!pickupData) return;
+    const dist = manualDist ? parseFloat(manualDist) : +(1 + Math.random() * 12).toFixed(1);
+    const fare = manualFare ? parseInt(manualFare) : Math.round(410 + dist * 280 * (pickupData.hour >= 22 || pickupData.hour <= 5 ? 1.25 : 1));
+    onSave({ id: `ride-${Date.now()}`, timestamp: pickupData.time.getTime(), 日付: pickupData.date, 時刻: pickupData.time, 曜日: pickupData.weekday, 乗車地: pickupData.area, 乗車GPS: pickupData.gps, 降車地: dropoffData?.area || "—", 降車GPS: dropoffData?.gps || null, 距離: dist, 運賃: fare, 天気: weatherOverride || currentWeather?.condition || "sunny", 気温: currentWeather?.temp, 交通状況: traffic, 深夜: pickupData.hour >= 22 || pickupData.hour <= 5, メモ: memo });
+    setPhase("idle"); setPickupData(null); setDropoffData(null); setManualFare(""); setManualDist(""); setTraffic("normal"); setWeatherOverride(""); setMemo("");
+  };
+
+  const handleCancel = () => { gps.stopWatching(); setPhase("idle"); setPickupData(null); setDropoffData(null); };
+
+  const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 14, boxSizing: "border-box" };
+
+  return (
+    <div style={{ ...glassCard, borderRadius: 16, padding: 20, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>📍</span>
+          <div><div style={{ color: C.text, fontWeight: 700, fontSize: 15 }}>乗車記録</div><div style={{ color: C.textMuted, fontSize: 11 }}>GPS・天気・交通を自動記録</div></div>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {gps.position && <Badge color={C.success}>📡 GPS</Badge>}
+          {currentWeather && <Badge color={C.primary}>{getWeatherIcon(currentWeather.condition)} {currentWeather.temp}°C</Badge>}
+          {gps.loading && <Badge color={C.accent}>取得中...</Badge>}
+        </div>
+      </div>
+
+      {phase === "idle" && (
+        <div style={{ textAlign: "center", padding: "16px 0" }}>
+          <button onClick={handlePickup} style={{ ...btnBase, background: C.success, color: "#fff", fontSize: 18, padding: "18px 44px", borderRadius: 14, boxShadow: "0 4px 20px rgba(16,185,129,0.3)", margin: "0 auto" }}>🚕 乗車開始</button>
+          <div style={{ color: C.textMuted, fontSize: 12, marginTop: 10 }}>GPSで現在地を取得し記録を開始します</div>
+          {gps.error && <div style={{ color: C.danger, fontSize: 12, marginTop: 6 }}>⚠️ {gps.error}</div>}
+        </div>
+      )}
+
+      {phase === "riding" && (
+        <div>
+          <div style={{ background: `${C.success}15`, border: `1px solid ${C.success}40`, borderRadius: 10, padding: 14, marginBottom: 14 }}>
+            <div style={{ color: C.success, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🟢 乗車中</div>
+            <div style={{ display: "flex", gap: 20, fontSize: 13, flexWrap: "wrap" }}>
+              <span><span style={{ color: C.textMuted }}>乗車地：</span><span style={{ color: C.text, fontWeight: 600 }}>{pickupData.area}</span></span>
+              <span><span style={{ color: C.textMuted }}>時刻：</span><span style={{ color: C.text, fontWeight: 600 }}>{pickupData.time} ({pickupData.weekday})</span></span>
+              <span><span style={{ color: C.textMuted }}>GPS：</span><span style={{ color: C.text, fontSize: 11 }}>{pickupData.gps.lat.toFixed(4)}, {pickupData.gps.lng.toFixed(4)}</span></span>
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 6 }}>交通状況：</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {TRAFFIC_OPTIONS.map(t => (
+                <button key={t.value} onClick={() => setTraffic(t.value)} style={{ ...btnBase, fontSize: 12, padding: "8px 14px", borderRadius: 8, background: traffic === t.value ? `${t.color}22` : C.cardHover, color: traffic === t.value ? t.color : C.textMuted, border: traffic === t.value ? `2px solid ${t.color}` : `2px solid transparent` }}>{t.icon} {t.label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={handleDropoff} style={{ ...btnBase, background: C.danger, color: "#fff", flex: 1, justifyContent: "center", fontSize: 16, padding: "16px" }}>🏁 降車記録</button>
+            <button onClick={handleCancel} style={{ ...btnBase, background: C.cardHover, color: C.textMuted, padding: "16px 20px" }}>取消</button>
+          </div>
+        </div>
+      )}
+
+      {phase === "confirm" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: `${C.success}10`, borderRadius: 10, padding: 14 }}>
+              <div style={{ color: C.success, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>🟢 乗車</div>
+              <div style={{ color: C.text, fontWeight: 700, fontSize: 15 }}>{pickupData.area}</div>
+              <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{pickupData.date} {pickupData.time} ({pickupData.weekday})</div>
+              <div style={{ color: C.textMuted, fontSize: 10 }}>📍 {pickupData.gps.lat.toFixed(4)}, {pickupData.gps.lng.toFixed(4)}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", fontSize: 20, color: C.textMuted }}>→</div>
+            <div style={{ background: `${C.danger}10`, borderRadius: 10, padding: 14 }}>
+              <div style={{ color: C.danger, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>🔴 降車</div>
+              <div style={{ color: C.text, fontWeight: 700, fontSize: 15 }}>{dropoffData?.area || "—"}</div>
+              <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{dropoffData?.date} {dropoffData?.time} ({dropoffData?.weekday})</div>
+              <div style={{ color: C.textMuted, fontSize: 10 }}>📍 {dropoffData?.gps.lat.toFixed(4)}, {dropoffData?.gps.lng.toFixed(4)}</div>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <div><label style={{ color: C.textMuted, fontSize: 11, display: "block", marginBottom: 3 }}>距離 (km)</label><input type="number" step="0.1" placeholder="自動" value={manualDist} onChange={e => setManualDist(e.target.value)} style={inputStyle} /></div>
+            <div><label style={{ color: C.textMuted, fontSize: 11, display: "block", marginBottom: 3 }}>運賃 (円)</label><input type="number" placeholder="自動" value={manualFare} onChange={e => setManualFare(e.target.value)} style={inputStyle} /></div>
+            <div><label style={{ color: C.textMuted, fontSize: 11, display: "block", marginBottom: 3 }}>天気</label><select value={weatherOverride || currentWeather?.condition || ""} onChange={e => setWeatherOverride(e.target.value)} style={inputStyle}>{WEATHER_OPTIONS.map(w => <option key={w.value} value={w.value}>{w.icon} {w.label}</option>)}</select></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div>
+              <label style={{ color: C.textMuted, fontSize: 11, display: "block", marginBottom: 3 }}>交通状況</label>
+              <div style={{ display: "flex", gap: 4 }}>{TRAFFIC_OPTIONS.map(t => (
+                <button key={t.value} onClick={() => setTraffic(t.value)} style={{ border: traffic === t.value ? `2px solid ${t.color}` : `2px solid transparent`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600, background: traffic === t.value ? `${t.color}22` : C.cardHover, color: traffic === t.value ? t.color : C.textMuted, flex: 1 }}>{t.icon} {t.label}</button>
+              ))}</div>
+            </div>
+            <div><label style={{ color: C.textMuted, fontSize: 11, display: "block", marginBottom: 3 }}>メモ</label><input type="text" placeholder="任意" value={memo} onChange={e => setMemo(e.target.value)} style={inputStyle} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={handleSave} style={{ ...btnBase, background: C.primary, color: "#fff", flex: 1, justifyContent: "center" }}>💾 保存</button>
+            <button onClick={handleCancel} style={{ ...btnBase, background: C.cardHover, color: C.textMuted }}>取消</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// 記録テーブル
+// ============================================================
+function RideTable({ records }) {
+  const [sortKey, setSortKey] = useState("timestamp");
+  const [sortDir, setSortDir] = useState(-1);
+  const [filter, setFilter] = useState({ weather: "", traffic: "" });
+  const filtered = useMemo(() => records.filter(r => (!filter.weather || r.天気 === filter.weather) && (!filter.traffic || r.交通状況 === filter.traffic)), [records, filter]);
+  const sorted = useMemo(() => [...filtered].sort((a, b) => { const va = a[sortKey], vb = b[sortKey]; return (typeof va === "number" ? va - vb : String(va).localeCompare(String(vb))) * sortDir; }), [filtered, sortKey, sortDir]);
+  const handleSort = k => { if (sortKey === k) setSortDir(d => d * -1); else { setSortKey(k); setSortDir(-1); } };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>絞込：</span>
+        <select value={filter.weather} onChange={e => setFilter(f => ({ ...f, weather: e.target.value }))} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12 }}><option value="">天気：全</option>{WEATHER_OPTIONS.map(w => <option key={w.value} value={w.value}>{w.icon} {w.label}</option>)}</select>
+        <select value={filter.traffic} onChange={e => setFilter(f => ({ ...f, traffic: e.target.value }))} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12 }}><option value="">交通：全</option>{TRAFFIC_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}</select>
+        <span style={{ color: C.textMuted, fontSize: 11, marginLeft: "auto" }}>{sorted.length}件</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead><tr>{["日付","時刻","曜日","乗車地","降車地","距離","運賃","天気","交通","地図"].map(c => <th key={c} onClick={() => handleSort(c)} style={{ padding: "8px 8px", textAlign: "left", color: C.textMuted, borderBottom: `1px solid ${C.border}`, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap", fontSize: 11 }}>{c} {sortKey === c ? (sortDir === 1 ? "▲" : "▼") : ""}</th>)}</tr></thead>
+          <tbody>
+            {sorted.map(r => (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                <td style={{ padding: "8px", color: C.text }}>{r.日付}</td>
+                <td style={{ padding: "8px", color: C.text }}>{r.時刻}</td>
+                <td style={{ padding: "8px", color: C.text }}>{r.曜日}</td>
+                <td style={{ padding: "8px", color: C.text }}><div>{r.乗車地}</div>{r.乗車GPS && <div style={{ fontSize: 9, color: C.textMuted }}>{r.乗車GPS.lat.toFixed(4)},{r.乗車GPS.lng.toFixed(4)}</div>}</td>
+                <td style={{ padding: "8px", color: C.text }}><div>{r.降車地}</div>{r.降車GPS && <div style={{ fontSize: 9, color: C.textMuted }}>{r.降車GPS.lat.toFixed(4)},{r.降車GPS.lng.toFixed(4)}</div>}</td>
+                <td style={{ padding: "8px", color: C.text }}>{r.距離}km</td>
+                <td style={{ padding: "8px", color: C.accent, fontWeight: 600 }}>¥{r.運賃.toLocaleString()}</td>
+                <td style={{ padding: "8px" }}><Badge color={C.primary}>{getWeatherIcon(r.天気)} {getWeatherLabel(r.天気)}</Badge></td>
+                <td style={{ padding: "8px" }}><Badge color={getTrafficColor(r.交通状況)}>{getTrafficIcon(r.交通状況)} {getTrafficLabel(r.交通状況)}</Badge></td>
+                <td style={{ padding: "8px" }}>{r.乗車GPS && <a href={`https://www.google.com/maps/dir/${r.乗車GPS.lat},${r.乗車GPS.lng}/${r.降車GPS ? `${r.降車GPS.lat},${r.降車GPS.lng}` : ""}`} target="_blank" rel="noreferrer" style={{ color: C.primary, fontSize: 10, textDecoration: "none" }}>ルート表示</a>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// エクスポート
+// ============================================================
+function ExportPanel({ rides }) {
+  const exportCSV = () => {
+    const h = ["日付","時刻","曜日","乗車地","乗車緯度","乗車経度","降車地","降車緯度","降車経度","距離km","運賃","天気","交通状況","深夜","メモ"];
+    const rows = rides.map(r => [r.日付,r.時刻,r.曜日,r.乗車地,r.乗車GPS?.lat?.toFixed(6)||"",r.乗車GPS?.lng?.toFixed(6)||"",r.降車地,r.降車GPS?.lat?.toFixed(6)||"",r.降車GPS?.lng?.toFixed(6)||"",r.距離,r.運賃,getWeatherLabel(r.天気),getTrafficLabel(r.交通状況),r.深夜?"○":"",r.メモ||""]);
+    const csv = "\uFEFF" + [h.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" })); a.download = `taxi_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  };
+  return (
+    <button onClick={exportCSV} style={{ padding: "8px 18px", borderRadius: 10, border: `1px solid ${C.primary}40`, background: `linear-gradient(135deg, ${C.primary}15, ${C.secondary}10)`, color: C.primary, cursor: "pointer", fontWeight: 700, fontSize: 12, backdropFilter: "blur(8px)", transition: "all 0.3s" }}>📄 CSV出力</button>
+  );
+}
+
+// ============================================================
+// ヒートマップ
+// ============================================================
+function HeatmapView({ selectedHour }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(105px, 1fr))", gap: 6 }}>
+      {[...DEMAND_DATA.filter(d => d.hour === selectedHour)].sort((a, b) => b.demand - a.demand).map(item => (
+        <div key={item.area} style={{ background: getDemandColor(item.demand), borderRadius: 8, padding: "10px 8px", textAlign: "center" }}>
+          <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{item.area}</div>
+          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 20, fontWeight: 800, marginTop: 2 }}>{item.demand}</div>
+          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 10 }}>需要</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// メインApp
+// ============================================================
+function TaxiDashboard() {
+  const [tab, setTab] = useState("map");
+  const [selectedHour, setSelectedHour] = useState(new Date().getHours());
+  const [rides, setRides] = useState(INITIAL_RIDES);
+  const [selectedArea, setSelectedArea] = useState("新宿");
+  const [mapCenter, setMapCenter] = useState({ lat: 35.6812, lng: 139.7671 });
+
+  // リアルタイム交通データ（時間帯で更新）
+  const trafficData = useMemo(() => generateTrafficStatus(selectedHour), [selectedHour]);
+
+  // エリア選択時に地図中心を更新
+  const handleSelectArea = (name) => {
+    setSelectedArea(name);
+    const area = AREAS.find(a => a.name === name);
+    if (area) setMapCenter({ lat: area.lat, lng: area.lng });
+  };
+
+  const totalSales = MONTHLY_SALES.reduce((s, m) => s + m.売上, 0);
+  const totalRides = MONTHLY_SALES.reduce((s, m) => s + m.乗車回数, 0);
+  const avgRate = Math.round(MONTHLY_SALES.reduce((s, m) => s + m.実車率, 0) / 12);
+  const areaSales = useMemo(() => { const m = {}; rides.forEach(r => { m[r.乗車地] = (m[r.乗車地] || 0) + r.運賃; }); return Object.entries(m).map(([n, v]) => ({ name: n, value: v })).sort((a, b) => b.value - a.value).slice(0, 7); }, [rides]);
+
+  const tabs = [
+    { id: "map", label: "🗺️ 交通マップ" },
+    { id: "record", label: "📍 記録" },
+    { id: "dashboard", label: "📊 統計" },
+    { id: "heatmap", label: "🔥 需要予測" },
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif", position: "relative" }}>
+      {/* アニメーション背景 */}
+      <AnimatedBackground />
+
+      <header style={{
+        ...glassCard,
+        borderBottom: `1px solid rgba(37,99,235,0.15)`,
+        borderRadius: 0,
+        padding: "12px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        position: "sticky", top: 0, zIndex: 100,
+        background: "rgba(10,14,26,0.8)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 12,
+            background: "linear-gradient(135deg, #f59e0b, #f97316)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 20, boxShadow: "0 4px 15px rgba(245,158,11,0.3)",
+          }}>🚕</div>
+          <div>
+            <div style={{
+              fontWeight: 900, fontSize: 18, letterSpacing: 2,
+              background: "linear-gradient(135deg, #f1f5f9, #94a3b8)",
+              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            }}>TaxiBoost</div>
+            <div style={{ fontSize: 9, color: C.textMuted, letterSpacing: 0.5 }}>GPS × Google Maps × リアルタイム交通</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, background: "rgba(15,23,42,0.5)", borderRadius: 10, padding: 3 }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer",
+              fontSize: 12, fontWeight: 700, transition: "all 0.3s",
+              background: tab === t.id ? `linear-gradient(135deg, ${C.primary}, ${C.secondary})` : "transparent",
+              color: tab === t.id ? "#fff" : C.textMuted,
+              boxShadow: tab === t.id ? `0 2px 12px ${C.primary}44` : "none",
+            }}>{t.label}</button>
+          ))}
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 22px", position: "relative", zIndex: 1 }}>
+
+        {/* =============== 交通マップ =============== */}
+        {tab === "map" && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <SectionTitle>🗺️ リアルタイム交通状況マップ</SectionTitle>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ color: C.textMuted, fontSize: 12 }}>時間帯：</span>
+                <input type="range" min={0} max={23} value={selectedHour} onChange={e => setSelectedHour(+e.target.value)} style={{ width: 140, accentColor: C.primary }} />
+                <span style={{ color: C.primary, fontWeight: 800, fontSize: 16, minWidth: 45 }}>{selectedHour}:00</span>
+              </div>
+            </div>
+
+            {/* 交通サマリーカード */}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+              <StatCard icon="🚦" label="渋滞エリア" value={`${trafficData.filter(t => t.level === "heavy").length}箇所`} sub={trafficData.filter(t => t.level === "heavy").map(t => t.name).join(", ") || "なし"} trend={trafficData.filter(t => t.level === "heavy").length > 3 ? "down" : "up"} />
+              <StatCard icon="🟢" label="スムーズ" value={`${trafficData.filter(t => t.level === "smooth").length}箇所`} />
+              <StatCard icon="⏱️" label="平均速度" value={`${Math.round(trafficData.reduce((s, t) => s + t.avgSpeed, 0) / trafficData.length)}km/h`} />
+              <StatCard icon="📍" label="選択中" value={selectedArea} />
+            </div>
+
+            {/* マップ2つ並列 */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <div>
+                <div style={{ color: C.textMuted, fontSize: 12, fontWeight: 600, marginBottom: 6 }}>📡 エリア別混雑状況（クリックで詳細）</div>
+                <AreaTrafficMap trafficData={trafficData} selectedArea={selectedArea} onSelectArea={handleSelectArea} rides={rides} />
+              </div>
+              <div>
+                <div style={{ color: C.textMuted, fontSize: 12, fontWeight: 600, marginBottom: 6 }}>🗺️ Google Maps — {selectedArea}周辺</div>
+                <GoogleTrafficMap center={mapCenter} zoom={13} selectedArea={selectedArea} rides={rides} />
+              </div>
+            </div>
+
+            {/* エリア詳細 */}
+            <AreaDetailPanel area={selectedArea} trafficData={trafficData} rides={rides} demandData={DEMAND_DATA} currentHour={selectedHour} />
+
+            {/* エリア一覧テーブル */}
+            <SectionTitle>📋 全エリア交通状況一覧</SectionTitle>
+            <div style={{ ...glassCard, borderRadius: 14, padding: 16, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr>{["エリア","混雑度","状態","平均速度","推定遅延","需要スコア","Google Maps"].map(h => <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: C.textMuted, borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {[...trafficData].sort((a, b) => b.congestion - a.congestion).map(t => {
+                    const demand = DEMAND_DATA.find(d => d.area === t.name && d.hour === selectedHour);
+                    return (
+                      <tr key={t.name} onClick={() => handleSelectArea(t.name)} style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: selectedArea === t.name ? `${C.primary}11` : "transparent" }}>
+                        <td style={{ padding: "8px 10px", color: C.text, fontWeight: 600 }}>{t.name}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ width: 60, height: 6, borderRadius: 3, background: C.border }}>
+                              <div style={{ width: `${t.congestion}%`, height: "100%", borderRadius: 3, background: getTrafficColor(t.level) }} />
+                            </div>
+                            <span style={{ color: C.text, fontWeight: 600, fontSize: 11 }}>{t.congestion}%</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 10px" }}><Badge color={getTrafficColor(t.level)}>{getTrafficIcon(t.level)} {getTrafficLabel(t.level)}</Badge></td>
+                        <td style={{ padding: "8px 10px", color: C.text }}>{t.avgSpeed} km/h</td>
+                        <td style={{ padding: "8px 10px", color: t.estDelay > 0 ? C.danger : C.success }}>{t.estDelay > 0 ? `+${t.estDelay}分` : "遅延なし"}</td>
+                        <td style={{ padding: "8px 10px", color: C.accent, fontWeight: 600 }}>{demand?.demand || "—"}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <a href={`https://www.google.com/maps/@${t.lat},${t.lng},15z/data=!5m1!1e1`} target="_blank" rel="noreferrer" style={{ color: C.primary, fontSize: 11, textDecoration: "none" }}>🚦 交通情報</a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* =============== 記録 =============== */}
+        {tab === "record" && (
+          <>
+            <RideRecorder onSave={r => setRides(prev => [r, ...prev])} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <SectionTitle>📋 乗車記録（{rides.length}件）</SectionTitle>
+              <ExportPanel rides={rides} />
+            </div>
+            <div style={{ ...glassCard, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                <StatCard icon="🚕" label="総乗車" value={`${rides.length}回`} />
+                <StatCard icon="💰" label="総売上" value={`¥${rides.reduce((s, r) => s + r.運賃, 0).toLocaleString()}`} />
+                <StatCard icon="📏" label="総走行" value={`${rides.reduce((s, r) => s + r.距離, 0).toFixed(1)}km`} />
+                <StatCard icon="🌧️" label="雨天" value={`${rides.filter(r => r.天気 === "rainy" || r.天気 === "heavy_rain").length}回`} />
+              </div>
+              <RideTable records={rides} />
+            </div>
+          </>
+        )}
+
+        {/* =============== 統計 =============== */}
+        {tab === "dashboard" && (
+          <>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
+              <StatCard icon="💰" label="年間売上" value={`¥${totalSales.toLocaleString()}`} sub="+8.3%" trend="up" />
+              <StatCard icon="🚗" label="年間乗車" value={`${totalRides}回`} sub="+5.1%" trend="up" />
+              <StatCard icon="📏" label="平均単価" value={`¥${Math.round(totalSales/totalRides).toLocaleString()}`} sub="+3.0%" trend="up" />
+              <StatCard icon="⏱️" label="実車率" value={`${avgRate}%`} sub="+2.4pt" trend="up" />
+            </div>
+            <SectionTitle>📈 月別売上</SectionTitle>
+            <div style={{ ...glassCard, borderRadius: 14, padding: 16 }}>
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={MONTHLY_SALES}><defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.primary} stopOpacity={0.3}/><stop offset="95%" stopColor={C.primary} stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="month" stroke={C.textMuted} fontSize={11}/><YAxis stroke={C.textMuted} fontSize={11} tickFormatter={v=>`¥${(v/10000).toFixed(0)}万`}/><Tooltip contentStyle={tooltipStyle} formatter={v=>[`¥${v.toLocaleString()}`,""]}/><Area type="monotone" dataKey="売上" stroke={C.primary} fill="url(#sg)" strokeWidth={2}/></AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 6 }}>
+              <div><SectionTitle>📅 曜日別</SectionTitle><div style={{ ...glassCard, borderRadius: 14, padding: 16 }}><ResponsiveContainer width="100%" height={220}><BarChart data={WEEKLY_SALES}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="day" stroke={C.textMuted} fontSize={11}/><YAxis stroke={C.textMuted} fontSize={11} tickFormatter={v=>`¥${(v/10000).toFixed(0)}万`}/><Tooltip contentStyle={tooltipStyle} formatter={v=>[`¥${v.toLocaleString()}`,""]}/><Bar dataKey="売上" fill={C.primary} radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></div></div>
+              <div><SectionTitle>📍 エリア別</SectionTitle><div style={{ ...glassCard, borderRadius: 14, padding: 16 }}><ResponsiveContainer width="100%" height={220}><PieChart><Pie data={areaSales} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({name,percent})=>`${name} ${(percent*100).toFixed(0)}%`} fontSize={10}>{areaSales.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}</Pie><Tooltip contentStyle={tooltipStyle} formatter={v=>[`¥${v.toLocaleString()}`,""]} /></PieChart></ResponsiveContainer></div></div>
+            </div>
+            <SectionTitle>🕐 時間帯別</SectionTitle>
+            <div style={{ ...glassCard, borderRadius: 14, padding: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={HOURLY_SALES}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="時間" stroke={C.textMuted} fontSize={10}/><YAxis stroke={C.textMuted} fontSize={11} tickFormatter={v=>`¥${(v/1000).toFixed(0)}k`}/><Tooltip contentStyle={tooltipStyle} formatter={v=>[`¥${v.toLocaleString()}`,""]} /><Bar dataKey="売上" fill={C.secondary} radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
+
+            {/* 天気・交通分析 */}
+            <SectionTitle>🌤️ 天気×交通 分析</SectionTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div style={{ ...glassCard, borderRadius: 14, padding: 16 }}>
+                <div style={{ color: C.textMuted, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>天気別 平均運賃</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={WEATHER_OPTIONS.map(w => { const wr = rides.filter(r => r.天気 === w.value); return { name: `${w.icon}${w.label}`, 平均運賃: wr.length ? Math.round(wr.reduce((s,r)=>s+r.運賃,0)/wr.length) : 0 }; }).filter(d => d.平均運賃 > 0)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="name" stroke={C.textMuted} fontSize={11}/><YAxis stroke={C.textMuted} fontSize={11} tickFormatter={v=>`¥${v.toLocaleString()}`}/><Tooltip contentStyle={tooltipStyle} formatter={v=>[`¥${v.toLocaleString()}`,""]} /><Bar dataKey="平均運賃" fill={C.primary} radius={[6,6,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ ...glassCard, borderRadius: 14, padding: 16 }}>
+                <div style={{ color: C.textMuted, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>交通状況別 平均運賃</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={TRAFFIC_OPTIONS.map(t => { const tr = rides.filter(r => r.交通状況 === t.value); return { name: `${t.icon}${t.label}`, 平均運賃: tr.length ? Math.round(tr.reduce((s,r)=>s+r.運賃,0)/tr.length) : 0, color: t.color }; }).filter(d => d.平均運賃 > 0)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="name" stroke={C.textMuted} fontSize={11}/><YAxis stroke={C.textMuted} fontSize={11} tickFormatter={v=>`¥${v.toLocaleString()}`}/><Tooltip contentStyle={tooltipStyle} formatter={v=>[`¥${v.toLocaleString()}`,""]} /><Bar dataKey="平均運賃" radius={[6,6,0,0]}>{TRAFFIC_OPTIONS.map((t,i)=><Cell key={i} fill={t.color}/>)}</Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* =============== 需要予測 =============== */}
+        {tab === "heatmap" && (
+          <>
+            <SectionTitle>🔥 エリア別需要ヒートマップ</SectionTitle>
+            <div style={{ ...glassCard, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+                <span style={{ color: C.textMuted, fontSize: 13 }}>時間帯：</span>
+                <input type="range" min={0} max={23} value={selectedHour} onChange={e => setSelectedHour(+e.target.value)} style={{ flex: 1, minWidth: 180, accentColor: C.primary }} />
+                <span style={{ fontSize: 18, fontWeight: 800, color: C.primary, minWidth: 45 }}>{selectedHour}:00</span>
+              </div>
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, fontSize: 11 }}>
+                {[{c:"#ef4444",l:"高(80+)"},{c:"#f59e0b",l:"中高(60)"},{c:"#22c55e",l:"中(40)"},{c:"#3b82f6",l:"低(20)"},{c:"#334155",l:"極低"}].map(l=><div key={l.l} style={{ display:"flex",alignItems:"center",gap:4 }}><div style={{ width:10,height:10,borderRadius:3,background:l.c }}/><span style={{ color:C.textMuted }}>{l.l}</span></div>)}
+              </div>
+              <HeatmapView selectedHour={selectedHour} />
+            </div>
+            <div style={{ background: `linear-gradient(135deg, rgba(37,99,235,0.12), rgba(124,58,237,0.08))`, border: `1px solid ${C.primary}30`, borderRadius: 14, padding: 18, marginBottom: 16, backdropFilter: "blur(12px)" }}>
+              <div style={{ color: C.primary, fontWeight: 800, fontSize: 14, marginBottom: 6 }}>💡 {selectedHour}時台アドバイス</div>
+              <div style={{ color: C.text, fontSize: 13, lineHeight: 1.7 }}>
+                <strong>需要上位：</strong>{DEMAND_DATA.filter(d => d.hour === selectedHour).sort((a, b) => b.demand - a.demand).slice(0, 3).map(a => `${a.area}(${a.demand})`).join("、")}
+              </div>
+            </div>
+            <SectionTitle>📊 主要エリア需要推移</SectionTitle>
+            <div style={{ ...glassCard, borderRadius: 14, padding: 16 }}>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={HOURS.map(h => { const row = { hour: `${h}時` }; ["東京駅","新宿","渋谷","六本木","品川"].forEach(a => { row[a] = DEMAND_DATA.find(d => d.hour === h && d.area === a)?.demand || 0; }); return row; })}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="hour" stroke={C.textMuted} fontSize={10}/><YAxis stroke={C.textMuted} fontSize={11}/>
+                  <Tooltip contentStyle={tooltipStyle}/><Legend/>
+                  {["東京駅","新宿","渋谷","六本木","品川"].map((a,i)=><Line key={a} type="monotone" dataKey={a} stroke={PIE_COLORS[i]} strokeWidth={2} dot={false}/>)}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
+      </main>
+
+      <footer style={{
+        textAlign: "center", padding: "20px 16px",
+        color: C.textMuted, fontSize: 10,
+        borderTop: `1px solid rgba(37,99,235,0.1)`,
+        position: "relative", zIndex: 1,
+        background: "rgba(10,14,26,0.5)",
+        backdropFilter: "blur(8px)",
+      }}>
+        <div style={{ marginBottom: 4, letterSpacing: 1 }}>
+          <span style={{ background: "linear-gradient(90deg, #2563eb, #7c3aed, #f59e0b)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontWeight: 800, fontSize: 12 }}>TaxiBoost</span>
+          <span style={{ marginLeft: 6 }}>v3.0</span>
+        </div>
+        <div>GPS × Google Maps × リアルタイム交通 × 天気連携</div>
+      </footer>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(TaxiDashboard));
+</script>
+</body>
+</html>

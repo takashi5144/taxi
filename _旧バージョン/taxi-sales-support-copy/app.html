@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a1a2e" />
+  <meta name="description" content="タクシー売上サポートツール" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>タクシー売上サポート</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://maps.googleapis.com" />
+  <link rel="preconnect" href="https://maps.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+  <style>
+:root {
+  --color-primary: #1a73e8;
+  --color-primary-dark: #1557b0;
+  --color-primary-light: #4a90e2;
+  --color-secondary: #f9a825;
+  --color-secondary-dark: #c17900;
+  --color-accent: #00c853;
+  --color-danger: #e53935;
+  --color-warning: #ff9800;
+  --bg-dark: #1a1a2e;
+  --bg-medium: #16213e;
+  --bg-light: #0f3460;
+  --bg-card: #1e2a4a;
+  --bg-card-hover: #253252;
+  --text-primary: #ffffff;
+  --text-secondary: #b0b8c8;
+  --text-muted: #6c757d;
+  --font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --header-height: 56px;
+  --sidebar-width: 240px;
+  --bottom-nav-height: 64px;
+  --border-radius: 12px;
+  --border-radius-sm: 8px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body { font-family: var(--font-family); background-color: var(--bg-dark); color: var(--text-primary); line-height: 1.6; min-height: 100vh; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--color-primary-light); text-decoration: none; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-medium); }
+::-webkit-scrollbar-thumb { background: var(--bg-light); border-radius: 3px; }
+
+.header { position: fixed; top: 0; left: 0; right: 0; height: var(--header-height); background: var(--bg-medium); border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; padding: 0 var(--space-md); z-index: 1000; backdrop-filter: blur(10px); }
+.header__logo { display: flex; align-items: center; gap: var(--space-sm); font-weight: 700; font-size: var(--font-size-lg); color: var(--color-secondary); cursor: pointer; }
+.header__logo .material-icons-round { font-size: 28px; }
+.header__nav { display: flex; align-items: center; gap: var(--space-xs); margin-left: auto; }
+.header__nav-btn { background: none; border: none; color: var(--text-secondary); padding: var(--space-sm) var(--space-md); border-radius: var(--border-radius-sm); cursor: pointer; font-size: var(--font-size-sm); font-family: var(--font-family); transition: all var(--transition-fast); display: flex; align-items: center; gap: var(--space-xs); }
+.header__nav-btn:hover, .header__nav-btn.active { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.header__nav-btn.active { color: var(--color-primary-light); }
+.header__menu-toggle { display: none; background: none; border: none; color: var(--text-primary); font-size: 24px; cursor: pointer; padding: var(--space-sm); }
+
+.sidebar { position: fixed; top: var(--header-height); left: 0; width: var(--sidebar-width); height: calc(100vh - var(--header-height)); background: var(--bg-medium); border-right: 1px solid rgba(255,255,255,0.06); padding: var(--space-md) 0; overflow-y: auto; z-index: 900; transition: transform var(--transition-normal); }
+.sidebar__section { padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-sm); }
+.sidebar__section-title { font-size: var(--font-size-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-sm); padding: 0 var(--space-sm); }
+.sidebar__item { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-radius: var(--border-radius-sm); color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); font-size: var(--font-size-sm); border: none; background: none; width: 100%; text-align: left; font-family: var(--font-family); }
+.sidebar__item:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+.sidebar__item.active { background: rgba(26, 115, 232, 0.15); color: var(--color-primary-light); }
+.sidebar__item .material-icons-round { font-size: 20px; }
+
+.main-content { margin-top: var(--header-height); margin-left: var(--sidebar-width); padding: var(--space-lg); min-height: calc(100vh - var(--header-height)); transition: margin-left var(--transition-normal); }
+
+.bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--bottom-nav-height); background: var(--bg-medium); border-top: 1px solid rgba(255,255,255,0.08); z-index: 1000; }
+.bottom-nav__items { display: flex; justify-content: space-around; align-items: center; height: 100%; padding: 0 var(--space-sm); }
+.bottom-nav__item { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: none; color: var(--text-muted); font-size: var(--font-size-xs); cursor: pointer; padding: var(--space-xs) var(--space-sm); border-radius: var(--border-radius-sm); transition: color var(--transition-fast); font-family: var(--font-family); min-width: 56px; }
+.bottom-nav__item .material-icons-round { font-size: 22px; }
+.bottom-nav__item.active { color: var(--color-primary-light); }
+
+.card { background: var(--bg-card); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--border-radius); padding: var(--space-lg); transition: all var(--transition-fast); }
+.card:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.1); }
+.card__title { font-size: var(--font-size-lg); font-weight: 700; margin-bottom: var(--space-sm); }
+.card__subtitle { font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: var(--space-md); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-lg); border: none; border-radius: var(--border-radius-sm); font-size: var(--font-size-sm); font-family: var(--font-family); font-weight: 500; cursor: pointer; transition: all var(--transition-fast); white-space: nowrap; }
+.btn--primary { background: var(--color-primary); color: white; }
+.btn--primary:hover { background: var(--color-primary-dark); }
+.btn--secondary { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.btn--secondary:hover { background: rgba(255,255,255,0.14); }
+.btn--success { background: var(--color-accent); color: white; }
+.btn--danger { background: var(--color-danger); color: white; }
+
+.grid { display: grid; gap: var(--space-md); }
+.grid--2 { grid-template-columns: repeat(2, 1fr); }
+.grid--3 { grid-template-columns: repeat(3, 1fr); }
+.grid--4 { grid-template-columns: repeat(4, 1fr); }
+.page-title { font-size: var(--font-size-xl); font-weight: 700; margin-bottom: var(--space-lg); display: flex; align-items: center; gap: var(--space-sm); }
+.page-title .material-icons-round { color: var(--color-secondary); }
+
+.map-container { width: 100%; height: 500px; border-radius: var(--border-radius); overflow: hidden; position: relative; background: var(--bg-card); z-index: 1; }
+.map-container--fullscreen { position: fixed; top: var(--header-height); left: var(--sidebar-width); right: 0; bottom: 0; height: auto; border-radius: 0; z-index: 500; }
+
+.gps-panel { background: rgba(26,26,46,0.9); backdrop-filter: blur(10px); border-radius: var(--border-radius-sm); padding: var(--space-md); position: absolute; bottom: var(--space-md); left: var(--space-md); right: var(--space-md); z-index: 10; border: 1px solid rgba(255,255,255,0.1); }
+.gps-panel__row { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-sm); }
+.gps-panel__label { color: var(--text-muted); min-width: 60px; }
+.gps-panel__value { color: var(--color-accent); font-weight: 500; font-family: 'Courier New', monospace; }
+
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 20px; font-size: var(--font-size-xs); font-weight: 500; }
+.badge--success { background: rgba(0,200,83,0.15); color: var(--color-accent); }
+.badge--warning { background: rgba(255,152,0,0.15); color: var(--color-warning); }
+.badge--error { background: rgba(229,57,53,0.15); color: var(--color-danger); }
+.badge--info { background: rgba(26,115,232,0.15); color: var(--color-primary-light); }
+
+.dev-log-entry { display: flex; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-bottom: 1px solid rgba(255,255,255,0.04); font-size: var(--font-size-sm); font-family: 'Courier New', monospace; }
+.dev-log-entry__time { color: var(--text-muted); white-space: nowrap; }
+.dev-log-entry__level { min-width: 50px; font-weight: 700; }
+.dev-log-entry__level--info { color: var(--color-primary-light); }
+.dev-log-entry__level--warn { color: var(--color-warning); }
+.dev-log-entry__level--error { color: var(--color-danger); }
+.dev-log-entry__level--debug { color: var(--text-muted); }
+.dev-log-entry__message { color: var(--text-secondary); word-break: break-all; }
+
+.form-group { margin-bottom: var(--space-md); }
+.form-label { display: block; font-size: var(--font-size-sm); color: var(--text-secondary); margin-bottom: var(--space-xs); }
+.form-input { width: 100%; padding: var(--space-sm) var(--space-md); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: var(--border-radius-sm); color: var(--text-primary); font-size: var(--font-size-base); font-family: var(--font-family); transition: border-color var(--transition-fast); }
+.form-input:focus { outline: none; border-color: var(--color-primary); }
+
+.stat-card { text-align: center; padding: var(--space-lg); }
+.stat-card__value { font-size: var(--font-size-2xl); font-weight: 700; color: var(--color-secondary); }
+.stat-card__label { font-size: var(--font-size-sm); color: var(--text-secondary); margin-top: var(--space-xs); }
+
+.loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--space-2xl); gap: var(--space-md); }
+.loading__spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.file-tree { font-family: 'Courier New', monospace; font-size: var(--font-size-sm); line-height: 1.8; }
+.file-tree__item { display: flex; align-items: center; gap: var(--space-xs); padding: 2px 0; }
+.file-tree__icon--folder { color: var(--color-secondary); }
+.file-tree__icon--file { color: var(--text-muted); }
+.file-tree__icon--react { color: #61dafb; }
+.file-tree__icon--css { color: #264de4; }
+.file-tree__icon--js { color: #f7df1e; }
+.file-tree__icon--html { color: #e34c26; }
+.file-tree__icon--md { color: var(--text-secondary); }
+
+/* レスポンシブ */
+@media (max-width: 1023px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main-content { margin-left: 0; }
+  .map-container--fullscreen { left: 0; }
+  .header__menu-toggle { display: block; }
+  .header__nav { display: none; }
+  .grid--3 { grid-template-columns: repeat(2, 1fr); }
+  .grid--4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 767px) {
+  html { font-size: 14px; }
+  .sidebar { width: 100%; transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .bottom-nav { display: block; }
+  .main-content { margin-left: 0; padding: var(--space-md); padding-bottom: calc(var(--bottom-nav-height) + var(--space-md)); }
+  .map-container { height: 350px; }
+  .map-container--fullscreen { left: 0; bottom: var(--bottom-nav-height); }
+  .grid--2, .grid--3, .grid--4 { grid-template-columns: 1fr; }
+  .page-title { font-size: var(--font-size-lg); }
+  .card { padding: var(--space-md); }
+  .gps-panel { bottom: var(--space-sm); left: var(--space-sm); right: var(--space-sm); padding: var(--space-sm); }
+}
+@media (hover: none) {
+  .card:hover { background: var(--bg-card); border-color: rgba(255,255,255,0.06); }
+  .btn:active { transform: scale(0.97); }
+}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+// ===== 定数 =====
+const APP_CONSTANTS = {
+  APP_NAME: 'タクシー売上サポート',
+  VERSION: '0.3.0',
+  DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
+  DEFAULT_MAP_ZOOM: 15,
+  GPS_OPTIONS: { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
+  ROUTES: { DASHBOARD:'dashboard', MAP:'map', REVENUE:'revenue', ANALYTICS:'analytics', SETTINGS:'settings', DEV_TOOLS:'dev', DEV_LOGS:'dev-logs', DEV_STRUCTURE:'dev-structure', DEV_API:'dev-api' },
+  NAV_ITEMS: [
+    { id:'dashboard', label:'ダッシュボード', icon:'dashboard' },
+    { id:'map', label:'地図', icon:'map' },
+    { id:'revenue', label:'売上記録', icon:'receipt_long' },
+    { id:'analytics', label:'分析', icon:'analytics' },
+    { id:'settings', label:'設定', icon:'settings' },
+  ],
+  BOTTOM_NAV_ITEMS: [
+    { id:'dashboard', label:'ホーム', icon:'home' },
+    { id:'map', label:'地図', icon:'map' },
+    { id:'revenue', label:'売上', icon:'receipt_long' },
+    { id:'analytics', label:'分析', icon:'analytics' },
+    { id:'settings', label:'設定', icon:'more_horiz' },
+  ],
+  STORAGE_KEYS: { API_KEY:'taxi_app_google_maps_api_key', LOGS:'taxi_app_logs', SETTINGS:'taxi_app_settings', REVENUE_DATA:'taxi_app_revenue' },
+  SITE_STRUCTURE: {
+    name:'taxi-sales-support/', type:'folder', children:[
+      { name:'src/', type:'folder', children:[
+        { name:'main.jsx', type:'react', desc:'エントリーポイント' },
+        { name:'App.jsx', type:'react', desc:'ルートコンポーネント' },
+        { name:'components/', type:'folder', children:[
+          { name:'Layout/', type:'folder', children:[
+            { name:'Header.jsx', type:'react', desc:'ヘッダー' },
+            { name:'Sidebar.jsx', type:'react', desc:'サイドバー' },
+            { name:'BottomNav.jsx', type:'react', desc:'ボトムナビ' },
+            { name:'Layout.jsx', type:'react', desc:'レイアウト' },
+          ]},
+          { name:'Map/', type:'folder', children:[
+            { name:'GoogleMap.jsx', type:'react', desc:'Google Maps地図' },
+            { name:'GpsTracker.jsx', type:'react', desc:'GPS追跡' },
+          ]},
+          { name:'common/', type:'folder', children:[
+            { name:'Button.jsx', type:'react', desc:'ボタン' },
+            { name:'Card.jsx', type:'react', desc:'カード' },
+            { name:'Loading.jsx', type:'react', desc:'ローディング' },
+          ]},
+        ]},
+        { name:'pages/', type:'folder', children:[
+          { name:'Dashboard.jsx', type:'react', desc:'ダッシュボード' },
+          { name:'MapView.jsx', type:'react', desc:'地図' },
+          { name:'Revenue.jsx', type:'react', desc:'売上' },
+          { name:'Analytics.jsx', type:'react', desc:'分析' },
+          { name:'Settings.jsx', type:'react', desc:'設定' },
+          { name:'dev/', type:'folder', children:[
+            { name:'DevTools.jsx', type:'react', desc:'開発者ツール' },
+            { name:'Structure.jsx', type:'react', desc:'構造' },
+            { name:'Logs.jsx', type:'react', desc:'ログ' },
+            { name:'ApiStatus.jsx', type:'react', desc:'API状態' },
+          ]},
+        ]},
+        { name:'context/', type:'folder', children:[
+          { name:'AppContext.jsx', type:'react', desc:'状態管理' },
+          { name:'MapContext.jsx', type:'react', desc:'地図状態' },
+          { name:'LogContext.jsx', type:'react', desc:'ログ' },
+        ]},
+        { name:'hooks/', type:'folder', children:[
+          { name:'useGeolocation.js', type:'js', desc:'GPS' },
+          { name:'useGoogleMaps.js', type:'js', desc:'Google Maps読込' },
+        ]},
+        { name:'utils/', type:'folder', children:[
+          { name:'constants.js', type:'js', desc:'定数' },
+          { name:'logger.js', type:'js', desc:'ロガー' },
+          { name:'storage.js', type:'js', desc:'ストレージ' },
+          { name:'dataService.js', type:'js', desc:'データ処理' },
+        ]},
+        { name:'styles/', type:'folder', children:[
+          { name:'variables.css', type:'css', desc:'CSS変数' },
+          { name:'global.css', type:'css', desc:'グローバル' },
+          { name:'responsive.css', type:'css', desc:'レスポンシブ' },
+        ]},
+      ]},
+      { name:'docs/', type:'folder', children:[
+        { name:'ARCHITECTURE.md', type:'md', desc:'設計書' },
+        { name:'CHANGELOG.md', type:'md', desc:'変更履歴' },
+        { name:'DEV_LOG.md', type:'md', desc:'開発ログ' },
+      ]},
+      { name:'index.html', type:'html', desc:'モジュール版エントリー' },
+      { name:'app.html', type:'html', desc:'単一ファイル版' },
+    ]
+  },
+};
+
+// ===== ロガー =====
+const AppLogger = (() => {
+  const MAX_LOGS = 500;
+  let logs = [];
+  let listeners = [];
+  try { const s = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.LOGS); if(s) logs = JSON.parse(s); } catch {}
+  function save() { try { localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.LOGS, JSON.stringify(logs.slice(-MAX_LOGS))); } catch {} }
+  function notify() { listeners.forEach(fn => fn([...logs])); }
+  function add(level, message, data) {
+    const entry = { id: Date.now()+'_'+Math.random().toString(36).substr(2,5), timestamp: new Date().toISOString(), level, message, data };
+    logs.push(entry);
+    if (logs.length > MAX_LOGS) logs = logs.slice(-MAX_LOGS);
+    save(); notify();
+    return entry;
+  }
+  return {
+    debug:(m,d)=>add('debug',m,d), info:(m,d)=>add('info',m,d), warn:(m,d)=>add('warn',m,d), error:(m,d)=>add('error',m,d),
+    getLogs:()=>[...logs], clearLogs:()=>{logs=[];save();notify();},
+    subscribe:(fn)=>{listeners.push(fn);return()=>{listeners=listeners.filter(l=>l!==fn);};},
+  };
+})();
+
+// ===== ストレージ =====
+const AppStorage = {
+  get(k,d=null){try{const i=localStorage.getItem(k);return i?JSON.parse(i):d;}catch{return d;}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch{return false;}},
+  getApiKey(){return this.get(APP_CONSTANTS.STORAGE_KEYS.API_KEY,'');},
+  setApiKey(k){return this.set(APP_CONSTANTS.STORAGE_KEYS.API_KEY,k);},
+};
+
+// ===== React Hooks & Context =====
+const { createContext, useState, useEffect, useRef, useCallback, useContext, useMemo } = React;
+
+// LogContext
+const LogContext = createContext(null);
+const LogProvider = ({children}) => {
+  const [logs, setLogs] = useState(AppLogger.getLogs());
+  useEffect(() => AppLogger.subscribe(setLogs), []);
+  return <LogContext.Provider value={{ logs, addLog:AppLogger.info, clearLogs:AppLogger.clearLogs }}>{children}</LogContext.Provider>;
+};
+const useLogContext = () => useContext(LogContext);
+
+// MapContext
+const MapContext = createContext(null);
+const MapProvider = ({children}) => {
+  const [currentPosition, setCurrentPosition] = useState(null);
+  const [mapCenter, setMapCenter] = useState(APP_CONSTANTS.DEFAULT_MAP_CENTER);
+  const [zoom, setZoom] = useState(APP_CONSTANTS.DEFAULT_MAP_ZOOM);
+  const [isTracking, setIsTracking] = useState(false);
+  const [gpsError, setGpsError] = useState(null);
+  const [accuracy, setAccuracy] = useState(null);
+  const [speed, setSpeed] = useState(null);
+  const [heading, setHeading] = useState(null);
+  const updatePosition = useCallback((pos) => {
+    setCurrentPosition({lat:pos.coords.latitude, lng:pos.coords.longitude});
+    setAccuracy(pos.coords.accuracy); setSpeed(pos.coords.speed); setHeading(pos.coords.heading); setGpsError(null);
+  }, []);
+  return <MapContext.Provider value={{currentPosition,setCurrentPosition,mapCenter,setMapCenter,zoom,setZoom,isTracking,setIsTracking,gpsError,setGpsError,accuracy,speed,heading,updatePosition}}>{children}</MapContext.Provider>;
+};
+const useMapContext = () => useContext(MapContext);
+
+// AppContext
+const AppContext = createContext(null);
+const AppProvider = ({children}) => {
+  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [apiKey, setApiKeyState] = useState(AppStorage.getApiKey());
+  const setApiKey = (k) => { AppStorage.setApiKey(k); setApiKeyState(k); AppLogger.info('Google Maps APIキーが更新されました'); };
+  const navigate = (page) => { setCurrentPage(page); setSidebarOpen(false); AppLogger.debug('ページ遷移: '+page); };
+  return <AppContext.Provider value={{currentPage,navigate,sidebarOpen,setSidebarOpen,apiKey,setApiKey}}>{children}</AppContext.Provider>;
+};
+const useAppContext = () => useContext(AppContext);
+
+// useGeolocation
+function getGpsErrorMessage(err) {
+  switch(err.code){case 1:return'位置情報の権限が拒否されました';case 2:return'位置情報を取得できません';case 3:return'タイムアウト';default:return'GPSエラー';}
+}
+const useGeolocation = () => {
+  const mapCtx = useMapContext();
+  const watchIdRef = useRef(null);
+  const isSupported = 'geolocation' in navigator;
+  const getCurrentPosition = useCallback(() => {
+    if(!isSupported){mapCtx.setGpsError('GPS非対応');return;}
+    AppLogger.info('現在地を取得中...');
+    navigator.geolocation.getCurrentPosition(
+      (p)=>{mapCtx.updatePosition(p);mapCtx.setMapCenter({lat:p.coords.latitude,lng:p.coords.longitude});AppLogger.info(`現在地: ${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}`);},
+      (e)=>{mapCtx.setGpsError(getGpsErrorMessage(e));AppLogger.error('GPS: '+getGpsErrorMessage(e));},
+      APP_CONSTANTS.GPS_OPTIONS
+    );
+  },[isSupported,mapCtx]);
+  const startTracking = useCallback(() => {
+    if(!isSupported)return;
+    AppLogger.info('GPS追跡開始');mapCtx.setIsTracking(true);
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (p)=>mapCtx.updatePosition(p),
+      (e)=>{mapCtx.setGpsError(getGpsErrorMessage(e));},
+      APP_CONSTANTS.GPS_OPTIONS
+    );
+  },[isSupported,mapCtx]);
+  const stopTracking = useCallback(() => {
+    if(watchIdRef.current!==null){navigator.geolocation.clearWatch(watchIdRef.current);watchIdRef.current=null;}
+    mapCtx.setIsTracking(false);AppLogger.info('GPS追跡停止');
+  },[mapCtx]);
+  useEffect(()=>()=>{if(watchIdRef.current!==null)navigator.geolocation.clearWatch(watchIdRef.current);},[]);
+  return {isSupported,getCurrentPosition,startTracking,stopTracking,isTracking:mapCtx.isTracking};
+};
+
+// ===== 共通コンポーネント =====
+const Loading = ({message='読み込み中...'}) => <div className="loading"><div className="loading__spinner"/><span style={{color:'var(--text-secondary)',fontSize:'var(--font-size-sm)'}}>{message}</span></div>;
+const Card = ({title,subtitle,children,className='',onClick,style}) => <div className={`card ${className}`} onClick={onClick} style={{...style,cursor:onClick?'pointer':'default'}}>{title&&<div className="card__title">{title}</div>}{subtitle&&<div className="card__subtitle">{subtitle}</div>}{children}</div>;
+const Button = ({children,variant='primary',icon,onClick,disabled,style}) => <button className={`btn btn--${variant}`} onClick={onClick} disabled={disabled} style={style}>{icon&&<span className="material-icons-round" style={{fontSize:'18px'}}>{icon}</span>}{children}</button>;
+
+// ===== Google Maps スクリプトローダー（シングルトン） =====
+const _gmapLoader = {
+  status: 'idle',
+  callbacks: [],
+  load(apiKey) {
+    return new Promise((resolve, reject) => {
+      if (window.google && window.google.maps) { this.status = 'loaded'; resolve(); return; }
+      if (this.status === 'loaded') { resolve(); return; }
+      this.callbacks.push({ resolve, reject });
+      if (this.status === 'loading') return;
+      this.status = 'loading';
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP`;
+      script.async = true;
+      script.onload = () => { this.status = 'loaded'; this.callbacks.forEach(cb => cb.resolve()); this.callbacks = []; };
+      script.onerror = (err) => { this.status = 'error'; this.callbacks.forEach(cb => cb.reject(err)); this.callbacks = []; };
+      document.head.appendChild(script);
+    });
+  }
+};
+
+// ===== Google Maps コンポーネント =====
+const GoogleMapView = ({fullscreen=false}) => {
+  const {apiKey} = useAppContext();
+  const {mapCenter,zoom,currentPosition,accuracy,setMapCenter,setZoom} = useMapContext();
+  const mapRef = useRef(null);
+  const mapInstRef = useRef(null);
+  const markerRef = useRef(null);
+  const accuracyCircleRef = useRef(null);
+  const trafficLayerRef = useRef(null);
+  const [mapLoaded,setMapLoaded] = useState(false);
+  const [mapError,setMapError] = useState(null);
+  const [showTraffic,setShowTraffic] = useState(true);
+  const initDone = useRef(false);
+  const firstGpsDone = useRef(false);
+
+  // Google Maps API ロード
+  useEffect(() => {
+    if (!apiKey) { setMapError(null); setMapLoaded(false); return; }
+    if (window.google && window.google.maps) { setMapLoaded(true); return; }
+    let cancelled = false;
+    _gmapLoader.load(apiKey)
+      .then(() => { if (!cancelled) { setMapLoaded(true); setMapError(null); AppLogger.info('Google Maps API ロード完了'); } })
+      .catch(() => { if (!cancelled) { setMapError('Google Maps API の読み込みに失敗しました。APIキーを確認してください。'); AppLogger.error('Google Maps API ロード失敗'); } });
+    return () => { cancelled = true; };
+  }, [apiKey]);
+
+  // マップ初期化
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current || !window.google || initDone.current) return;
+    initDone.current = true;
+    const initCenter = currentPosition || mapCenter;
+    const initZoom = currentPosition ? 15 : zoom;
+    const map = new google.maps.Map(mapRef.current, {
+      center: initCenter, zoom: initZoom, mapTypeId: 'roadmap',
+      disableDefaultUI: false, zoomControl: true,
+      mapTypeControl: true,
+      mapTypeControlOptions: { style: google.maps.MapTypeControlStyle.DROPDOWN_MENU, position: google.maps.ControlPosition.TOP_LEFT },
+      streetViewControl: false, fullscreenControl: false, scaleControl: true, gestureHandling: 'greedy',
+    });
+    mapInstRef.current = map;
+
+    // 交通情報レイヤー
+    const trafficLayer = new google.maps.TrafficLayer();
+    trafficLayer.setMap(map);
+    trafficLayerRef.current = trafficLayer;
+
+    // GPS位置があれば初回マーカー
+    if (currentPosition) { firstGpsDone.current = true; placeMarker(map, currentPosition); }
+
+    // イベント（スロットリング）
+    let centerTimer = null;
+    map.addListener('center_changed', () => { clearTimeout(centerTimer); centerTimer = setTimeout(() => { const c = map.getCenter(); setMapCenter({lat:c.lat(),lng:c.lng()}); }, 300); });
+    map.addListener('zoom_changed', () => { setZoom(map.getZoom()); });
+    AppLogger.info('Google Maps 初期化完了（TrafficLayer有効）');
+  }, [mapLoaded]);
+
+  function placeMarker(map, pos) {
+    if (!markerRef.current) {
+      markerRef.current = new google.maps.Marker({
+        position: pos, map,
+        title: '現在地',
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 },
+        zIndex: 999,
+      });
+      accuracyCircleRef.current = new google.maps.Circle({
+        map, center: pos, radius: accuracy || 50,
+        fillColor: '#4285F4', fillOpacity: 0.08, strokeColor: '#4285F4', strokeOpacity: 0.25, strokeWeight: 1, clickable: false,
+      });
+    }
+  }
+
+  // 交通レイヤー表示切替
+  useEffect(() => {
+    if (!trafficLayerRef.current || !mapInstRef.current) return;
+    trafficLayerRef.current.setMap(showTraffic ? mapInstRef.current : null);
+  }, [showTraffic]);
+
+  // 現在位置マーカー更新
+  useEffect(() => {
+    if (!mapInstRef.current || !currentPosition || !window.google) return;
+    const map = mapInstRef.current;
+    if (!markerRef.current) { placeMarker(map, currentPosition); }
+    else {
+      markerRef.current.setPosition(currentPosition);
+      if (accuracyCircleRef.current) { accuracyCircleRef.current.setCenter(currentPosition); if (accuracy) accuracyCircleRef.current.setRadius(accuracy); }
+    }
+    if (!firstGpsDone.current) {
+      firstGpsDone.current = true; map.setCenter(currentPosition); map.setZoom(15);
+      AppLogger.info(`初回GPS: ${currentPosition.lat.toFixed(6)}, ${currentPosition.lng.toFixed(6)}`);
+    } else { map.panTo(currentPosition); }
+  }, [currentPosition]);
+
+  // APIキーなし → デモモード
+  if (!apiKey) {
+    return(
+      <div className={`map-container ${fullscreen?'map-container--fullscreen':''}`} style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'linear-gradient(135deg, var(--bg-medium), var(--bg-light))'}}>
+        <span className="material-icons-round" style={{fontSize:'64px',color:'var(--color-secondary)',marginBottom:'16px'}}>map</span>
+        <h3 style={{marginBottom:'8px'}}>Google Maps デモモード</h3>
+        <p style={{color:'var(--text-secondary)',textAlign:'center',maxWidth:'400px',fontSize:'var(--font-size-sm)'}}>設定画面からGoogle Maps APIキーを入力すると、実際の地図と交通渋滞情報が表示されます。</p>
+        <div style={{marginTop:'16px',padding:'12px 20px',background:'rgba(255,255,255,0.06)',borderRadius:'8px',fontFamily:'monospace',fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>
+          <div>中心: {mapCenter.lat.toFixed(4)}, {mapCenter.lng.toFixed(4)}</div>
+          <div>ズーム: {zoom}</div>
+          {currentPosition && <div style={{color:'var(--color-accent)',marginTop:'4px'}}>GPS: {currentPosition.lat.toFixed(6)}, {currentPosition.lng.toFixed(6)}</div>}
+        </div>
+        <Button variant="primary" icon="settings" onClick={()=>document.dispatchEvent(new CustomEvent('navigate',{detail:'settings'}))} style={{marginTop:'16px'}}>設定を開く</Button>
+      </div>
+    );
+  }
+
+  // エラー
+  if (mapError) {
+    return <div className={`map-container ${fullscreen?'map-container--fullscreen':''}`} style={{display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:'12px'}}><span className="material-icons-round" style={{fontSize:'48px',color:'var(--color-danger)'}}>error</span><p style={{color:'var(--color-danger)'}}>{mapError}</p></div>;
+  }
+
+  // メイン地図
+  return(
+    <div style={{position:'relative'}}>
+      <div ref={mapRef} className={`map-container ${fullscreen?'map-container--fullscreen':''}`} style={{minHeight:'450px'}}>
+        {!mapLoaded && <Loading message="Google Maps を読み込み中..."/>}
+      </div>
+      {mapLoaded && (
+        <div style={{position:'absolute',top:'12px',right:'12px',display:'flex',flexDirection:'column',gap:'6px',zIndex:5}}>
+          <button onClick={()=>setShowTraffic(prev=>!prev)} style={{
+            display:'flex',alignItems:'center',gap:'6px',padding:'8px 14px',borderRadius:'8px',
+            fontSize:'12px',fontWeight:'700',color:'#fff',cursor:'pointer',
+            border:showTraffic?'none':'1px solid rgba(255,255,255,0.2)',
+            background:showTraffic?'#ef4444':'rgba(26,26,46,0.85)',
+            boxShadow:'0 2px 8px rgba(0,0,0,0.4)',backdropFilter:'blur(8px)',transition:'all 0.2s ease',
+          }}>
+            <span className="material-icons-round" style={{fontSize:'16px'}}>traffic</span>
+            渋滞情報 {showTraffic?'ON':'OFF'}
+          </button>
+          {currentPosition && (
+            <button onClick={()=>{if(mapInstRef.current&&currentPosition){mapInstRef.current.setCenter(currentPosition);mapInstRef.current.setZoom(15);}}} style={{
+              display:'flex',alignItems:'center',gap:'6px',padding:'8px 14px',borderRadius:'8px',
+              fontSize:'12px',fontWeight:'700',color:'#fff',cursor:'pointer',
+              border:'1px solid rgba(255,255,255,0.2)',background:'rgba(26,26,46,0.85)',
+              boxShadow:'0 2px 8px rgba(0,0,0,0.4)',backdropFilter:'blur(8px)',transition:'all 0.2s ease',
+            }}>
+              <span className="material-icons-round" style={{fontSize:'16px'}}>my_location</span>
+              現在地
+            </button>
+          )}
+          <a href={`https://www.google.com/maps/@${mapCenter.lat},${mapCenter.lng},${zoom}z/data=!5m1!1e1`} target="_blank" rel="noreferrer" style={{
+            display:'flex',alignItems:'center',gap:'6px',padding:'8px 14px',borderRadius:'8px',
+            fontSize:'12px',fontWeight:'700',textDecoration:'none',color:'#fff',
+            border:'1px solid rgba(255,255,255,0.2)',background:'rgba(26,26,46,0.85)',
+            boxShadow:'0 2px 8px rgba(0,0,0,0.4)',backdropFilter:'blur(8px)',
+          }}>
+            <span className="material-icons-round" style={{fontSize:'16px'}}>open_in_new</span>
+            Google Mapsで開く
+          </a>
+        </div>
+      )}
+      {mapLoaded && showTraffic && (
+        <div style={{position:'absolute',bottom:'12px',left:'12px',background:'rgba(255,255,255,0.92)',borderRadius:'8px',padding:'6px 10px',display:'flex',gap:'8px',alignItems:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.2)',zIndex:5}}>
+          <span style={{fontSize:'11px',fontWeight:'600',color:'#333'}}>渋滞:</span>
+          {[{c:'#22c55e',l:'スムーズ'},{c:'#f59e0b',l:'やや混雑'},{c:'#f97316',l:'混雑'},{c:'#ef4444',l:'渋滞'},{c:'#7f1d1d',l:'大渋滞'}].map(item=>
+            <span key={item.l} style={{display:'flex',alignItems:'center',gap:'3px'}}>
+              <span style={{display:'inline-block',width:'18px',height:'4px',borderRadius:'2px',background:item.c}}/>
+              <span style={{fontSize:'10px',color:'#555'}}>{item.l}</span>
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ===== GPS Tracker =====
+const GpsTracker = () => {
+  const {currentPosition,isTracking,gpsError,accuracy,speed,heading} = useMapContext();
+  const geo = useGeolocation();
+  const fmt = (v) => v?v.toFixed(6):'---';
+  const fmtA = (v) => {if(!v) return '---'; const m=Math.round(v); if(m>1000) return `${(v/1000).toFixed(1)}km (低精度)`; if(m>100) return `${m}m (中精度)`; return `${m}m (高精度)`;};
+  const fmtS = (v) => v!==null&&v!==undefined?`${(v*3.6).toFixed(1)} km/h`:'---';
+  const fmtH = (v) => {if(v===null||v===undefined)return'---';const d=['北','北東','東','南東','南','南西','西','北西'];return d[Math.round(v/45)%8]+` (${Math.round(v)}°)`;};
+
+  return(
+    <div className="gps-panel">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+          <span className="material-icons-round" style={{fontSize:'18px',color:isTracking?'var(--color-accent)':'var(--text-muted)'}}>{isTracking?'gps_fixed':'gps_not_fixed'}</span>
+          <span className={`badge ${isTracking?'badge--success':'badge--warning'}`}>{isTracking?'GPS追跡中':'GPS停止中'}</span>
+        </div>
+        <div style={{display:'flex',gap:'4px'}}>
+          {!isTracking&&<Button variant="primary" icon="my_location" onClick={geo.getCurrentPosition} style={{padding:'4px 12px',fontSize:'12px'}}>現在地</Button>}
+          <Button variant={isTracking?'danger':'success'} icon={isTracking?'stop':'play_arrow'} onClick={()=>isTracking?geo.stopTracking():geo.startTracking()} style={{padding:'4px 12px',fontSize:'12px'}}>{isTracking?'停止':'追跡開始'}</Button>
+        </div>
+      </div>
+      {gpsError&&<div style={{color:'var(--color-danger)',fontSize:'var(--font-size-xs)',marginBottom:'6px',display:'flex',alignItems:'center',gap:'4px'}}><span className="material-icons-round" style={{fontSize:'14px'}}>warning</span>{gpsError}</div>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px 16px'}}>
+        <div className="gps-panel__row"><span className="gps-panel__label">緯度</span><span className="gps-panel__value">{fmt(currentPosition?.lat)}</span></div>
+        <div className="gps-panel__row"><span className="gps-panel__label">経度</span><span className="gps-panel__value">{fmt(currentPosition?.lng)}</span></div>
+        <div className="gps-panel__row"><span className="gps-panel__label">精度</span><span className="gps-panel__value">{fmtA(accuracy)}</span></div>
+        <div className="gps-panel__row"><span className="gps-panel__label">速度</span><span className="gps-panel__value">{fmtS(speed)}</span></div>
+        <div className="gps-panel__row"><span className="gps-panel__label">方角</span><span className="gps-panel__value">{fmtH(heading)}</span></div>
+      </div>
+    </div>
+  );
+};
+
+// ===== Layout =====
+const Header = () => {
+  const {currentPage,navigate,sidebarOpen,setSidebarOpen} = useAppContext();
+  return(
+    <header className="header">
+      <button className="header__menu-toggle" onClick={()=>setSidebarOpen(!sidebarOpen)}>
+        <span className="material-icons-round">{sidebarOpen?'close':'menu'}</span>
+      </button>
+      <div className="header__logo" onClick={()=>navigate('dashboard')}>
+        <span className="material-icons-round">local_taxi</span>
+        <span>タクシー売上サポート</span>
+      </div>
+      <nav className="header__nav">
+        {APP_CONSTANTS.NAV_ITEMS.map(item=>(
+          <button key={item.id} className={`header__nav-btn ${currentPage===item.id?'active':''}`} onClick={()=>navigate(item.id)}>
+            <span className="material-icons-round">{item.icon}</span><span>{item.label}</span>
+          </button>
+        ))}
+        <button className={`header__nav-btn ${currentPage.startsWith('dev')?'active':''}`} onClick={()=>navigate('dev')} style={{marginLeft:'8px',borderLeft:'1px solid rgba(255,255,255,0.1)',paddingLeft:'16px'}}>
+          <span className="material-icons-round">code</span><span>開発者</span>
+        </button>
+      </nav>
+    </header>
+  );
+};
+
+const Sidebar = () => {
+  const {currentPage,navigate,sidebarOpen} = useAppContext();
+  const devItems = [{id:'dev',label:'開発者ツール',icon:'code'},{id:'dev-structure',label:'サイト構造',icon:'account_tree'},{id:'dev-logs',label:'ログビューア',icon:'terminal'},{id:'dev-api',label:'API状態',icon:'cloud'}];
+  return(
+    <aside className={`sidebar ${sidebarOpen?'open':''}`}>
+      <div className="sidebar__section">
+        <div className="sidebar__section-title">メインメニュー</div>
+        {APP_CONSTANTS.NAV_ITEMS.map(item=>(
+          <button key={item.id} className={`sidebar__item ${currentPage===item.id?'active':''}`} onClick={()=>navigate(item.id)}>
+            <span className="material-icons-round">{item.icon}</span>{item.label}
+          </button>
+        ))}
+      </div>
+      <div className="sidebar__section">
+        <div className="sidebar__section-title">開発者ツール</div>
+        {devItems.map(item=>(
+          <button key={item.id} className={`sidebar__item ${currentPage===item.id?'active':''}`} onClick={()=>navigate(item.id)}>
+            <span className="material-icons-round">{item.icon}</span>{item.label}
+          </button>
+        ))}
+      </div>
+      <div style={{padding:'var(--space-md)',fontSize:'var(--font-size-xs)',color:'var(--text-muted)',textAlign:'center'}}>v{APP_CONSTANTS.VERSION}</div>
+    </aside>
+  );
+};
+
+const BottomNav = () => {
+  const {currentPage,navigate} = useAppContext();
+  return(
+    <nav className="bottom-nav"><div className="bottom-nav__items">
+      {APP_CONSTANTS.BOTTOM_NAV_ITEMS.map(item=>(
+        <button key={item.id} className={`bottom-nav__item ${currentPage===item.id?'active':''}`} onClick={()=>navigate(item.id)}>
+          <span className="material-icons-round">{item.icon}</span><span>{item.label}</span>
+        </button>
+      ))}
+    </div></nav>
+  );
+};
+
+const Layout = ({children}) => {
+  const {sidebarOpen,setSidebarOpen} = useAppContext();
+  return(
+    <>
+      <Header/><Sidebar/>
+      <main className="main-content">{children}</main>
+      <BottomNav/>
+      {sidebarOpen&&<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:800}} onClick={()=>setSidebarOpen(false)}/>}
+    </>
+  );
+};
+
+// ===== ページ =====
+const DashboardPage = () => {
+  const {navigate} = useAppContext();
+  const {currentPosition,isTracking} = useMapContext();
+  const stats = [{label:'本日の売上',value:'¥0',icon:'payments',color:'var(--color-secondary)'},{label:'乗車回数',value:'0回',icon:'people',color:'var(--color-primary-light)'},{label:'走行距離',value:'0 km',icon:'route',color:'var(--color-accent)'},{label:'稼働時間',value:'0h 0m',icon:'schedule',color:'var(--color-warning)'}];
+  const quickActions = [{label:'地図を開く',icon:'map',page:'map',color:'var(--color-primary)'},{label:'売上を記録',icon:'add_circle',page:'revenue',color:'var(--color-accent)'},{label:'分析を見る',icon:'analytics',page:'analytics',color:'var(--color-secondary)'},{label:'開発者ツール',icon:'code',page:'dev',color:'var(--color-warning)'}];
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">dashboard</span>ダッシュボード</h1>
+      <Card style={{marginBottom:'var(--space-md)',padding:'var(--space-md)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+          <span className="material-icons-round" style={{fontSize:'24px',color:isTracking?'var(--color-accent)':'var(--text-muted)'}}>{isTracking?'gps_fixed':'gps_off'}</span>
+          <div>
+            <div style={{fontWeight:500,fontSize:'var(--font-size-sm)'}}>{isTracking?'GPS追跡中':'GPS未接続'}</div>
+            <div style={{fontSize:'var(--font-size-xs)',color:'var(--text-secondary)'}}>{currentPosition?`${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`:'地図ページでGPSを有効にしてください'}</div>
+          </div>
+        </div>
+      </Card>
+      <div className="grid grid--4" style={{marginBottom:'var(--space-lg)'}}>
+        {stats.map((s,i)=><Card key={i} className="stat-card"><span className="material-icons-round" style={{fontSize:'32px',color:s.color,marginBottom:'8px'}}>{s.icon}</span><div className="stat-card__value">{s.value}</div><div className="stat-card__label">{s.label}</div></Card>)}
+      </div>
+      <h2 style={{fontSize:'var(--font-size-lg)',marginBottom:'var(--space-md)',fontWeight:500}}>クイックアクション</h2>
+      <div className="grid grid--4">
+        {quickActions.map((a,i)=><Card key={i} onClick={()=>navigate(a.page)} style={{textAlign:'center',cursor:'pointer',padding:'var(--space-lg)'}}><span className="material-icons-round" style={{fontSize:'36px',color:a.color,marginBottom:'8px'}}>{a.icon}</span><div style={{fontWeight:500,fontSize:'var(--font-size-sm)'}}>{a.label}</div></Card>)}
+      </div>
+    </div>
+  );
+};
+
+const MapViewPage = () => {
+  const [isFullscreen,setIsFullscreen] = useState(false);
+  return(
+    <div>
+      {!isFullscreen&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'var(--space-md)'}}>
+        <h1 className="page-title" style={{marginBottom:0}}><span className="material-icons-round">map</span>地図</h1>
+        <Button variant="secondary" icon="fullscreen" onClick={()=>setIsFullscreen(true)}>全画面</Button>
+      </div>}
+      <div style={{position:'relative'}}>
+        <GoogleMapView fullscreen={isFullscreen}/>
+        <GpsTracker/>
+        {isFullscreen&&<Button variant="secondary" icon="fullscreen_exit" onClick={()=>setIsFullscreen(false)} style={{position:'absolute',top:'12px',left:'12px',zIndex:10,background:'rgba(26,26,46,0.9)'}}>閉じる</Button>}
+      </div>
+    </div>
+  );
+};
+
+const RevenuePage = () => {
+  const [entries,setEntries] = useState([]);
+  const [form,setForm] = useState({amount:'',pickup:'',dropoff:'',memo:''});
+  const handleSubmit = (e) => {
+    e.preventDefault();if(!form.amount)return;
+    const entry = {id:Date.now(),...form,amount:parseInt(form.amount),timestamp:new Date().toISOString()};
+    setEntries([entry,...entries]);setForm({amount:'',pickup:'',dropoff:'',memo:''});
+    AppLogger.info(`売上記録追加: ¥${entry.amount}`);
+  };
+  const total = entries.reduce((s,e)=>s+e.amount,0);
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">receipt_long</span>売上記録</h1>
+      <Card style={{marginBottom:'var(--space-lg)',textAlign:'center'}}>
+        <div style={{color:'var(--text-secondary)',fontSize:'var(--font-size-sm)'}}>本日の売上合計</div>
+        <div style={{fontSize:'var(--font-size-2xl)',fontWeight:700,color:'var(--color-secondary)',margin:'8px 0'}}>¥{total.toLocaleString()}</div>
+        <div style={{color:'var(--text-muted)',fontSize:'var(--font-size-xs)'}}>{entries.length} 件の記録</div>
+      </Card>
+      <Card title="新規売上を記録" style={{marginBottom:'var(--space-lg)'}}>
+        <form onSubmit={handleSubmit}>
+          <div className="grid grid--2">
+            <div className="form-group"><label className="form-label">金額 (円) *</label><input className="form-input" type="number" placeholder="3500" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} required/></div>
+            <div className="form-group"><label className="form-label">乗車地</label><input className="form-input" type="text" placeholder="東京駅" value={form.pickup} onChange={e=>setForm({...form,pickup:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">降車地</label><input className="form-input" type="text" placeholder="渋谷駅" value={form.dropoff} onChange={e=>setForm({...form,dropoff:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">メモ</label><input className="form-input" type="text" placeholder="任意のメモ" value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})}/></div>
+          </div>
+          <Button variant="primary" icon="add" style={{marginTop:'var(--space-sm)'}}>記録を追加</Button>
+        </form>
+      </Card>
+      {entries.length>0&&<Card title="本日の記録">{entries.map(en=><div key={en.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:'1px solid rgba(255,255,255,0.06)'}}><div><div style={{fontWeight:500}}>{en.pickup||'---'} → {en.dropoff||'---'}</div><div style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)'}}>{new Date(en.timestamp).toLocaleTimeString('ja-JP')}{en.memo&&` | ${en.memo}`}</div></div><div style={{fontWeight:700,color:'var(--color-secondary)',fontSize:'var(--font-size-lg)'}}>¥{en.amount.toLocaleString()}</div></div>)}</Card>}
+    </div>
+  );
+};
+
+const AnalyticsPage = () => (
+  <div>
+    <h1 className="page-title"><span className="material-icons-round">analytics</span>売上分析</h1>
+    <Card style={{textAlign:'center',padding:'var(--space-2xl)'}}>
+      <span className="material-icons-round" style={{fontSize:'64px',color:'var(--text-muted)',marginBottom:'16px'}}>bar_chart</span>
+      <h3 style={{marginBottom:'8px'}}>分析機能は準備中です</h3>
+      <p style={{color:'var(--text-secondary)',fontSize:'var(--font-size-sm)'}}>売上データが蓄積されると、日別・週別・エリア別の分析が表示されます。</p>
+    </Card>
+    <div className="grid grid--3" style={{marginTop:'var(--space-lg)'}}>
+      {[{title:'日別売上推移',icon:'show_chart',desc:'日ごとの売上推移をグラフで確認'},{title:'エリア別分析',icon:'place',desc:'乗車・降車地のヒートマップ'},{title:'時間帯分析',icon:'schedule',desc:'時間帯別の売上傾向を分析'}].map((item,i)=>(
+        <Card key={i}><div style={{display:'flex',alignItems:'center',gap:'12px',marginBottom:'8px'}}><span className="material-icons-round" style={{fontSize:'24px',color:'var(--color-primary-light)'}}>{item.icon}</span><div style={{fontWeight:500}}>{item.title}</div></div><p style={{fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>{item.desc}</p><span className="badge badge--info" style={{marginTop:'8px'}}>準備中</span></Card>
+      ))}
+    </div>
+  </div>
+);
+
+const SettingsPage = () => {
+  const {apiKey,setApiKey} = useAppContext();
+  const [inputKey,setInputKey] = useState(apiKey);
+  const [saved,setSaved] = useState(false);
+  const handleSave = () => {setApiKey(inputKey);setSaved(true);setTimeout(()=>setSaved(false),2000);AppLogger.info('Google Maps APIキー保存');};
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">settings</span>設定</h1>
+      <Card title="地図設定" style={{marginBottom:'var(--space-lg)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'12px',marginBottom:'var(--space-md)'}}>
+          <span className="material-icons-round" style={{fontSize:'32px',color:'var(--color-accent)'}}>map</span>
+          <div>
+            <div style={{fontWeight:500}}>Google Maps（交通渋滞レイヤー対応）</div>
+            <div style={{fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>Google Maps JavaScript APIでリアルタイム地図＋交通渋滞情報を表示します。</div>
+          </div>
+          <span className="badge badge--success" style={{marginLeft:'auto'}}>有効</span>
+        </div>
+      </Card>
+      <Card title="Google Maps APIキー" style={{marginBottom:'var(--space-lg)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'12px',marginBottom:'var(--space-md)'}}>
+          <span className="material-icons-round" style={{fontSize:'32px',color:apiKey?'var(--color-accent)':'var(--color-warning)'}}>vpn_key</span>
+          <div>
+            <div style={{fontWeight:500}}>リアルタイム地図＋交通渋滞レイヤー</div>
+            <div style={{fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>Google Maps JavaScript APIを使用。Google Cloud Consoleで取得できます。</div>
+          </div>
+          {apiKey?<span className="badge badge--success" style={{marginLeft:'auto'}}>設定済み</span>:<span className="badge badge--warning" style={{marginLeft:'auto'}}>未設定</span>}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Google Maps APIキー</label>
+          <input className="form-input" type="text" placeholder="AIzaSy..." value={inputKey} onChange={e=>setInputKey(e.target.value)} style={{fontFamily:'monospace'}}/>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+          <Button variant="primary" icon="save" onClick={handleSave}>保存</Button>
+          {saved&&<span style={{color:'var(--color-accent)',fontSize:'var(--font-size-sm)',display:'flex',alignItems:'center',gap:'4px'}}><span className="material-icons-round" style={{fontSize:'16px'}}>check_circle</span>保存しました</span>}
+        </div>
+        <details style={{marginTop:'var(--space-md)',cursor:'pointer'}}>
+          <summary style={{color:'var(--color-primary-light)',fontSize:'var(--font-size-sm)'}}>Google Maps APIキーの取得方法</summary>
+          <div style={{padding:'var(--space-md)',color:'var(--text-secondary)',fontSize:'var(--font-size-sm)',lineHeight:1.8}}>
+            <p>1. Google Cloud Console にアクセス</p>
+            <p>2. プロジェクトを作成または選択</p>
+            <p>3.「Maps JavaScript API」を有効化</p>
+            <p>4.「認証情報」からAPIキーを作成</p>
+            <p>5. 上のフォームにAPIキーを貼り付けて保存</p>
+          </div>
+        </details>
+      </Card>
+      <Card title="GPS設定" style={{marginBottom:'var(--space-lg)'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 0'}}>
+          <div><div style={{fontWeight:500,fontSize:'var(--font-size-sm)'}}>高精度モード</div><div style={{fontSize:'var(--font-size-xs)',color:'var(--text-secondary)'}}>GPSの精度を最大にする（バッテリー消費増）</div></div>
+          <span className="badge badge--success">有効</span>
+        </div>
+      </Card>
+      <Card title="アプリ情報">
+        <div style={{display:'grid',gap:'8px',fontSize:'var(--font-size-sm)'}}>
+          {[['バージョン',APP_CONSTANTS.VERSION],['ビルド','単一HTML (Babel)'],['地図','Google Maps JavaScript API'],['渋滞情報',apiKey?'Google Maps TrafficLayer（有効）':'未設定'],['React',React.version]].map(([k,v],i)=><div key={i} style={{display:'flex',justifyContent:'space-between'}}><span style={{color:'var(--text-secondary)'}}>{k}</span><span>{v}</span></div>)}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+// ===== 開発者ページ =====
+const LogsPage = () => {
+  const {logs,clearLogs} = useLogContext();
+  const [filter,setFilter] = useState('all');
+  const [search,setSearch] = useState('');
+  const filtered = useMemo(()=>{
+    let r=[...logs].reverse();
+    if(filter!=='all')r=r.filter(l=>l.level===filter);
+    if(search){const s=search.toLowerCase();r=r.filter(l=>l.message.toLowerCase().includes(s));}
+    return r;
+  },[logs,filter,search]);
+  const counts = useMemo(()=>({all:logs.length,info:logs.filter(l=>l.level==='info').length,warn:logs.filter(l=>l.level==='warn').length,error:logs.filter(l=>l.level==='error').length,debug:logs.filter(l=>l.level==='debug').length}),[logs]);
+  const fmtTime = (ts) => new Date(ts).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">terminal</span>ログビューア</h1>
+      <div style={{display:'flex',gap:'8px',marginBottom:'var(--space-md)',flexWrap:'wrap',alignItems:'center'}}>
+        {['all','info','warn','error','debug'].map(lv=><button key={lv} onClick={()=>setFilter(lv)} style={{border:'none',background:filter===lv?'rgba(26,115,232,0.15)':'rgba(255,255,255,0.04)',borderRadius:'20px',padding:'4px 12px',color:filter===lv?'var(--color-primary-light)':'var(--text-secondary)',cursor:'pointer',fontFamily:'var(--font-family)',fontSize:'var(--font-size-sm)'}}>{lv==='all'?'全て':lv.toUpperCase()} ({counts[lv]})</button>)}
+        <input className="form-input" placeholder="検索..." value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:'200px',padding:'4px 12px',marginLeft:'auto'}}/>
+        <Button variant="danger" icon="delete" onClick={clearLogs} style={{padding:'4px 12px',fontSize:'12px'}}>クリア</Button>
+      </div>
+      <Card style={{padding:0,maxHeight:'600px',overflowY:'auto'}}>
+        {filtered.length===0?<div style={{padding:'var(--space-2xl)',textAlign:'center',color:'var(--text-muted)'}}>ログはありません</div>
+        :filtered.map(log=><div key={log.id} className="dev-log-entry"><span className="dev-log-entry__time">{fmtTime(log.timestamp)}</span><span className={`dev-log-entry__level dev-log-entry__level--${log.level}`}>{log.level.toUpperCase()}</span><span className="dev-log-entry__message">{log.message}</span></div>)}
+      </Card>
+    </div>
+  );
+};
+
+const StructurePage = () => {
+  const iconMap = {folder:{icon:'folder',cls:'file-tree__icon--folder'},react:{icon:'description',cls:'file-tree__icon--react'},js:{icon:'javascript',cls:'file-tree__icon--js'},css:{icon:'style',cls:'file-tree__icon--css'},html:{icon:'html',cls:'file-tree__icon--html'},md:{icon:'article',cls:'file-tree__icon--md'},file:{icon:'insert_drive_file',cls:'file-tree__icon--file'}};
+  const TreeNode = ({node,depth=0}) => {
+    const [exp,setExp] = useState(depth<2);
+    const isF = node.type==='folder';
+    const ic = iconMap[node.type]||iconMap.file;
+    return(
+      <div style={{marginLeft:`${depth*16}px`}}>
+        <div className="file-tree__item" onClick={isF?()=>setExp(!exp):undefined} style={{cursor:isF?'pointer':'default'}}>
+          {isF&&<span className="material-icons-round" style={{fontSize:'14px',color:'var(--text-muted)',transition:'transform 0.15s',transform:exp?'rotate(90deg)':'rotate(0)'}}>chevron_right</span>}
+          <span className={`material-icons-round file-tree__icon ${ic.cls}`}>{ic.icon}</span>
+          <span style={{color:isF?'var(--color-secondary)':'var(--text-primary)'}}>{node.name}</span>
+          {node.desc&&<span style={{color:'var(--text-muted)',fontSize:'var(--font-size-xs)',marginLeft:'8px'}}>— {node.desc}</span>}
+        </div>
+        {isF&&exp&&node.children&&node.children.map((c,i)=><TreeNode key={i} node={c} depth={depth+1}/>)}
+      </div>
+    );
+  };
+  const routes = [{path:'/',page:'dashboard',desc:'ダッシュボード'},{path:'/map',page:'map',desc:'Google Maps + GPS'},{path:'/revenue',page:'revenue',desc:'売上記録'},{path:'/analytics',page:'analytics',desc:'売上分析'},{path:'/settings',page:'settings',desc:'設定'},{path:'/dev',page:'dev',desc:'開発者ツール'},{path:'/dev/structure',page:'dev-structure',desc:'サイト構造'},{path:'/dev/logs',page:'dev-logs',desc:'ログビューア'},{path:'/dev/api',page:'dev-api',desc:'API接続状態'}];
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">account_tree</span>サイト構造</h1>
+      <Card title="ページルーティング" subtitle="アプリ内のすべてのページとそのパス" style={{marginBottom:'var(--space-lg)'}}>
+        <div style={{display:'grid',gap:'4px'}}>{routes.map((r,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:'12px',padding:'8px 12px',borderRadius:'6px',background:'rgba(255,255,255,0.02)',fontSize:'var(--font-size-sm)'}}><code style={{color:'var(--color-primary-light)',fontFamily:'monospace',minWidth:'160px'}}>{r.path}</code><span style={{color:'var(--text-muted)'}}>→</span><span style={{color:'var(--text-secondary)'}}>{r.desc}</span></div>)}</div>
+      </Card>
+      <Card title="ファイル構造" subtitle="クリックで展開/折りたたみ">
+        <div className="file-tree" style={{padding:'8px 0'}}><TreeNode node={APP_CONSTANTS.SITE_STRUCTURE}/></div>
+      </Card>
+      <Card title="コンポーネント階層" style={{marginTop:'var(--space-lg)'}}>
+        <pre style={{fontFamily:'monospace',fontSize:'var(--font-size-sm)',color:'var(--text-secondary)',lineHeight:1.8,overflowX:'auto'}}>{`App
+├── AppProvider (グローバル状態)
+│   ├── MapProvider (地図状態)
+│   │   └── LogProvider (ログ状態)
+│   │       └── Layout
+│   │           ├── Header
+│   │           ├── Sidebar (PC用)
+│   │           ├── BottomNav (モバイル用)
+│   │           └── [CurrentPage]
+│   │               ├── DashboardPage
+│   │               ├── MapViewPage
+│   │               │   ├── GoogleMapView
+│   │               │   └── GpsTracker
+│   │               ├── RevenuePage
+│   │               ├── AnalyticsPage
+│   │               ├── SettingsPage
+│   │               └── DevToolsPage`}</pre>
+      </Card>
+    </div>
+  );
+};
+
+const ApiStatusPage = () => {
+  const {apiKey} = useAppContext();
+  const {isTracking,currentPosition} = useMapContext();
+  const checks = [
+    {name:'Google Maps JavaScript API',status:window.google&&window.google.maps?'connected':(apiKey?'warning':'not_configured'),detail:window.google&&window.google.maps?'Google Maps API - 正常動作中':(apiKey?'APIキー設定済み（地図ページで読込）':'APIキー未設定 → 設定ページで入力してください'),icon:'map'},
+    {name:'Geolocation API (GPS)',status:'geolocation' in navigator?'connected':'error',detail:'geolocation' in navigator?(isTracking?`追跡中${currentPosition?` (${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)})`:''}`:'利用可能'):'非対応',icon:'gps_fixed'},
+    {name:'localStorage',status:(()=>{try{localStorage.setItem('_t','1');localStorage.removeItem('_t');return'connected';}catch{return'error';}})(),detail:(()=>{try{localStorage.setItem('_t','1');localStorage.removeItem('_t');return'正常';}catch{return'利用不可';}})(),icon:'storage'},
+    {name:'HTTPS',status:location.protocol==='https:'?'connected':'warning',detail:location.protocol==='https:'?'HTTPS接続':`HTTP (${location.protocol}) - GPS/PWAにHTTPS推奨`,icon:'lock'},
+  ];
+  const si = (s)=>({connected:{i:'check_circle',c:'var(--color-accent)'},error:{i:'error',c:'var(--color-danger)'},warning:{i:'warning',c:'var(--color-warning)'},not_configured:{i:'settings',c:'var(--color-warning)'}}[s]||{i:'help',c:'var(--text-muted)'});
+  const sb = (s)=>({connected:'badge--success',error:'badge--error',warning:'badge--warning',not_configured:'badge--warning'}[s]||'badge--info');
+  const sl = (s)=>({connected:'接続済み',error:'エラー',warning:'警告',not_configured:'未設定'}[s]||'不明');
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">cloud</span>API接続状態</h1>
+      <div style={{display:'grid',gap:'var(--space-md)'}}>
+        {checks.map((ch,i)=>{const s=si(ch.status);return(
+          <Card key={i}><div style={{display:'flex',alignItems:'flex-start',gap:'16px'}}>
+            <span className="material-icons-round" style={{fontSize:'32px',color:s.c}}>{ch.icon}</span>
+            <div style={{flex:1}}><div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'}}><span style={{fontWeight:500}}>{ch.name}</span><span className={`badge ${sb(ch.status)}`}><span className="material-icons-round" style={{fontSize:'12px'}}>{s.i}</span>{sl(ch.status)}</span></div><div style={{fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>{ch.detail}</div></div>
+          </div></Card>
+        );})}
+      </div>
+      <Card title="ブラウザ環境" style={{marginTop:'var(--space-lg)'}}>
+        <div style={{display:'grid',gap:'8px',fontSize:'var(--font-size-sm)'}}>
+          {[['プラットフォーム',navigator.platform||'N/A'],['言語',navigator.language],['画面サイズ',`${window.innerWidth} x ${window.innerHeight}`],['React',React.version]].map(([k,v],i)=><div key={i} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid rgba(255,255,255,0.04)'}}><span style={{color:'var(--text-muted)'}}>{k}</span><span style={{fontFamily:'monospace'}}>{v}</span></div>)}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+const DevToolsPage = () => {
+  const {navigate} = useAppContext();
+  const {logs} = useLogContext();
+  const tools = [{id:'dev-structure',title:'サイト構造',desc:'ファイル構造・ルーティング・コンポーネント階層',icon:'account_tree',color:'var(--color-primary-light)'},{id:'dev-logs',title:'ログビューア',desc:'リアルタイムログの確認・検索',icon:'terminal',color:'var(--color-accent)'},{id:'dev-api',title:'API接続状態',desc:'Google Maps API・GPS・ブラウザAPIの状態確認',icon:'cloud',color:'var(--color-secondary)'}];
+  return(
+    <div>
+      <h1 className="page-title"><span className="material-icons-round">code</span>開発者ツール</h1>
+      <p style={{color:'var(--text-secondary)',marginBottom:'var(--space-lg)',fontSize:'var(--font-size-sm)'}}>アプリの内部構造やログ、API接続状態を確認できます。</p>
+      <div className="grid grid--3">
+        {tools.map(t=><Card key={t.id} onClick={()=>navigate(t.id)} style={{cursor:'pointer',textAlign:'center',padding:'var(--space-xl)'}}><span className="material-icons-round" style={{fontSize:'48px',color:t.color,marginBottom:'12px'}}>{t.icon}</span><div style={{fontWeight:700,marginBottom:'8px'}}>{t.title}</div><div style={{fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>{t.desc}</div></Card>)}
+      </div>
+      <Card title="最新ログ（直近5件）" style={{marginTop:'var(--space-lg)'}}>
+        {logs.length===0?<div style={{color:'var(--text-muted)',fontSize:'var(--font-size-sm)'}}>ログなし</div>
+        :[...logs].reverse().slice(0,5).map(log=><div key={log.id} className="dev-log-entry"><span className="dev-log-entry__time">{new Date(log.timestamp).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span><span className={`dev-log-entry__level dev-log-entry__level--${log.level}`}>{log.level.toUpperCase()}</span><span className="dev-log-entry__message">{log.message}</span></div>)}
+        {logs.length>5&&<Button variant="secondary" icon="arrow_forward" onClick={()=>navigate('dev-logs')} style={{marginTop:'var(--space-md)'}}>すべてのログを表示</Button>}
+      </Card>
+    </div>
+  );
+};
+
+// ===== App =====
+const App = () => {
+  const {currentPage} = useAppContext();
+  const renderPage = () => {
+    switch(currentPage){
+      case 'dashboard': return <DashboardPage/>;
+      case 'map': return <MapViewPage/>;
+      case 'revenue': return <RevenuePage/>;
+      case 'analytics': return <AnalyticsPage/>;
+      case 'settings': return <SettingsPage/>;
+      case 'dev': return <DevToolsPage/>;
+      case 'dev-logs': return <LogsPage/>;
+      case 'dev-structure': return <StructurePage/>;
+      case 'dev-api': return <ApiStatusPage/>;
+      default: return <DashboardPage/>;
+    }
+  };
+  return <Layout>{renderPage()}</Layout>;
+};
+
+// ===== 起動 =====
+AppLogger.info('アプリケーション起動中...');
+AppLogger.info(`バージョン: ${APP_CONSTANTS.VERSION} | React ${React.version}`);
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <AppProvider><MapProvider><LogProvider><App/></LogProvider></MapProvider></AppProvider>
+);
+AppLogger.info('アプリケーション起動完了');
+  </script>
+</body>
+</html>

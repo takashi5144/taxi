@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>タクシー売上サポート - スタート</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Noto Sans JP', sans-serif;
+      background: linear-gradient(135deg, #0f0c29 0%, #1a1a2e 40%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    /* 背景アニメーション */
+    .bg-glow {
+      position: fixed;
+      width: 400px; height: 400px;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.15;
+      pointer-events: none;
+      animation: float 8s ease-in-out infinite;
+    }
+    .bg-glow--1 { top: -100px; left: -100px; background: #1a73e8; }
+    .bg-glow--2 { bottom: -100px; right: -100px; background: #f9a825; animation-delay: -4s; }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(30px, 20px); }
+    }
+
+    /* メインコンテナ */
+    .launcher {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 40px;
+      max-width: 520px;
+      width: 90%;
+    }
+
+    /* アイコン */
+    .launcher__icon {
+      font-size: 80px;
+      margin-bottom: 16px;
+      display: block;
+      animation: bounce 2s ease-in-out infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    /* タイトル */
+    .launcher__title {
+      font-size: 2rem;
+      font-weight: 900;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #fff 0%, #f9a825 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .launcher__version {
+      font-size: 0.8rem;
+      color: #6c757d;
+      margin-bottom: 24px;
+      letter-spacing: 0.1em;
+    }
+
+    .launcher__desc {
+      font-size: 0.95rem;
+      color: #b0b8c8;
+      line-height: 1.8;
+      margin-bottom: 40px;
+    }
+
+    /* スタートボタン */
+    .start-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 56px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      font-family: 'Noto Sans JP', sans-serif;
+      color: #1a1a2e;
+      background: linear-gradient(135deg, #f9a825 0%, #ffca28 50%, #f9a825 100%);
+      background-size: 200% 200%;
+      border: none;
+      border-radius: 60px;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 8px 32px rgba(249, 168, 37, 0.4), 0 0 0 0 rgba(249, 168, 37, 0.3);
+      transition: all 0.3s ease;
+      animation: glow-pulse 2.5s ease-in-out infinite, gradient-shift 3s ease-in-out infinite;
+    }
+
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 8px 32px rgba(249, 168, 37, 0.4), 0 0 0 0 rgba(249, 168, 37, 0.3); }
+      50% { box-shadow: 0 8px 40px rgba(249, 168, 37, 0.5), 0 0 0 12px rgba(249, 168, 37, 0); }
+    }
+
+    @keyframes gradient-shift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    .start-btn:hover {
+      transform: translateY(-3px) scale(1.03);
+      box-shadow: 0 12px 48px rgba(249, 168, 37, 0.6);
+    }
+
+    .start-btn:active {
+      transform: translateY(0) scale(0.98);
+    }
+
+    .start-btn .material-icons-round {
+      font-size: 28px;
+    }
+
+    /* 機能一覧 */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+      width: 100%;
+    }
+
+    .feature {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 20px 12px;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+
+    .feature:hover {
+      background: rgba(255,255,255,0.08);
+      transform: translateY(-2px);
+    }
+
+    .feature__icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .feature__label {
+      font-size: 0.75rem;
+      color: #b0b8c8;
+      font-weight: 500;
+    }
+
+    /* フッター */
+    .launcher__footer {
+      margin-top: 48px;
+      font-size: 0.7rem;
+      color: #4a5568;
+    }
+
+    /* レスポンシブ */
+    @media (max-width: 480px) {
+      .launcher { padding: 24px; }
+      .launcher__title { font-size: 1.5rem; }
+      .launcher__icon { font-size: 60px; }
+      .start-btn { padding: 16px 40px; font-size: 1.1rem; }
+      .features { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .feature { padding: 14px 8px; }
+      .feature__icon { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-glow bg-glow--1"></div>
+  <div class="bg-glow bg-glow--2"></div>
+
+  <div class="launcher">
+    <span class="launcher__icon">🚕</span>
+    <h1 class="launcher__title">タクシー売上サポート</h1>
+    <div class="launcher__version">v0.3.3 ─ Google Maps対応版</div>
+    <p class="launcher__desc">
+      売上記録・GPS地図・渋滞情報・売上分析<br>
+      タクシードライバーの営業をサポートするアプリ
+    </p>
+
+    <a href="./index.html" class="start-btn">
+      <span class="material-icons-round">play_arrow</span>
+      アプリを起動
+    </a>
+
+    <div class="features">
+      <div class="feature">
+        <div class="feature__icon" style="color: #f9a825;">
+          <span class="material-icons-round" style="font-size: inherit;">payments</span>
+        </div>
+        <div class="feature__label">売上記録</div>
+      </div>
+      <div class="feature">
+        <div class="feature__icon" style="color: #1a73e8;">
+          <span class="material-icons-round" style="font-size: inherit;">map</span>
+        </div>
+        <div class="feature__label">Google Map</div>
+      </div>
+      <div class="feature">
+        <div class="feature__icon" style="color: #ef4444;">
+          <span class="material-icons-round" style="font-size: inherit;">traffic</span>
+        </div>
+        <div class="feature__label">渋滞情報</div>
+      </div>
+      <div class="feature">
+        <div class="feature__icon" style="color: #00c853;">
+          <span class="material-icons-round" style="font-size: inherit;">analytics</span>
+        </div>
+        <div class="feature__label">売上分析</div>
+      </div>
+      <div class="feature">
+        <div class="feature__icon" style="color: #ff9800;">
+          <span class="material-icons-round" style="font-size: inherit;">gps_fixed</span>
+        </div>
+        <div class="feature__label">GPS追跡</div>
+      </div>
+      <div class="feature">
+        <div class="feature__icon" style="color: #9c27b0;">
+          <span class="material-icons-round" style="font-size: inherit;">download</span>
+        </div>
+        <div class="feature__label">CSV出力</div>
+      </div>
+    </div>
+
+    <div class="launcher__footer">
+      Powered by Google Maps JavaScript API &amp; React 18
+    </div>
+  </div>
+</body>
+</html>

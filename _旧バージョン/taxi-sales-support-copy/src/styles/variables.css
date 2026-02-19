@@ -1,0 +1,58 @@
+:root {
+  /* カラーパレット */
+  --color-primary: #1a73e8;
+  --color-primary-dark: #1557b0;
+  --color-primary-light: #4a90e2;
+  --color-secondary: #f9a825;
+  --color-secondary-dark: #c17900;
+  --color-accent: #00c853;
+  --color-danger: #e53935;
+  --color-warning: #ff9800;
+
+  /* 背景色 */
+  --bg-dark: #1a1a2e;
+  --bg-medium: #16213e;
+  --bg-light: #0f3460;
+  --bg-card: #1e2a4a;
+  --bg-card-hover: #253252;
+  --bg-surface: #f5f5f5;
+
+  /* テキスト色 */
+  --text-primary: #ffffff;
+  --text-secondary: #b0b8c8;
+  --text-muted: #6c757d;
+  --text-dark: #1a1a2e;
+
+  /* フォント */
+  --font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+
+  /* スペーシング */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* レイアウト */
+  --header-height: 56px;
+  --sidebar-width: 240px;
+  --bottom-nav-height: 64px;
+  --border-radius: 12px;
+  --border-radius-sm: 8px;
+
+  /* シャドウ */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+
+  /* トランジション */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
