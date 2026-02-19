@@ -136,17 +136,19 @@ ${areaStr}
   }
 
   // 電車の運行時刻・運行情報を取得
-  async function fetchTrainInfo(apiKey) {
+  async function fetchTrainInfo(apiKey, region) {
+    const area = region || '東京都内および近郊';
     const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const prompt = `あなたは公共交通機関の情報提供アシスタントです。
 今日は${today}です。
+ユーザーの現在地: ${area}
 
-東京都内および近郊の主要鉄道路線について、本日の運行情報を網羅的に提供してください。
+「${area}」およびその近郊で利用される主要鉄道路線について、本日の運行情報を網羅的に提供してください。
 
-以下の路線を含めてください:
-【JR線】山手線、中央線、京浜東北線、総武線、埼京線、湘南新宿ライン、東海道線、横須賀線、常磐線、武蔵野線、京葉線
-【私鉄】東急（東横線・田園都市線・目黒線）、小田急線、京王線、西武線（池袋線・新宿線）、東武線（東上線・スカイツリーライン）、京成線、京急線
-【地下鉄】東京メトロ（銀座線・丸ノ内線・日比谷線・東西線・千代田線・有楽町線・半蔵門線・南北線・副都心線）、都営地下鉄（浅草線・三田線・新宿線・大江戸線）
+以下のカテゴリの路線を含めてください:
+【JR線】この地域を走るJR線の主要路線
+【私鉄】この地域の私鉄の主要路線
+【地下鉄・モノレール等】この地域の地下鉄・モノレール等の路線
 
 各路線について以下を記載してください:
 - 始発時刻と終電時刻（主要駅基準）
@@ -159,24 +161,26 @@ ${areaStr}
 
     const result = await callGeminiLarge(apiKey, prompt);
     if (result.success) {
-      AppLogger.info('Gemini: 電車運行情報を取得');
+      AppLogger.info(`Gemini: 電車運行情報を取得 (${area})`);
     }
     return result;
   }
 
   // バスの運行時刻・運行情報を取得
-  async function fetchBusInfo(apiKey) {
+  async function fetchBusInfo(apiKey, region) {
+    const area = region || '東京都内';
     const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const prompt = `あなたは公共交通機関の情報提供アシスタントです。
 今日は${today}です。
+ユーザーの現在地: ${area}
 
-東京都内の主要バス路線について、本日の運行情報を網羅的に提供してください。
+「${area}」およびその近郊の主要バス路線について、本日の運行情報を網羅的に提供してください。
 
-以下のバス会社を含めてください:
-【都営バス】主要系統（都01〜都06、品93、渋88、東43、王40など主要路線）
-【民営バス】東急バス、小田急バス、京王バス、関東バス、西武バス、国際興業バス、東武バス
-【高速バス・空港バス】リムジンバス（羽田・成田）、高速バスターミナル（バスタ新宿）発着の主要路線
-【深夜バス】深夜急行バス（渋谷・新宿・東京発）
+以下のカテゴリを含めてください:
+【公営バス】この地域の公営バスの主要路線
+【民営バス】この地域の民営バスの主要路線
+【高速バス・空港バス】この地域発着の高速バス・空港バスの主要路線
+【深夜バス】この地域の深夜バス
 
 各路線・会社について以下を記載してください:
 - 主要路線名と区間
@@ -190,28 +194,25 @@ ${areaStr}
 
     const result = await callGeminiLarge(apiKey, prompt);
     if (result.success) {
-      AppLogger.info('Gemini: バス運行情報を取得');
+      AppLogger.info(`Gemini: バス運行情報を取得 (${area})`);
     }
     return result;
   }
 
   // 飛行機の運航時刻・運航情報を取得
-  async function fetchFlightInfo(apiKey) {
+  async function fetchFlightInfo(apiKey, region) {
+    const area = region || '東京都';
     const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const prompt = `あなたは公共交通機関の情報提供アシスタントです。
 今日は${today}です。
+ユーザーの現在地: ${area}
 
-羽田空港（HND）と成田空港（NRT）の本日のフライト情報を網羅的に提供してください。
+「${area}」から最も近い主要空港を特定し、本日のフライト情報を網羅的に提供してください。
 
-【羽田空港】
-- 国内線: 主要路線（札幌・大阪・福岡・沖縄・名古屋・広島・仙台・鹿児島等）の出発・到着便
-- 国際線: 主要路線の出発・到着便
-- 各ターミナル（第1・第2・第3）の利用航空会社
-
-【成田空港】
-- 国際線: 主要路線（アジア・北米・欧州方面）の出発・到着便
+【各空港について】
 - 国内線: 主要路線の出発・到着便
-- 各ターミナル（第1・第2・第3）の利用航空会社
+- 国際線: 主要路線の出発・到着便
+- 各ターミナルの利用航空会社
 
 以下の情報を含めてください:
 - 早朝便（始発〜7時）と深夜便（21時以降）の一覧（タクシー需要が高い時間帯）
@@ -224,25 +225,27 @@ ${areaStr}
 
     const result = await callGeminiLarge(apiKey, prompt);
     if (result.success) {
-      AppLogger.info('Gemini: 飛行機運航情報を取得');
+      AppLogger.info(`Gemini: 飛行機運航情報を取得 (${area})`);
     }
     return result;
   }
 
   // 遅延・トラブル情報を取得
-  async function fetchTroubleInfo(apiKey) {
+  async function fetchTroubleInfo(apiKey, region) {
+    const area = region || '東京都内';
     const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
     const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
     const prompt = `あなたは公共交通機関の情報提供アシスタントです。
 今日は${today}、現在時刻は${now}です。
+ユーザーの現在地: ${area}
 
-現在発生している公共交通機関の遅延・トラブル・運休情報をすべて提供してください。
+「${area}」およびその近郊で現在発生している公共交通機関の遅延・トラブル・運休情報をすべて提供してください。
 
 【確認対象】
 1. 鉄道（JR・私鉄・地下鉄すべて）
-2. バス（都営・民営・高速バス）
-3. 航空（羽田・成田発着便）
-4. その他（モノレール・ゆりかもめ・つくばエクスプレス等）
+2. バス（公営・民営・高速バス）
+3. 航空（最寄り空港の発着便）
+4. その他（モノレール・新交通システム等）
 
 【各トラブルについて以下を記載】
 - 路線名・区間
@@ -264,7 +267,7 @@ ${areaStr}
 
     const result = await callGeminiLarge(apiKey, prompt);
     if (result.success) {
-      AppLogger.info('Gemini: 遅延・トラブル情報を取得');
+      AppLogger.info(`Gemini: 遅延・トラブル情報を取得 (${area})`);
     }
     return result;
   }

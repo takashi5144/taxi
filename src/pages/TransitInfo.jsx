@@ -1,10 +1,83 @@
 // TransitInfo.jsx - 公共交通機関情報ページ
 // Gemini AI を使用して電車・バス・飛行機の運行情報と遅延情報を取得・保存
 window.TransitInfoPage = () => {
-  const { useState, useCallback, useEffect, useMemo } = React;
-  const { geminiApiKey } = useAppContext();
+  const { useState, useCallback, useEffect, useMemo, useRef } = React;
+  const { geminiApiKey, apiKey } = useAppContext();
 
   const STORAGE_KEY = APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO;
+
+  // GPS地域検出
+  const [region, setRegion] = useState(null);
+  const [regionLoading, setRegionLoading] = useState(false);
+  const regionFetched = useRef(false);
+
+  // ページ読み込み時にGPSで現在地の地域を取得
+  useEffect(() => {
+    if (regionFetched.current) return;
+    regionFetched.current = true;
+
+    if (!navigator.geolocation) return;
+    setRegionLoading(true);
+
+    getAccuratePosition({ accuracyThreshold: 500, timeout: 10000, maxWaitAfterFix: 3000 })
+      .then((position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+
+        // Google Maps Geocoder があれば使用
+        if (apiKey && window.google && window.google.maps) {
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            setRegionLoading(false);
+            if (status === 'OK' && results[0]) {
+              const comps = results[0].address_components;
+              let prefecture = '', city = '';
+              for (const c of comps) {
+                if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
+                if (c.types.includes('locality')) city = c.long_name;
+                if (!city && (c.types.includes('sublocality_level_1') || c.types.includes('ward'))) city = c.long_name;
+              }
+              const regionStr = [prefecture, city].filter(Boolean).join(' ');
+              if (regionStr) {
+                setRegion(regionStr);
+                AppLogger.info(`交通情報: 地域検出成功 (Google) - ${regionStr}`);
+              }
+            } else {
+              _fetchRegionNominatim(lat, lng);
+            }
+          });
+        } else {
+          _fetchRegionNominatim(lat, lng);
+        }
+      })
+      .catch((err) => {
+        setRegionLoading(false);
+        AppLogger.warn('交通情報: 地域検出失敗 - ' + (err.message || ''));
+      });
+  }, [apiKey]);
+
+  // Nominatim逆ジオコーディングで地域名を取得
+  const _fetchRegionNominatim = useCallback((lat, lng) => {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1&accept-language=ja`;
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        setRegionLoading(false);
+        if (data && data.address) {
+          const a = data.address;
+          const prefecture = a.province || a.state || '';
+          const city = a.city || a.town || a.village || a.county || '';
+          const regionStr = [prefecture, city].filter(Boolean).join(' ');
+          if (regionStr) {
+            setRegion(regionStr);
+            AppLogger.info(`交通情報: 地域検出成功 (Nominatim) - ${regionStr}`);
+          }
+        }
+      })
+      .catch(() => {
+        setRegionLoading(false);
+      });
+  }, []);
 
   // カテゴリ定義
   const categories = useMemo(() => [
@@ -46,7 +119,7 @@ window.TransitInfoPage = () => {
 
     setData(prev => ({ ...prev, [categoryKey]: { ...prev[categoryKey], loading: true, error: null } }));
 
-    const result = await cat.fetchFn(geminiApiKey);
+    const result = await cat.fetchFn(geminiApiKey, region);
     const now = new Date().toISOString();
 
     setData(prev => {
@@ -62,7 +135,7 @@ window.TransitInfoPage = () => {
       if (result.success) saveToStorage(updated);
       return updated;
     });
-  }, [geminiApiKey, categories, saveToStorage]);
+  }, [geminiApiKey, region, categories, saveToStorage]);
 
   // 全カテゴリ一括取得
   const handleFetchAll = useCallback(async () => {
@@ -299,10 +372,41 @@ window.TransitInfoPage = () => {
         },
       },
         React.createElement('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' },
+          style: { display: 'flex', flexDirection: 'column', gap: '4px' },
         },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'today'),
-          today
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'today'),
+            today
+          ),
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' },
+          },
+            regionLoading
+              ? React.createElement(React.Fragment, null,
+                  React.createElement('span', {
+                    className: 'material-icons-round',
+                    style: { fontSize: '14px', animation: 'spin 1s linear infinite' },
+                  }, 'sync'),
+                  '地域を検出中...'
+                )
+              : region
+                ? React.createElement(React.Fragment, null,
+                    React.createElement('span', {
+                      className: 'material-icons-round',
+                      style: { fontSize: '14px', color: 'var(--color-primary-light)' },
+                    }, 'place'),
+                    region
+                  )
+                : React.createElement(React.Fragment, null,
+                    React.createElement('span', {
+                      className: 'material-icons-round',
+                      style: { fontSize: '14px', opacity: 0.5 },
+                    }, 'place'),
+                    'GPS地域未検出（デフォルト: 東京都内）'
+                  )
+          )
         ),
         React.createElement(Button, {
           variant: 'primary',
