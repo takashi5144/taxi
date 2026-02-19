@@ -237,6 +237,51 @@ window.SettingsPage = () => {
       )
     ),
 
+    // アプリをインストール（PWA）
+    React.createElement(Card, { title: 'アプリをインストール', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '12px' } },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '36px', color: 'var(--color-primary-light)' },
+        }, 'install_mobile'),
+        React.createElement('div', { style: { flex: 1 } },
+          React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px' } }, 'ホーム画面に追加'),
+          React.createElement('div', {
+            style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '12px' },
+          }, 'このアプリをスマートフォンのホーム画面に追加すると、ネイティブアプリのように使えます。オフラインでも基本機能が利用可能です。')
+        )
+      ),
+      React.createElement(Button, {
+        variant: 'primary',
+        icon: 'download',
+        onClick: async () => {
+          const result = await window.triggerPwaInstall();
+          if (!result.success && result.reason === 'prompt_not_available') {
+            alert('手動インストール方法:\\n\\n【Android Chrome】\\nメニュー（⋮）→「ホーム画面に追加」\\n\\n【iPhone Safari】\\n共有ボタン（□↑）→「ホーム画面に追加」');
+          }
+        },
+      }, 'インストール'),
+      React.createElement('details', {
+        style: { marginTop: 'var(--space-md)', cursor: 'pointer' },
+      },
+        React.createElement('summary', {
+          style: { color: 'var(--color-primary-light)', fontSize: 'var(--font-size-sm)' },
+        }, '手動インストール方法'),
+        React.createElement('div', {
+          style: { padding: 'var(--space-md)', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', lineHeight: 1.8 },
+        },
+          React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px' } }, 'Android（Chrome）:'),
+          React.createElement('p', null, '1. Chrome でこのページを開く'),
+          React.createElement('p', null, '2. 右上の メニュー（⋮）をタップ'),
+          React.createElement('p', null, '3.「ホーム画面に追加」または「アプリをインストール」をタップ'),
+          React.createElement('div', { style: { fontWeight: 600, marginTop: '12px', marginBottom: '4px' } }, 'iPhone（Safari）:'),
+          React.createElement('p', null, '1. Safari でこのページを開く'),
+          React.createElement('p', null, '2. 下部の 共有ボタン（□↑）をタップ'),
+          React.createElement('p', null, '3.「ホーム画面に追加」をタップ')
+        )
+      )
+    ),
+
     // アプリ情報
     React.createElement(Card, { title: 'アプリ情報' },
       React.createElement('div', { style: { display: 'grid', gap: '8px', fontSize: 'var(--font-size-sm)' } },

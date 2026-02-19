@@ -7,6 +7,10 @@
   <meta name="description" content="タクシードライバー向けの売上サポートツール" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   <title>タクシー売上サポート v0.4.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -7029,6 +7033,51 @@ window.SettingsPage = () => {
       )
     ),
 
+    // アプリをインストール（PWA）
+    React.createElement(Card, { title: 'アプリをインストール', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '12px' } },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '36px', color: 'var(--color-primary-light)' },
+        }, 'install_mobile'),
+        React.createElement('div', { style: { flex: 1 } },
+          React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px' } }, 'ホーム画面に追加'),
+          React.createElement('div', {
+            style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '12px' },
+          }, 'このアプリをスマートフォンのホーム画面に追加すると、ネイティブアプリのように使えます。オフラインでも基本機能が利用可能です。')
+        )
+      ),
+      React.createElement(Button, {
+        variant: 'primary',
+        icon: 'download',
+        onClick: async () => {
+          const result = await window.triggerPwaInstall();
+          if (!result.success && result.reason === 'prompt_not_available') {
+            alert('手動インストール方法:\n\n【Android Chrome】\nメニュー（⋮）→「ホーム画面に追加」\n\n【iPhone Safari】\n共有ボタン（□↑）→「ホーム画面に追加」');
+          }
+        },
+      }, 'インストール'),
+      React.createElement('details', {
+        style: { marginTop: 'var(--space-md)', cursor: 'pointer' },
+      },
+        React.createElement('summary', {
+          style: { color: 'var(--color-primary-light)', fontSize: 'var(--font-size-sm)' },
+        }, '手動インストール方法'),
+        React.createElement('div', {
+          style: { padding: 'var(--space-md)', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', lineHeight: 1.8 },
+        },
+          React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px' } }, 'Android（Chrome）:'),
+          React.createElement('p', null, '1. Chrome でこのページを開く'),
+          React.createElement('p', null, '2. 右上の メニュー（⋮）をタップ'),
+          React.createElement('p', null, '3.「ホーム画面に追加」または「アプリをインストール」をタップ'),
+          React.createElement('div', { style: { fontWeight: 600, marginTop: '12px', marginBottom: '4px' } }, 'iPhone（Safari）:'),
+          React.createElement('p', null, '1. Safari でこのページを開く'),
+          React.createElement('p', null, '2. 下部の 共有ボタン（□↑）をタップ'),
+          React.createElement('p', null, '3.「ホーム画面に追加」をタップ')
+        )
+      )
+    ),
+
     // アプリ情報
     React.createElement(Card, { title: 'アプリ情報' },
       React.createElement('div', { style: { display: 'grid', gap: '8px', fontSize: 'var(--font-size-sm)' } },
@@ -7702,6 +7751,56 @@ window.App = () => {
 
 })();
 
+  </script>
+
+  <!-- Service Worker登録 & PWAインストールプロンプト -->
+  <script>
+  // Service Worker登録
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => {
+          console.log('[PWA] Service Worker登録成功:', reg.scope);
+          if (window.AppLogger) AppLogger.info('Service Worker登録完了');
+        })
+        .catch(err => {
+          console.warn('[PWA] Service Worker登録失敗:', err);
+        });
+    });
+  }
+
+  // PWAインストールプロンプト
+  window._pwaInstallPrompt = null;
+  window._pwaInstalled = false;
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    window._pwaInstallPrompt = e;
+    console.log('[PWA] インストールプロンプト利用可能');
+    // カスタムイベントで通知
+    document.dispatchEvent(new CustomEvent('pwa-install-available'));
+  });
+
+  window.addEventListener('appinstalled', () => {
+    window._pwaInstalled = true;
+    window._pwaInstallPrompt = null;
+    console.log('[PWA] アプリがインストールされました');
+    if (window.AppLogger) AppLogger.info('PWAインストール完了');
+    document.dispatchEvent(new CustomEvent('pwa-installed'));
+  });
+
+  // インストール実行関数
+  window.triggerPwaInstall = async () => {
+    if (!window._pwaInstallPrompt) return { success: false, reason: 'prompt_not_available' };
+    try {
+      window._pwaInstallPrompt.prompt();
+      const result = await window._pwaInstallPrompt.userChoice;
+      window._pwaInstallPrompt = null;
+      return { success: result.outcome === 'accepted', reason: result.outcome };
+    } catch (e) {
+      return { success: false, reason: e.message };
+    }
+  };
   </script>
 </body>
 </html>
