@@ -93,14 +93,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Google Drive / OAuth はキャッシュしない
-  if (request.url.includes('googleapis.com/drive') ||
-      request.url.includes('googleapis.com/upload') ||
-      request.url.includes('googleapis.com/oauth2') ||
-      request.url.includes('accounts.google.com')) {
-    return;
-  }
-
   // API呼び出しはキャッシュしない
   if (request.url.includes('/api/')) {
     return;

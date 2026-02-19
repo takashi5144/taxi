@@ -315,221 +315,6 @@ window.DataService = (() => {
   }
 
   // ============================================================
-  // Google Drive 同期
-  // ============================================================
-  const DRIVE_API = 'https://www.googleapis.com/drive/v3';
-  const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-  const DRIVE_FOLDER_NAME = 'タクシーアプリ';
-
-  async function _getValidDriveToken() {
-    const token = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN);
-    const expiry = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_TOKEN_EXPIRY);
-    if (token && expiry && Date.now() < parseInt(expiry) - 300000) {
-      return token;
-    }
-    // トークンリフレッシュ
-    try {
-      const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
-      if (!secret) return null;
-      const res = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` },
-        body: JSON.stringify({ action: 'refresh' }),
-      });
-      if (!res.ok) {
-        AppLogger.warn('Driveトークンリフレッシュ失敗: ' + res.status);
-        return null;
-      }
-      const data = await res.json();
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN, data.access_token);
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_TOKEN_EXPIRY, String(Date.now() + data.expires_in * 1000));
-      return data.access_token;
-    } catch (e) {
-      AppLogger.warn('Driveトークンリフレッシュエラー: ' + e.message);
-      return null;
-    }
-  }
-
-  async function _ensureDriveFolder(token) {
-    const cached = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID);
-    if (cached) {
-      // キャッシュ済みフォルダが存在するか確認
-      try {
-        const checkRes = await fetch(`${DRIVE_API}/files/${cached}?fields=id,trashed`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (checkRes.ok) {
-          const info = await checkRes.json();
-          if (!info.trashed) return cached;
-        }
-      } catch { /* フォルダ確認失敗、再検索 */ }
-      localStorage.removeItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID);
-    }
-    // フォルダ検索
-    const q = `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-    const searchRes = await fetch(`${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (searchRes.ok) {
-      const result = await searchRes.json();
-      if (result.files && result.files.length > 0) {
-        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID, result.files[0].id);
-        return result.files[0].id;
-      }
-    }
-    // フォルダ作成
-    const createRes = await fetch(`${DRIVE_API}/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
-    });
-    if (createRes.ok) {
-      const folder = await createRes.json();
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID, folder.id);
-      return folder.id;
-    }
-    throw new Error('Driveフォルダ作成失敗');
-  }
-
-  async function _uploadToDrive(token, folderId, fileName, data, fileIdKey) {
-    const cachedFileId = localStorage.getItem(fileIdKey);
-    const jsonStr = JSON.stringify(data, null, 2);
-
-    if (cachedFileId) {
-      // 既存ファイルが存在するか確認して更新
-      try {
-        const checkRes = await fetch(`${DRIVE_API}/files/${cachedFileId}?fields=id,trashed`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (checkRes.ok) {
-          const info = await checkRes.json();
-          if (!info.trashed) {
-            const updateRes = await fetch(`${DRIVE_UPLOAD}/files/${cachedFileId}?uploadType=media`, {
-              method: 'PATCH',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-              body: jsonStr,
-            });
-            if (updateRes.ok) return;
-          }
-        }
-      } catch { /* 更新失敗、新規作成にフォールバック */ }
-      localStorage.removeItem(fileIdKey);
-    }
-
-    // 新規作成（multipart upload）
-    const metadata = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-    const boundary = '---taxi_app_boundary';
-    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonStr}\r\n--${boundary}--`;
-
-    const createRes = await fetch(`${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    });
-    if (createRes.ok) {
-      const file = await createRes.json();
-      localStorage.setItem(fileIdKey, file.id);
-    }
-  }
-
-  async function _readFromDrive(token, folderId, fileName) {
-    const q = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
-    const searchRes = await fetch(`${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!searchRes.ok) return null;
-    const result = await searchRes.json();
-    if (!result.files || result.files.length === 0) return null;
-
-    const contentRes = await fetch(`${DRIVE_API}/files/${result.files[0].id}?alt=media`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!contentRes.ok) return null;
-    return await contentRes.json();
-  }
-
-  async function _syncToDrive(type, entries) {
-    if (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ENABLED) !== 'true') return;
-    try {
-      const token = await _getValidDriveToken();
-      if (!token) return;
-      const folderId = await _ensureDriveFolder(token);
-      const fileName = type === 'revenue' ? '売上記録.json' : '他社乗車記録.json';
-      const fileIdKey = type === 'revenue'
-        ? APP_CONSTANTS.STORAGE_KEYS.GDRIVE_REVENUE_FILE_ID
-        : APP_CONSTANTS.STORAGE_KEYS.GDRIVE_RIVAL_FILE_ID;
-      const data = {
-        version: APP_CONSTANTS.VERSION,
-        syncedAt: new Date().toISOString(),
-        count: entries.length,
-        entries,
-      };
-      await _uploadToDrive(token, folderId, fileName, data, fileIdKey);
-      AppLogger.info(`Drive同期完了: ${fileName} (${entries.length}件)`);
-    } catch (e) {
-      AppLogger.warn('Drive同期エラー: ' + e.message);
-    }
-  }
-
-  async function syncFromDrive(type) {
-    try {
-      const token = await _getValidDriveToken();
-      if (!token) return { merged: 0 };
-      const folderId = await _ensureDriveFolder(token);
-      const fileName = type === 'revenue' ? '売上記録.json' : '他社乗車記録.json';
-      const data = await _readFromDrive(token, folderId, fileName);
-      if (!data || !data.entries || data.entries.length === 0) return { merged: 0 };
-
-      const local = type === 'revenue' ? getEntries() : getRivalEntries();
-      const localIds = new Set(local.map(e => e.id));
-      let merged = 0;
-      data.entries.forEach(entry => {
-        if (!localIds.has(entry.id)) {
-          local.push(entry);
-          merged++;
-        }
-      });
-      if (merged > 0) {
-        local.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        if (type === 'revenue') saveEntries(local);
-        else saveRivalEntries(local);
-      }
-      return { merged, total: local.length };
-    } catch (e) {
-      AppLogger.warn('Drive読込エラー: ' + e.message);
-      return { merged: 0 };
-    }
-  }
-
-  async function syncToDriveManual() {
-    const token = await _getValidDriveToken();
-    if (!token) throw new Error('Driveトークンが無効です');
-    const folderId = await _ensureDriveFolder(token);
-    const revenueEntries = getEntries();
-    const rivalEntries = getRivalEntries();
-    await _uploadToDrive(token, folderId, '売上記録.json',
-      { version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: revenueEntries.length, entries: revenueEntries },
-      APP_CONSTANTS.STORAGE_KEYS.GDRIVE_REVENUE_FILE_ID
-    );
-    await _uploadToDrive(token, folderId, '他社乗車記録.json',
-      { version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: rivalEntries.length, entries: rivalEntries },
-      APP_CONSTANTS.STORAGE_KEYS.GDRIVE_RIVAL_FILE_ID
-    );
-    return { revenue: revenueEntries.length, rival: rivalEntries.length };
-  }
-
-  function isDriveConnected() {
-    return !!localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN);
-  }
-
-  function getDriveEmail() {
-    return localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_EMAIL) || '';
-  }
-
-  // ============================================================
   // 日付ヘルパー
   // ============================================================
   function toDateStr(isoString) {
@@ -865,7 +650,7 @@ window.DataService = (() => {
     // 自動ファイル保存
     autoSaveToFile();
     _syncToCloud('revenue', entries);
-    _syncToDrive('revenue', entries);
+
     return { success: true, entry };
   }
 
@@ -876,7 +661,7 @@ window.DataService = (() => {
     AppLogger.info('売上記録を削除しました');
     autoSaveToFile();
     _syncToCloud('revenue', filtered);
-    _syncToDrive('revenue', filtered);
+
     return true;
   }
 
@@ -933,7 +718,7 @@ window.DataService = (() => {
     AppLogger.info(`他社乗車記録追加: ${entry.location} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
     autoSaveRivalToFile();
     _syncToCloud('rival', entries);
-    _syncToDrive('rival', entries);
+
     return { success: true, entry };
   }
 
@@ -944,7 +729,7 @@ window.DataService = (() => {
     AppLogger.info('他社乗車記録を削除しました');
     autoSaveRivalToFile();
     _syncToCloud('rival', filtered);
-    _syncToDrive('rival', filtered);
+
     return true;
   }
 
@@ -1095,12 +880,6 @@ window.DataService = (() => {
     // クラウド同期
     loadFromCloud,
     syncFromCloud,
-
-    // Google Drive同期
-    syncFromDrive,
-    syncToDriveManual,
-    isDriveConnected,
-    getDriveEmail,
 
     // イベント
     getEvents,
