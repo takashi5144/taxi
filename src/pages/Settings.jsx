@@ -241,7 +241,13 @@ window.SettingsPage = () => {
             setSyncTestResult(null);
             try {
               const res = await fetch('/api/data?type=revenue');
-              setSyncTestResult(res.ok ? 'success' : `エラー: ${res.status}`);
+              if (res.ok) {
+                setSyncTestResult('success');
+              } else {
+                let detail = '';
+                try { const j = await res.json(); detail = j.detail || j.error || ''; } catch {}
+                setSyncTestResult(`エラー: ${res.status}${detail ? ' - ' + detail : ''}`);
+              }
             } catch (e) {
               setSyncTestResult('接続エラー: ' + e.message);
             }
@@ -289,7 +295,10 @@ window.SettingsPage = () => {
               if (r1.ok && r2.ok) {
                 setSyncStatus(`送信完了: 売上${revenueEntries.length}件, 他社${rivalEntries.length}件`);
               } else {
-                setSyncStatus(`送信エラー: revenue=${r1.status}, rival=${r2.status}`);
+                let d1 = '', d2 = '';
+                try { const j = await r1.json(); d1 = j.detail || j.error || ''; } catch {}
+                try { const j = await r2.json(); d2 = j.detail || j.error || ''; } catch {}
+                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}, rival=${r2.status}${d2 ? '(' + d2 + ')' : ''}`);
               }
             } catch (e) {
               setSyncStatus('送信エラー: ' + e.message);

@@ -25,7 +25,10 @@ export default async function handler(req, res) {
     const origin = req.headers.origin || '';
     const referer = req.headers.referer || '';
     const host = req.headers.host || '';
-    const isSameOrigin = (origin && host && origin.includes(host)) || (referer && host && referer.includes(host));
+    const secFetchSite = req.headers['sec-fetch-site'] || '';
+    const isSameOrigin = secFetchSite === 'same-origin' ||
+      (origin && host && origin.includes(host)) ||
+      (referer && host && referer.includes(host));
 
     if (!isSameOrigin) {
       // 外部リクエスト（curl等）: SYNC_SECRET必須
