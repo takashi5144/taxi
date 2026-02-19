@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.5.2</title>
+  <title>タクシー売上サポート v0.5.3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -848,7 +848,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.5.2',
+  VERSION: '0.5.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2236,7 +2236,7 @@ window.DataService = (() => {
       + '-' + String(now.getDate()).padStart(2, '0')
       + '_' + String(now.getHours()).padStart(2, '0')
       + String(now.getMinutes()).padStart(2, '0');
-    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateTimeStr}.json`, [transitData], '0.5.2');
+    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateTimeStr}.json`, [transitData], '0.5.3');
   }
 
   // ============================================================
