@@ -1,15 +1,29 @@
 import { put, list, del } from '@vercel/blob';
+import crypto from 'crypto';
+
+// タイミング攻撃耐性のあるシークレット比較
+function safeCompare(a, b) {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 export default async function handler(req, res) {
-  // CORS対応
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS: 同一オリジンのみ許可（Vercel同プロジェクト内のため制限）
+  const origin = req.headers.origin || '';
+  const host = req.headers.host || '';
+  if (origin && new URL(origin).host === host) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // 認証チェック
+  // 認証チェック（タイミング攻撃耐性）
   const secret = req.headers.authorization?.replace('Bearer ', '');
-  if (secret !== process.env.SYNC_SECRET) {
+  if (!safeCompare(secret, process.env.SYNC_SECRET)) {
     return res.status(401).json({ error: '認証エラー' });
   }
 
@@ -22,12 +36,17 @@ export default async function handler(req, res) {
 
   switch (req.method) {
     case 'POST': {
-      const blob = await put(blobPath, JSON.stringify(req.body), {
+      // リクエストボディサイズチェック（10MB上限）
+      const body = JSON.stringify(req.body);
+      if (body.length > 10 * 1024 * 1024) {
+        return res.status(413).json({ error: 'データサイズが大きすぎます' });
+      }
+      await put(blobPath, body, {
         access: 'public',
         contentType: 'application/json',
         addRandomSuffix: false,
       });
-      return res.json({ success: true, url: blob.url });
+      return res.json({ success: true });
     }
 
     case 'GET': {

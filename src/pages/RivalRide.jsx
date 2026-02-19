@@ -562,7 +562,7 @@ window.RivalRidePage = () => {
         entries.length > 0 && React.createElement(Button, {
           variant: 'secondary',
           icon: 'save',
-          onClick: () => DataService.autoSaveRivalToFile(),
+          onClick: () => DataService.manualSaveRivalToFile(),
           style: { padding: '6px 12px', fontSize: '11px' },
         }, 'JSON保存'),
         entries.length > 0 && React.createElement(Button, {

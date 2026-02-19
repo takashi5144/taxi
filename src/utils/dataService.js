@@ -154,7 +154,29 @@ window.DataService = (() => {
   }
 
   // 売上記録の自動保存（サブフォルダ「売上記録」）
+  // フォルダ未設定時はスキップ（ダウンロードは手動保存時のみ）
   async function autoSaveToFile() {
+    await _handleReady;
+    if (!_dirHandle) return;
+    const entries = getEntries();
+    if (entries.length === 0) return;
+    const dateStr = new Date().toISOString().split('T')[0];
+    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.4.0');
+  }
+
+  // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
+  // フォルダ未設定時はスキップ（ダウンロードは手動保存時のみ）
+  async function autoSaveRivalToFile() {
+    await _handleReady;
+    if (!_dirHandle) return;
+    const entries = getRivalEntries();
+    if (entries.length === 0) return;
+    const dateStr = new Date().toISOString().split('T')[0];
+    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.4.0');
+  }
+
+  // 手動JSON保存（ボタン押下時）— フォルダ未設定時はダウンロード
+  async function manualSaveToFile() {
     await _handleReady;
     const entries = getEntries();
     if (entries.length === 0) return;
@@ -166,8 +188,7 @@ window.DataService = (() => {
     _downloadBackup(entries);
   }
 
-  // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
-  async function autoSaveRivalToFile() {
+  async function manualSaveRivalToFile() {
     await _handleReady;
     const entries = getRivalEntries();
     if (entries.length === 0) return;
@@ -667,6 +688,7 @@ window.DataService = (() => {
 
   function clearAllEntries() {
     saveEntries([]);
+    _syncToCloud('revenue', []);
     AppLogger.info('全売上データを削除しました');
     return true;
   }
@@ -735,6 +757,7 @@ window.DataService = (() => {
 
   function clearAllRivalEntries() {
     saveRivalEntries([]);
+    _syncToCloud('rival', []);
     AppLogger.info('全他社乗車データを削除しました');
     return true;
   }
@@ -864,6 +887,7 @@ window.DataService = (() => {
 
     // ファイル保存・復元
     autoSaveToFile,
+    manualSaveToFile,
     selectSaveFolder,
     importFromFile,
     hasSaveFolder,
@@ -876,6 +900,7 @@ window.DataService = (() => {
     clearAllRivalEntries,
     downloadRivalCSV,
     autoSaveRivalToFile,
+    manualSaveRivalToFile,
 
     // クラウド同期
     loadFromCloud,

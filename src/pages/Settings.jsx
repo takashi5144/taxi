@@ -134,7 +134,7 @@ window.SettingsPage = () => {
         React.createElement('label', { className: 'form-label' }, 'Gemini APIキー'),
         React.createElement('input', {
           className: 'form-input',
-          type: 'text',
+          type: 'password',
           placeholder: 'AIzaSy...',
           value: geminiInputKey,
           onChange: (e) => setGeminiInputKey(e.target.value),
