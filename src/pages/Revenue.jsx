@@ -77,7 +77,7 @@ window.RevenuePage = () => {
           setWeatherLoading(false);
           AppLogger.warn('天気取得用GPS失敗: ' + err.message);
         },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
       );
     };
     fetchWeather();
@@ -204,7 +204,7 @@ window.RevenuePage = () => {
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
         AppLogger.error(`GPS取得失敗 (${field}): code=${error.code}`);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [apiKey]);
 

@@ -60,7 +60,7 @@ window.RivalRidePage = () => {
           .catch(() => setWeatherLoading(false));
       },
       () => setWeatherLoading(false),
-      { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
     );
   }, []);
 
@@ -82,7 +82,7 @@ window.RivalRidePage = () => {
         reverseGeocode(lat, lng, false);
       },
       () => setGpsLoading(false),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -109,7 +109,7 @@ window.RivalRidePage = () => {
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [apiKey]);
 

@@ -43,7 +43,7 @@ window.TransitInfoPage = () => {
     navigator.geolocation.getCurrentPosition(
       (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {},
-      { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
     );
   }, []);
 

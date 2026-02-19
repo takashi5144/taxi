@@ -4039,7 +4039,7 @@ window.RevenuePage = () => {
           setWeatherLoading(false);
           AppLogger.warn('天気取得用GPS失敗: ' + err.message);
         },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
       );
     };
     fetchWeather();
@@ -4166,7 +4166,7 @@ window.RevenuePage = () => {
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
         AppLogger.error(`GPS取得失敗 (${field}): code=${error.code}`);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [apiKey]);
 
@@ -4894,7 +4894,7 @@ window.RivalRidePage = () => {
           .catch(() => setWeatherLoading(false));
       },
       () => setWeatherLoading(false),
-      { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
     );
   }, []);
 
@@ -4915,7 +4915,7 @@ window.RivalRidePage = () => {
         reverseGeocode(lat, lng, false);
       },
       () => setGpsLoading(false),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -4941,7 +4941,7 @@ window.RivalRidePage = () => {
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [apiKey]);
 
@@ -5512,7 +5512,7 @@ window.TransitInfoPage = () => {
     navigator.geolocation.getCurrentPosition(
       (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {},
-      { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
     );
   }, []);
 
@@ -5883,7 +5883,7 @@ window.EventsPage = () => {
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [apiKey]);
 

@@ -93,7 +93,7 @@ window.EventsPage = () => {
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }, [apiKey]);
 
