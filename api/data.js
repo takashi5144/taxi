@@ -11,19 +11,16 @@ function safeCompare(a, b) {
 }
 
 export default async function handler(req, res) {
-  // CORS: 同一オリジンのみ許可（Vercel同プロジェクト内のため制限）
-  const origin = req.headers.origin || '';
-  const host = req.headers.host || '';
-  if (origin && new URL(origin).host === host) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   // 認証チェック（タイミング攻撃耐性）
-  const secret = req.headers.authorization?.replace('Bearer ', '');
-  if (!safeCompare(secret, process.env.SYNC_SECRET)) {
+  const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  const expected = (process.env.SYNC_SECRET || '').trim();
+  if (!safeCompare(secret, expected)) {
     return res.status(401).json({ error: '認証エラー' });
   }
 
