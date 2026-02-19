@@ -19,5 +19,5 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# Personal data
-螢ｲ荳翫ョ繝ｼ繧ｿ/
+# Save data (JSON files only — keep folder structure via .gitkeep)
+保存データ/**/*.json
