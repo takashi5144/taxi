@@ -67,14 +67,28 @@ const _gmapLoader = {
   }
 };
 
+// Google Maps API エラー検出（console.errorからエラータイプを捕捉）
+let _gmapErrorType = '';
+const _origConsoleError = console.error;
+console.error = function() {
+  const msg = Array.from(arguments).join(' ');
+  if (msg.includes('Google Maps JavaScript API error:')) {
+    _gmapErrorType = msg.replace(/.*Google Maps JavaScript API error:\s*/, '').trim();
+    if (typeof AppLogger !== 'undefined') {
+      AppLogger.error('Google Maps APIエラー検出: ' + _gmapErrorType);
+    }
+  }
+  _origConsoleError.apply(console, arguments);
+};
+
 // Google Maps API 認証エラーハンドラ（APIキー無効・Billing未設定時に発火）
 window.gm_authFailure = () => {
   _gmapLoader.status = 'error';
   _gmapLoader.loadedKey = null;
   if (typeof AppLogger !== 'undefined') {
-    AppLogger.error('Google Maps API 認証失敗: APIキー・Billing・API有効化を確認してください');
+    AppLogger.error('Google Maps API 認証失敗 (gm_authFailure): エラータイプ=' + (_gmapErrorType || '不明'));
   }
-  window.dispatchEvent(new Event('gmaps_auth_error'));
+  window.dispatchEvent(new CustomEvent('gmaps_auth_error', { detail: _gmapErrorType }));
 };
 
 // ============================================================
@@ -94,10 +108,31 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
+  const [errorDetail, setErrorDetail] = useState(null);
+
   // Google Maps API 認証エラーを検知
   useEffect(() => {
-    const handler = () => {
-      setMapError('Google Maps API の認証に失敗しました。以下を確認してください：\n• APIキーが正しいか\n• Maps JavaScript API が有効か\n• Billing（課金）が設定されているか');
+    const handler = (e) => {
+      const errorType = e.detail || _gmapErrorType || '';
+      setErrorDetail(errorType);
+      let msg = '';
+      if (errorType.includes('ApiNotActivatedMapError')) {
+        msg = '【Maps JavaScript API が無効です】\nGoogle Cloud Console → APIとサービス → ライブラリ\n→「Maps JavaScript API」を検索して「有効にする」を押してください。';
+      } else if (errorType.includes('InvalidKeyMapError')) {
+        msg = '【APIキーが無効です】\n設定画面でAPIキーが正しくコピーされているか確認してください。';
+      } else if (errorType.includes('MissingKeyMapError')) {
+        msg = '【APIキーがありません】\n設定画面からGoogle Maps APIキーを入力してください。';
+      } else if (errorType.includes('RefererNotAllowedMapError')) {
+        msg = '【HTTPリファラー制限エラー】\nGoogle Cloud Console → 認証情報 → APIキー → アプリケーションの制限\n→ リファラーに以下を追加してください:\n' + window.location.origin + '/*';
+      } else if (errorType.includes('BillingNotEnabledMapError') || errorType.includes('OverQueryLimitMapError')) {
+        msg = '【課金が有効になっていません】\nGoogle Cloud Console → お支払い → 請求先アカウントを設定してください。\n（月$200の無料枠あり）';
+      } else if (errorType.includes('ExpiredKeyMapError')) {
+        msg = '【APIキーの有効期限切れ】\nGoogle Cloud Console で新しいAPIキーを作成してください。';
+      } else {
+        msg = 'Google Maps API の認証に失敗しました。\n\n確認事項:\n1. APIキーが正しいか\n2. Maps JavaScript API が有効か\n3. Billing（課金）が設定されているか\n4. APIキーの制限設定';
+        if (errorType) msg += '\n\nエラータイプ: ' + errorType;
+      }
+      setMapError(msg);
       setMapLoaded(false);
     };
     window.addEventListener('gmaps_auth_error', handler);
@@ -311,14 +346,21 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   if (mapError) {
     return React.createElement('div', {
       className: `map-container ${fullscreen ? 'map-container--fullscreen' : ''}`,
-      style: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', padding: '24px' },
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '12px', padding: '24px', overflow: 'auto' },
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--color-danger)' } }, 'error'),
-      React.createElement('p', { style: { color: 'var(--color-danger)', textAlign: 'center', whiteSpace: 'pre-line', fontSize: 'var(--font-size-sm)' } }, mapError),
+      React.createElement('p', { style: { color: 'var(--color-danger)', textAlign: 'center', whiteSpace: 'pre-line', fontSize: 'var(--font-size-sm)', lineHeight: '1.8' } }, mapError),
+      // 現在のURL表示（リファラー設定用）
+      React.createElement('div', {
+        style: { marginTop: '8px', padding: '8px 14px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' },
+      },
+        React.createElement('div', null, '現在のURL: ' + window.location.origin),
+        errorDetail && React.createElement('div', { style: { marginTop: '4px', color: 'var(--color-secondary)' } }, 'Error: ' + errorDetail)
+      ),
       React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } },
         React.createElement(Button, {
           variant: 'primary', icon: 'refresh',
-          onClick: () => { _gmapLoader.reset(); setMapError(null); setMapLoaded(false); },
+          onClick: () => { _gmapLoader.reset(); _gmapErrorType = ''; setErrorDetail(null); setMapError(null); setMapLoaded(false); },
         }, '再試行'),
         React.createElement(Button, {
           variant: 'secondary', icon: 'settings',
