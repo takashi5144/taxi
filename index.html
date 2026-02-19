@@ -920,6 +920,14 @@ window.APP_CONSTANTS = {
     REVENUE_DATA: 'taxi_app_revenue',
     RIVAL_RIDES: 'taxi_app_rival_rides',
     EVENTS: 'taxi_app_events',
+    SYNC_SECRET: 'taxi_app_sync_secret',
+    GDRIVE_ACCESS_TOKEN: 'taxi_app_gdrive_access_token',
+    GDRIVE_TOKEN_EXPIRY: 'taxi_app_gdrive_token_expiry',
+    GDRIVE_EMAIL: 'taxi_app_gdrive_email',
+    GDRIVE_FOLDER_ID: 'taxi_app_gdrive_folder_id',
+    GDRIVE_REVENUE_FILE_ID: 'taxi_app_gdrive_revenue_file_id',
+    GDRIVE_RIVAL_FILE_ID: 'taxi_app_gdrive_rival_file_id',
+    GDRIVE_ENABLED: 'taxi_app_gdrive_enabled',
   },
 
   // サイト構造（開発者ツール用）
@@ -1628,6 +1636,279 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // クラウド同期（Vercel Blob Storage）
+  // ============================================================
+  async function _syncToCloud(type, entries) {
+    try {
+      const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+      if (!secret) return;
+
+      const res = await fetch(`/api/data?type=${type}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${secret}`,
+        },
+        body: JSON.stringify({
+          version: APP_CONSTANTS.VERSION,
+          syncedAt: new Date().toISOString(),
+          count: entries.length,
+          entries,
+        }),
+      });
+      if (res.ok) {
+        AppLogger.info(`クラウド同期完了: ${type} (${entries.length}件)`);
+      } else {
+        AppLogger.warn(`クラウド同期失敗: ${res.status}`);
+      }
+    } catch (e) {
+      AppLogger.warn('クラウド同期エラー: ' + e.message);
+    }
+  }
+
+  async function loadFromCloud(type) {
+    try {
+      const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+      if (!secret) return null;
+
+      const res = await fetch(`/api/data?type=${type}`, {
+        headers: { 'Authorization': `Bearer ${secret}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.entries || [];
+    } catch (e) {
+      AppLogger.warn('クラウド読込エラー: ' + e.message);
+      return null;
+    }
+  }
+
+  async function syncFromCloud(type) {
+    const cloudEntries = await loadFromCloud(type);
+    if (!cloudEntries || cloudEntries.length === 0) return { merged: 0 };
+
+    const local = type === 'revenue' ? getEntries() : getRivalEntries();
+    const localIds = new Set(local.map(e => e.id));
+    let merged = 0;
+    cloudEntries.forEach(entry => {
+      if (!localIds.has(entry.id)) {
+        local.push(entry);
+        merged++;
+      }
+    });
+    if (merged > 0) {
+      local.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      if (type === 'revenue') saveEntries(local);
+      else saveRivalEntries(local);
+    }
+    return { merged, total: local.length };
+  }
+
+  // ============================================================
+  // Google Drive 同期
+  // ============================================================
+  const DRIVE_API = 'https://www.googleapis.com/drive/v3';
+  const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
+  const DRIVE_FOLDER_NAME = 'タクシーアプリ';
+
+  async function _getValidDriveToken() {
+    const token = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN);
+    const expiry = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_TOKEN_EXPIRY);
+    if (token && expiry && Date.now() < parseInt(expiry) - 300000) {
+      return token;
+    }
+    try {
+      const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+      if (!secret) return null;
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` },
+        body: JSON.stringify({ action: 'refresh' }),
+      });
+      if (!res.ok) {
+        AppLogger.warn('Driveトークンリフレッシュ失敗: ' + res.status);
+        return null;
+      }
+      const data = await res.json();
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN, data.access_token);
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_TOKEN_EXPIRY, String(Date.now() + data.expires_in * 1000));
+      return data.access_token;
+    } catch (e) {
+      AppLogger.warn('Driveトークンリフレッシュエラー: ' + e.message);
+      return null;
+    }
+  }
+
+  async function _ensureDriveFolder(token) {
+    const cached = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID);
+    if (cached) {
+      try {
+        const checkRes = await fetch(`${DRIVE_API}/files/${cached}?fields=id,trashed`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (checkRes.ok) {
+          const info = await checkRes.json();
+          if (!info.trashed) return cached;
+        }
+      } catch { /* フォルダ確認失敗、再検索 */ }
+      localStorage.removeItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID);
+    }
+    const q = `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const searchRes = await fetch(`${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (searchRes.ok) {
+      const result = await searchRes.json();
+      if (result.files && result.files.length > 0) {
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID, result.files[0].id);
+        return result.files[0].id;
+      }
+    }
+    const createRes = await fetch(`${DRIVE_API}/files`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' }),
+    });
+    if (createRes.ok) {
+      const folder = await createRes.json();
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_FOLDER_ID, folder.id);
+      return folder.id;
+    }
+    throw new Error('Driveフォルダ作成失敗');
+  }
+
+  async function _uploadToDrive(token, folderId, fileName, data, fileIdKey) {
+    const cachedFileId = localStorage.getItem(fileIdKey);
+    const jsonStr = JSON.stringify(data, null, 2);
+    if (cachedFileId) {
+      try {
+        const checkRes = await fetch(`${DRIVE_API}/files/${cachedFileId}?fields=id,trashed`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (checkRes.ok) {
+          const info = await checkRes.json();
+          if (!info.trashed) {
+            const updateRes = await fetch(`${DRIVE_UPLOAD}/files/${cachedFileId}?uploadType=media`, {
+              method: 'PATCH',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: jsonStr,
+            });
+            if (updateRes.ok) return;
+          }
+        }
+      } catch { /* 更新失敗、新規作成にフォールバック */ }
+      localStorage.removeItem(fileIdKey);
+    }
+    const metadata = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+    const boundary = '---taxi_app_boundary';
+    const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonStr}\r\n--${boundary}--`;
+    const createRes = await fetch(`${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    });
+    if (createRes.ok) {
+      const file = await createRes.json();
+      localStorage.setItem(fileIdKey, file.id);
+    }
+  }
+
+  async function _readFromDrive(token, folderId, fileName) {
+    const q = `name='${fileName}' and '${folderId}' in parents and trashed=false`;
+    const searchRes = await fetch(`${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=files(id)`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!searchRes.ok) return null;
+    const result = await searchRes.json();
+    if (!result.files || result.files.length === 0) return null;
+    const contentRes = await fetch(`${DRIVE_API}/files/${result.files[0].id}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!contentRes.ok) return null;
+    return await contentRes.json();
+  }
+
+  async function _syncToDrive(type, entries) {
+    if (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ENABLED) !== 'true') return;
+    try {
+      const token = await _getValidDriveToken();
+      if (!token) return;
+      const folderId = await _ensureDriveFolder(token);
+      const fileName = type === 'revenue' ? '売上記録.json' : '他社乗車記録.json';
+      const fileIdKey = type === 'revenue'
+        ? APP_CONSTANTS.STORAGE_KEYS.GDRIVE_REVENUE_FILE_ID
+        : APP_CONSTANTS.STORAGE_KEYS.GDRIVE_RIVAL_FILE_ID;
+      const data = {
+        version: APP_CONSTANTS.VERSION,
+        syncedAt: new Date().toISOString(),
+        count: entries.length,
+        entries,
+      };
+      await _uploadToDrive(token, folderId, fileName, data, fileIdKey);
+      AppLogger.info(`Drive同期完了: ${fileName} (${entries.length}件)`);
+    } catch (e) {
+      AppLogger.warn('Drive同期エラー: ' + e.message);
+    }
+  }
+
+  async function syncFromDrive(type) {
+    try {
+      const token = await _getValidDriveToken();
+      if (!token) return { merged: 0 };
+      const folderId = await _ensureDriveFolder(token);
+      const fileName = type === 'revenue' ? '売上記録.json' : '他社乗車記録.json';
+      const data = await _readFromDrive(token, folderId, fileName);
+      if (!data || !data.entries || data.entries.length === 0) return { merged: 0 };
+      const local = type === 'revenue' ? getEntries() : getRivalEntries();
+      const localIds = new Set(local.map(e => e.id));
+      let merged = 0;
+      data.entries.forEach(entry => {
+        if (!localIds.has(entry.id)) {
+          local.push(entry);
+          merged++;
+        }
+      });
+      if (merged > 0) {
+        local.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        if (type === 'revenue') saveEntries(local);
+        else saveRivalEntries(local);
+      }
+      return { merged, total: local.length };
+    } catch (e) {
+      AppLogger.warn('Drive読込エラー: ' + e.message);
+      return { merged: 0 };
+    }
+  }
+
+  async function syncToDriveManual() {
+    const token = await _getValidDriveToken();
+    if (!token) throw new Error('Driveトークンが無効です');
+    const folderId = await _ensureDriveFolder(token);
+    const revenueEntries = getEntries();
+    const rivalEntries = getRivalEntries();
+    await _uploadToDrive(token, folderId, '売上記録.json',
+      { version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: revenueEntries.length, entries: revenueEntries },
+      APP_CONSTANTS.STORAGE_KEYS.GDRIVE_REVENUE_FILE_ID
+    );
+    await _uploadToDrive(token, folderId, '他社乗車記録.json',
+      { version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: rivalEntries.length, entries: rivalEntries },
+      APP_CONSTANTS.STORAGE_KEYS.GDRIVE_RIVAL_FILE_ID
+    );
+    return { revenue: revenueEntries.length, rival: rivalEntries.length };
+  }
+
+  function isDriveConnected() {
+    return !!localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN);
+  }
+
+  function getDriveEmail() {
+    return localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_EMAIL) || '';
+  }
+
+  // ============================================================
   // 日付ヘルパー
   // ============================================================
   function toDateStr(isoString) {
@@ -1962,6 +2243,8 @@ window.DataService = (() => {
     AppLogger.info(`売上記録追加: ¥${entry.amount} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
     // 自動ファイル保存
     autoSaveToFile();
+    _syncToCloud('revenue', entries);
+    _syncToDrive('revenue', entries);
     return { success: true, entry };
   }
 
@@ -1971,6 +2254,8 @@ window.DataService = (() => {
     saveEntries(filtered);
     AppLogger.info('売上記録を削除しました');
     autoSaveToFile();
+    _syncToCloud('revenue', filtered);
+    _syncToDrive('revenue', filtered);
     return true;
   }
 
@@ -2026,6 +2311,8 @@ window.DataService = (() => {
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
     AppLogger.info(`他社乗車記録追加: ${entry.location} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
     autoSaveRivalToFile();
+    _syncToCloud('rival', entries);
+    _syncToDrive('rival', entries);
     return { success: true, entry };
   }
 
@@ -2035,6 +2322,8 @@ window.DataService = (() => {
     saveRivalEntries(filtered);
     AppLogger.info('他社乗車記録を削除しました');
     autoSaveRivalToFile();
+    _syncToCloud('rival', filtered);
+    _syncToDrive('rival', filtered);
     return true;
   }
 
@@ -2181,6 +2470,16 @@ window.DataService = (() => {
     clearAllRivalEntries,
     downloadRivalCSV,
     autoSaveRivalToFile,
+
+    // クラウド同期
+    loadFromCloud,
+    syncFromCloud,
+
+    // Google Drive同期
+    syncFromDrive,
+    syncToDriveManual,
+    isDriveConnected,
+    getDriveEmail,
 
     // イベント
     getEvents,
@@ -5444,12 +5743,7 @@ window.RivalRidePage = () => {
               onChange: (e) => setForm({ ...form, memo: e.target.value }),
             })
           )
-        ),
-        React.createElement(Button, {
-          variant: 'primary',
-          icon: 'add',
-          style: { marginTop: 'var(--space-sm)' },
-        }, '記録を追加')
+        )
       )
     ),
 
@@ -6908,6 +7202,20 @@ window.SettingsPage = () => {
   const [geminiTesting, setGeminiTesting] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState(null);
 
+  // クラウド同期
+  const [syncSecret, setSyncSecret] = useState(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '');
+  const [syncSaved, setSyncSaved] = useState(false);
+  const [syncTesting, setSyncTesting] = useState(false);
+  const [syncTestResult, setSyncTestResult] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null);
+
+  // Google Drive同期
+  const [driveConnected, setDriveConnected] = useState(DataService.isDriveConnected());
+  const [driveEmail, setDriveEmail] = useState(DataService.getDriveEmail());
+  const [driveEnabled, setDriveEnabled] = useState(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ENABLED) === 'true');
+  const [driveStatus, setDriveStatus] = useState(null);
+  const [driveConnecting, setDriveConnecting] = useState(false);
+
   const handleSave = () => {
     setApiKey(inputKey.trim());
     setSaved(true);
@@ -7113,6 +7421,358 @@ window.SettingsPage = () => {
             style: { marginTop: '8px', padding: '8px 12px', background: 'rgba(0,200,83,0.08)', borderRadius: '6px', color: 'var(--color-accent)' },
           }, '※ 無料枠: 15リクエスト/分、1,500リクエスト/日（Gemini 2.0 Flash）')
         )
+      )
+    ),
+
+    // クラウド同期
+    React.createElement(Card, { title: 'クラウド同期', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, 'Vercel Blob Storageを使用してデータをクラウドに保存します。Vercelダッシュボードで設定した SYNC_SECRET と同じ値を入力してください。'),
+
+      React.createElement('div', { className: 'form-group' },
+        React.createElement('label', { className: 'form-label' }, '同期シークレット'),
+        React.createElement('input', {
+          className: 'form-input',
+          type: 'password',
+          placeholder: '同期シークレットを入力...',
+          value: syncSecret,
+          onChange: (e) => setSyncSecret(e.target.value),
+          style: { fontFamily: 'monospace' },
+        })
+      ),
+
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'save',
+          onClick: () => {
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, syncSecret.trim());
+            setSyncSaved(true);
+            setSyncTestResult(null);
+            setTimeout(() => setSyncSaved(false), 2000);
+          },
+        }, '保存'),
+        syncSecret && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'delete',
+          onClick: () => {
+            localStorage.removeItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+            setSyncSecret('');
+            setSyncTestResult(null);
+            setSyncSaved(true);
+            setTimeout(() => setSyncSaved(false), 2000);
+          },
+        }, 'クリア'),
+        syncSecret && React.createElement(Button, {
+          variant: 'secondary',
+          icon: syncTesting ? 'sync' : 'network_check',
+          onClick: async () => {
+            setSyncTesting(true);
+            setSyncTestResult(null);
+            try {
+              const res = await fetch('/api/data?type=revenue', {
+                headers: { 'Authorization': `Bearer ${syncSecret.trim()}` },
+              });
+              setSyncTestResult(res.ok ? 'success' : `エラー: ${res.status}`);
+            } catch (e) {
+              setSyncTestResult('接続エラー: ' + e.message);
+            }
+            setSyncTesting(false);
+          },
+          disabled: syncTesting,
+        }, syncTesting ? 'テスト中...' : '接続テスト'),
+        syncSaved && React.createElement('span', {
+          style: { color: 'var(--color-accent)', fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
+          '保存しました'
+        ),
+        localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET)
+          ? React.createElement('span', { className: 'badge badge--success' }, '設定済み')
+          : React.createElement('span', { className: 'badge badge--warning' }, '未設定')
+      ),
+
+      // 接続テスト結果
+      syncTestResult && React.createElement('div', {
+        style: {
+          marginBottom: 'var(--space-md)', padding: '8px 12px', borderRadius: '8px',
+          background: syncTestResult === 'success' ? 'rgba(0,200,83,0.1)' : 'rgba(229,57,53,0.1)',
+          border: `1px solid ${syncTestResult === 'success' ? 'rgba(0,200,83,0.3)' : 'rgba(229,57,53,0.3)'}`,
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '18px', color: syncTestResult === 'success' ? 'var(--color-accent)' : 'var(--color-danger)' },
+        }, syncTestResult === 'success' ? 'check_circle' : 'error'),
+        React.createElement('span', {
+          style: { fontSize: 'var(--font-size-sm)', color: syncTestResult === 'success' ? 'var(--color-accent)' : 'var(--color-danger)' },
+        }, syncTestResult === 'success' ? 'クラウドに正常に接続できました' : syncTestResult)
+      ),
+
+      // 手動同期ボタン
+      React.createElement('div', {
+        style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' },
+      },
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'cloud_upload',
+          onClick: async () => {
+            setSyncStatus('送信中...');
+            try {
+              const revenueEntries = DataService.getEntries();
+              const rivalEntries = DataService.getRivalEntries();
+              const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+              if (!secret) { setSyncStatus('シークレットが未設定です'); return; }
+              const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` };
+              const [r1, r2] = await Promise.all([
+                fetch('/api/data?type=revenue', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: revenueEntries.length, entries: revenueEntries }) }),
+                fetch('/api/data?type=rival', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: rivalEntries.length, entries: rivalEntries }) }),
+              ]);
+              if (r1.ok && r2.ok) {
+                setSyncStatus(`送信完了: 売上${revenueEntries.length}件, 他社${rivalEntries.length}件`);
+              } else {
+                setSyncStatus(`送信エラー: revenue=${r1.status}, rival=${r2.status}`);
+              }
+            } catch (e) {
+              setSyncStatus('送信エラー: ' + e.message);
+            }
+          },
+        }, 'クラウドに送信'),
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'cloud_download',
+          onClick: async () => {
+            setSyncStatus('取得中...');
+            try {
+              const [r1, r2] = await Promise.all([
+                DataService.syncFromCloud('revenue'),
+                DataService.syncFromCloud('rival'),
+              ]);
+              setSyncStatus(`取得完了: 売上+${r1.merged}件, 他社+${r2.merged}件`);
+            } catch (e) {
+              setSyncStatus('取得エラー: ' + e.message);
+            }
+          },
+        }, 'クラウドから取得')
+      ),
+
+      // 同期状態表示
+      syncStatus && React.createElement('div', {
+        style: {
+          padding: '8px 12px', borderRadius: '8px',
+          background: 'rgba(66, 165, 245, 0.1)', border: '1px solid rgba(66, 165, 245, 0.3)',
+          fontSize: 'var(--font-size-sm)', color: 'var(--color-primary-light)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'cloud_sync'),
+        syncStatus
+      )
+    ),
+
+    // Google Drive 同期
+    React.createElement(Card, { title: 'Google Drive 同期', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, 'Google Driveにデータを自動保存します。PCのGoogle Driveからも閲覧できます。'),
+
+      // 接続ボタン or 接続状態
+      !driveConnected
+        ? React.createElement('div', { style: { marginBottom: 'var(--space-md)' } },
+            React.createElement(Button, {
+              variant: 'primary',
+              icon: driveConnecting ? 'sync' : 'link',
+              disabled: driveConnecting,
+              onClick: async () => {
+                setDriveConnecting(true);
+                setDriveStatus(null);
+                try {
+                  // GISライブラリを動的ロード
+                  if (!window.google?.accounts?.oauth2) {
+                    await new Promise((resolve, reject) => {
+                      const script = document.createElement('script');
+                      script.src = 'https://accounts.google.com/gsi/client';
+                      script.onload = resolve;
+                      script.onerror = reject;
+                      document.head.appendChild(script);
+                    });
+                  }
+                  // クライアントIDを取得
+                  const configRes = await fetch('/api/config');
+                  const config = await configRes.json();
+                  if (!config.googleClientId) {
+                    setDriveStatus('Google Client IDが未設定です');
+                    setDriveConnecting(false);
+                    return;
+                  }
+                  // OAuth認証（ポップアップ）
+                  const client = window.google.accounts.oauth2.initCodeClient({
+                    client_id: config.googleClientId,
+                    scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
+                    ux_mode: 'popup',
+                    callback: async (response) => {
+                      if (response.error) {
+                        setDriveStatus('認証エラー: ' + response.error);
+                        setDriveConnecting(false);
+                        return;
+                      }
+                      try {
+                        const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+                        if (!secret) {
+                          setDriveStatus('SYNC_SECRETが未設定です。先にクラウド同期を設定してください。');
+                          setDriveConnecting(false);
+                          return;
+                        }
+                        const tokenRes = await fetch('/api/auth/google', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` },
+                          body: JSON.stringify({ action: 'exchange', code: response.code }),
+                        });
+                        const tokenData = await tokenRes.json();
+                        if (!tokenRes.ok) {
+                          setDriveStatus('トークン交換エラー: ' + (tokenData.error || tokenRes.status));
+                          setDriveConnecting(false);
+                          return;
+                        }
+                        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ACCESS_TOKEN, tokenData.access_token);
+                        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_TOKEN_EXPIRY, String(Date.now() + tokenData.expires_in * 1000));
+                        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_EMAIL, tokenData.email || '');
+                        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ENABLED, 'true');
+                        setDriveConnected(true);
+                        setDriveEmail(tokenData.email || '');
+                        setDriveEnabled(true);
+                        setDriveStatus('接続完了');
+                      } catch (e) {
+                        setDriveStatus('接続エラー: ' + e.message);
+                      }
+                      setDriveConnecting(false);
+                    },
+                  });
+                  client.requestCode();
+                } catch (e) {
+                  setDriveStatus('接続エラー: ' + e.message);
+                  setDriveConnecting(false);
+                }
+              },
+            }, driveConnecting ? '接続中...' : 'Googleアカウントに接続')
+          )
+        : React.createElement('div', { style: { marginBottom: 'var(--space-md)' } },
+            React.createElement('div', {
+              style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: 'var(--space-md)', flexWrap: 'wrap' },
+            },
+              React.createElement('span', { className: 'badge badge--success' }, '接続済み'),
+              driveEmail && React.createElement('span', {
+                style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' },
+              }, driveEmail),
+              React.createElement(Button, {
+                variant: 'secondary',
+                icon: 'link_off',
+                onClick: async () => {
+                  try {
+                    const secret = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET);
+                    if (secret) {
+                      await fetch('/api/auth/google', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` },
+                        body: JSON.stringify({ action: 'revoke' }),
+                      });
+                    }
+                  } catch { /* ignore */ }
+                  const keys = APP_CONSTANTS.STORAGE_KEYS;
+                  [keys.GDRIVE_ACCESS_TOKEN, keys.GDRIVE_TOKEN_EXPIRY, keys.GDRIVE_EMAIL,
+                   keys.GDRIVE_FOLDER_ID, keys.GDRIVE_REVENUE_FILE_ID, keys.GDRIVE_RIVAL_FILE_ID,
+                   keys.GDRIVE_ENABLED].forEach(k => localStorage.removeItem(k));
+                  setDriveConnected(false);
+                  setDriveEmail('');
+                  setDriveEnabled(false);
+                  setDriveStatus('接続を解除しました');
+                },
+              }, '接続解除')
+            ),
+
+            // 自動同期トグル
+            React.createElement('div', {
+              style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', marginBottom: 'var(--space-sm)' },
+            },
+              React.createElement('div', null,
+                React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '自動同期'),
+                React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, '記録追加・削除時にDriveへ自動保存')
+              ),
+              React.createElement('button', {
+                onClick: () => {
+                  const next = !driveEnabled;
+                  localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GDRIVE_ENABLED, String(next));
+                  setDriveEnabled(next);
+                },
+                style: {
+                  width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
+                  background: driveEnabled ? 'var(--color-accent)' : 'var(--text-muted)',
+                  position: 'relative', transition: 'background 0.2s',
+                },
+              },
+                React.createElement('div', {
+                  style: {
+                    width: '20px', height: '20px', borderRadius: '50%', background: '#fff',
+                    position: 'absolute', top: '3px',
+                    left: driveEnabled ? '25px' : '3px',
+                    transition: 'left 0.2s',
+                  },
+                })
+              )
+            )
+          ),
+
+      // 手動同期ボタン
+      driveConnected && React.createElement('div', {
+        style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' },
+      },
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'cloud_upload',
+          onClick: async () => {
+            setDriveStatus('Driveに送信中...');
+            try {
+              const result = await DataService.syncToDriveManual();
+              setDriveStatus(`Drive送信完了: 売上${result.revenue}件, 他社${result.rival}件`);
+            } catch (e) {
+              setDriveStatus('Drive送信エラー: ' + e.message);
+            }
+          },
+        }, 'Driveに送信'),
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'cloud_download',
+          onClick: async () => {
+            setDriveStatus('Driveから取得中...');
+            try {
+              const [r1, r2] = await Promise.all([
+                DataService.syncFromDrive('revenue'),
+                DataService.syncFromDrive('rival'),
+              ]);
+              setDriveStatus(`Drive取得完了: 売上+${r1.merged}件, 他社+${r2.merged}件`);
+            } catch (e) {
+              setDriveStatus('Drive取得エラー: ' + e.message);
+            }
+          },
+        }, 'Driveから取得')
+      ),
+
+      // 状態表示
+      driveStatus && React.createElement('div', {
+        style: {
+          padding: '8px 12px', borderRadius: '8px',
+          background: driveStatus.includes('エラー') ? 'rgba(229,57,53,0.1)' : 'rgba(66, 165, 245, 0.1)',
+          border: `1px solid ${driveStatus.includes('エラー') ? 'rgba(229,57,53,0.3)' : 'rgba(66, 165, 245, 0.3)'}`,
+          fontSize: 'var(--font-size-sm)',
+          color: driveStatus.includes('エラー') ? 'var(--color-danger)' : 'var(--color-primary-light)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } },
+          driveStatus.includes('エラー') ? 'error' : 'cloud_sync'),
+        driveStatus
       )
     ),
 

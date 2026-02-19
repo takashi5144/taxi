@@ -528,12 +528,7 @@ window.RivalRidePage = () => {
               onChange: (e) => setForm({ ...form, memo: e.target.value }),
             })
           )
-        ),
-        React.createElement(Button, {
-          variant: 'primary',
-          icon: 'add',
-          style: { marginTop: 'var(--space-sm)' },
-        }, '記録を追加')
+        )
       )
     ),
 

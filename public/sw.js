@@ -1,5 +1,5 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
-const CACHE_NAME = 'taxi-support-v0.2.0';
+const CACHE_NAME = 'taxi-support-v0.6.0';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -82,6 +82,19 @@ self.addEventListener('fetch', (event) => {
 
   // Google Maps API はキャッシュしない
   if (request.url.includes('maps.googleapis.com') || request.url.includes('maps.gstatic.com')) {
+    return;
+  }
+
+  // Google Drive / OAuth はキャッシュしない
+  if (request.url.includes('googleapis.com/drive') ||
+      request.url.includes('googleapis.com/upload') ||
+      request.url.includes('googleapis.com/oauth2') ||
+      request.url.includes('accounts.google.com')) {
+    return;
+  }
+
+  // API呼び出しはキャッシュしない
+  if (request.url.includes('/api/')) {
     return;
   }
 

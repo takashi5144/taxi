@@ -84,6 +84,14 @@ window.APP_CONSTANTS = {
     REVENUE_DATA: 'taxi_app_revenue',
     RIVAL_RIDES: 'taxi_app_rival_rides',
     EVENTS: 'taxi_app_events',
+    SYNC_SECRET: 'taxi_app_sync_secret',
+    GDRIVE_ACCESS_TOKEN: 'taxi_app_gdrive_access_token',
+    GDRIVE_TOKEN_EXPIRY: 'taxi_app_gdrive_token_expiry',
+    GDRIVE_EMAIL: 'taxi_app_gdrive_email',
+    GDRIVE_FOLDER_ID: 'taxi_app_gdrive_folder_id',
+    GDRIVE_REVENUE_FILE_ID: 'taxi_app_gdrive_revenue_file_id',
+    GDRIVE_RIVAL_FILE_ID: 'taxi_app_gdrive_rival_file_id',
+    GDRIVE_ENABLED: 'taxi_app_gdrive_enabled',
   },
 
   // サイト構造（開発者ツール用）
