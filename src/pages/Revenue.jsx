@@ -785,7 +785,7 @@ window.RevenuePage = () => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
         DataService.hasSaveFolder()
-          ? '保存先フォルダ設定済み — 記録追加時に自動保存されます'
+          ? '保存先フォルダ設定済み — 「売上記録」サブフォルダに自動保存されます'
           : '保存先フォルダ未設定 — 記録追加時にダウンロードとして保存されます'
       )
     ),

@@ -31,27 +31,36 @@ window.DataService = (() => {
   // ============================================================
   let _dirHandle = null; // File System Access API用
 
-  // File System Access APIでフォルダにJSONを直接保存
-  async function _saveToFolder(entries) {
+  // サブフォルダのハンドルを取得（なければ自動作成）
+  async function _getSubFolder(subName) {
+    if (!_dirHandle) return null;
     try {
-      if (!_dirHandle) return false;
-      // パーミッション確認
       const perm = await _dirHandle.queryPermission({ mode: 'readwrite' });
       if (perm !== 'granted') {
         const req = await _dirHandle.requestPermission({ mode: 'readwrite' });
-        if (req !== 'granted') return false;
+        if (req !== 'granted') return null;
       }
-      const dateStr = new Date().toISOString().split('T')[0];
-      const fileName = `売上記録_${dateStr}.json`;
-      const fileHandle = await _dirHandle.getFileHandle(fileName, { create: true });
+      return await _dirHandle.getDirectoryHandle(subName, { create: true });
+    } catch (e) {
+      AppLogger.warn(`サブフォルダ取得失敗 (${subName}): ` + e.message);
+      return null;
+    }
+  }
+
+  // File System Access APIでサブフォルダにJSONを直接保存
+  async function _saveToSubFolder(subName, fileName, entries, version) {
+    try {
+      const subDir = await _getSubFolder(subName);
+      if (!subDir) return false;
+      const fileHandle = await subDir.getFileHandle(fileName, { create: true });
       const writable = await fileHandle.createWritable();
-      const data = JSON.stringify({ version: '0.3.8', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: version, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       await writable.write(data);
       await writable.close();
-      AppLogger.info(`ファイル保存完了: ${fileName} (${entries.length}件)`);
+      AppLogger.info(`ファイル保存完了: ${subName}/${fileName} (${entries.length}件)`);
       return true;
     } catch (e) {
-      AppLogger.warn('フォルダ保存失敗: ' + e.message);
+      AppLogger.warn(`フォルダ保存失敗 (${subName}): ` + e.message);
       return false;
     }
   }
@@ -60,7 +69,7 @@ window.DataService = (() => {
   function _downloadBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.3.8', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: '0.4.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -78,16 +87,49 @@ window.DataService = (() => {
     }
   }
 
-  // 自動保存（フォルダ直接 or ダウンロード）
+  function _downloadRivalBackup(entries) {
+    try {
+      const dateStr = new Date().toISOString().split('T')[0];
+      const data = JSON.stringify({ version: '0.4.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `他社乗車記録_${dateStr}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      AppLogger.info(`他社乗車バックアップダウンロード: ${entries.length}件`);
+      return true;
+    } catch (e) {
+      AppLogger.warn('他社乗車バックアップ失敗: ' + e.message);
+      return false;
+    }
+  }
+
+  // 売上記録の自動保存（サブフォルダ「売上記録」）
   async function autoSaveToFile() {
     const entries = getEntries();
     if (entries.length === 0) return;
     if (_dirHandle) {
-      const ok = await _saveToFolder(entries);
+      const dateStr = new Date().toISOString().split('T')[0];
+      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.4.0');
       if (ok) return;
     }
-    // フォルダ未設定 or 保存失敗の場合はダウンロード
     _downloadBackup(entries);
+  }
+
+  // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
+  async function autoSaveRivalToFile() {
+    const entries = getRivalEntries();
+    if (entries.length === 0) return;
+    if (_dirHandle) {
+      const dateStr = new Date().toISOString().split('T')[0];
+      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.4.0');
+      if (ok) return;
+    }
+    _downloadRivalBackup(entries);
   }
 
   // 保存先フォルダを選択（File System Access API）
@@ -553,6 +595,7 @@ window.DataService = (() => {
     saveRivalEntries(entries);
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
     AppLogger.info(`他社乗車記録追加: ${entry.location} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
+    autoSaveRivalToFile();
     return { success: true, entry };
   }
 
@@ -561,6 +604,7 @@ window.DataService = (() => {
     const filtered = entries.filter(e => e.id !== id);
     saveRivalEntries(filtered);
     AppLogger.info('他社乗車記録を削除しました');
+    autoSaveRivalToFile();
     return true;
   }
 
@@ -641,5 +685,6 @@ window.DataService = (() => {
     deleteRivalEntry,
     clearAllRivalEntries,
     downloadRivalCSV,
+    autoSaveRivalToFile,
   };
 })();

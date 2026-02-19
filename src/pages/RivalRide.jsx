@@ -495,6 +495,29 @@ window.RivalRidePage = () => {
         )
       ),
       React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+        // 保存先フォルダ選択
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: DataService.hasSaveFolder() ? 'folder_open' : 'create_new_folder',
+          onClick: async () => {
+            const result = await DataService.selectSaveFolder();
+            if (result.success) {
+              setSaved(false); setErrors([]);
+              alert('保存先フォルダを設定しました: ' + result.folderName + '\n\n記録の追加時に自動保存されます。\n（売上記録と共通の親フォルダです）');
+              setRefreshKey(k => k + 1);
+            } else {
+              if (result.message) alert(result.message);
+            }
+          },
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, DataService.hasSaveFolder() ? '保存先変更' : '保存先フォルダ設定'),
+        // 手動保存
+        entries.length > 0 && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'save',
+          onClick: () => DataService.autoSaveRivalToFile(),
+          style: { padding: '6px 12px', fontSize: '11px' },
+        }, 'JSON保存'),
         entries.length > 0 && React.createElement(Button, {
           variant: 'secondary',
           icon: 'download',
@@ -507,6 +530,15 @@ window.RivalRidePage = () => {
           onClick: () => { if (confirm('全ての他社乗車記録を削除しますか？この操作は取り消せません。')) handleClearAll(); },
           style: { padding: '6px 12px', fontSize: '11px' },
         }, '全削除')
+      ),
+      // 保存先フォルダ状態表示
+      React.createElement('div', {
+        style: { marginTop: '8px', fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
+        DataService.hasSaveFolder()
+          ? '保存先フォルダ設定済み — 「他社乗車」サブフォルダに自動保存されます'
+          : '保存先フォルダ未設定 — 記録追加時にダウンロードとして保存されます'
       )
     ),
 
