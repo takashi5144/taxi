@@ -1388,6 +1388,51 @@ window.DataService = (() => {
   // ============================================================
   let _dirHandle = null; // File System Access API用
 
+  // ── IndexedDB でフォルダハンドルを永続化 ──
+  const _DB_NAME = 'taxi_app_fs';
+  const _DB_STORE = 'handles';
+  const _DB_KEY = 'saveDir';
+
+  function _openHandleDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(_DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(_DB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _persistHandle(handle) {
+    try {
+      const db = await _openHandleDB();
+      const tx = db.transaction(_DB_STORE, 'readwrite');
+      tx.objectStore(_DB_STORE).put(handle, _DB_KEY);
+      await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
+      db.close();
+    } catch (e) {
+      AppLogger.warn('ハンドル永続化失敗: ' + e.message);
+    }
+  }
+
+  async function _restoreHandle() {
+    try {
+      const db = await _openHandleDB();
+      const tx = db.transaction(_DB_STORE, 'readonly');
+      const req = tx.objectStore(_DB_STORE).get(_DB_KEY);
+      const handle = await new Promise((r, j) => { req.onsuccess = () => r(req.result); req.onerror = j; });
+      db.close();
+      if (handle) {
+        _dirHandle = handle;
+        AppLogger.info('保存先フォルダを自動復元: ' + handle.name);
+      }
+    } catch (e) {
+      AppLogger.warn('ハンドル復元失敗: ' + e.message);
+    }
+  }
+
+  // 起動時に自動復元（Promiseを保持し、保存時にawait）
+  const _handleReady = _restoreHandle();
+
   // サブフォルダのハンドルを取得（なければ自動作成）
   async function _getSubFolder(subName) {
     if (!_dirHandle) return null;
@@ -1467,6 +1512,7 @@ window.DataService = (() => {
 
   // 売上記録の自動保存（サブフォルダ「売上記録」）
   async function autoSaveToFile() {
+    await _handleReady;
     const entries = getEntries();
     if (entries.length === 0) return;
     if (_dirHandle) {
@@ -1479,6 +1525,7 @@ window.DataService = (() => {
 
   // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
   async function autoSaveRivalToFile() {
+    await _handleReady;
     const entries = getRivalEntries();
     if (entries.length === 0) return;
     if (_dirHandle) {
@@ -1496,7 +1543,8 @@ window.DataService = (() => {
     }
     try {
       _dirHandle = await window.showDirectoryPicker({ id: 'taxi-save', mode: 'readwrite', startIn: 'documents' });
-      AppLogger.info('保存先フォルダを設定: ' + _dirHandle.name);
+      await _persistHandle(_dirHandle);
+      AppLogger.info('保存先フォルダを設定・永続化: ' + _dirHandle.name)
       return { success: true, folderName: _dirHandle.name };
     } catch (e) {
       if (e.name === 'AbortError') return { success: false, message: 'フォルダ選択がキャンセルされました' };
