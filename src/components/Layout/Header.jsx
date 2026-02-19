@@ -32,6 +32,20 @@ window.Header = () => {
           React.createElement('span', null, item.label)
         )
       ),
+      // 情報セクション セパレーター + 項目
+      React.createElement('span', {
+        style: { display: 'inline-block', width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)', margin: '0 4px', verticalAlign: 'middle' },
+      }),
+      APP_CONSTANTS.INFO_NAV_ITEMS.map(item =>
+        React.createElement('button', {
+          key: item.id,
+          className: `header__nav-btn ${currentPage === item.id ? 'active' : ''}`,
+          onClick: () => navigate(item.id),
+        },
+          React.createElement('span', { className: 'material-icons-round' }, item.icon),
+          React.createElement('span', null, item.label)
+        )
+      ),
       // 開発者ツールボタン
       React.createElement('button', {
         className: `header__nav-btn ${currentPage.startsWith('dev') ? 'active' : ''}`,

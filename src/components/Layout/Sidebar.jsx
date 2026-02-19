@@ -27,6 +27,21 @@ window.Sidebar = () => {
       )
     ),
 
+    // 情報
+    React.createElement('div', { className: 'sidebar__section' },
+      React.createElement('div', { className: 'sidebar__section-title' }, '情報'),
+      APP_CONSTANTS.INFO_NAV_ITEMS.map(item =>
+        React.createElement('button', {
+          key: item.id,
+          className: `sidebar__item ${currentPage === item.id ? 'active' : ''}`,
+          onClick: () => navigate(item.id),
+        },
+          React.createElement('span', { className: 'material-icons-round' }, item.icon),
+          item.label
+        )
+      )
+    ),
+
     // 開発者ツール
     React.createElement('div', { className: 'sidebar__section' },
       React.createElement('div', { className: 'sidebar__section-title' }, '開発者ツール'),

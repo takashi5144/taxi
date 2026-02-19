@@ -31,6 +31,8 @@ window.APP_CONSTANTS = {
     MAP: 'map',
     REVENUE: 'revenue',
     RIVAL_RIDE: 'rival-ride',
+    TRANSIT_INFO: 'transit-info',
+    EVENTS: 'events',
     ANALYTICS: 'analytics',
     SETTINGS: 'settings',
     DEV_TOOLS: 'dev',
@@ -47,6 +49,12 @@ window.APP_CONSTANTS = {
     { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'settings', label: '設定', icon: 'settings' },
+  ],
+
+  // 情報ナビゲーション項目
+  INFO_NAV_ITEMS: [
+    { id: 'transit-info', label: '公共交通機関情報', icon: 'directions_transit' },
+    { id: 'events', label: 'イベント', icon: 'event' },
   ],
 
   // ボトムナビ項目
@@ -74,6 +82,7 @@ window.APP_CONSTANTS = {
     SETTINGS: 'taxi_app_settings',
     REVENUE_DATA: 'taxi_app_revenue',
     RIVAL_RIDES: 'taxi_app_rival_rides',
+    EVENTS: 'taxi_app_events',
   },
 
   // サイト構造（開発者ツール用）
@@ -130,6 +139,8 @@ window.APP_CONSTANTS = {
               { name: 'MapView.jsx', type: 'react', desc: '地図ページ' },
               { name: 'Revenue.jsx', type: 'react', desc: '売上記録' },
               { name: 'Analytics.jsx', type: 'react', desc: '売上分析' },
+              { name: 'TransitInfo.jsx', type: 'react', desc: '公共交通機関情報' },
+              { name: 'Events.jsx', type: 'react', desc: 'イベント記録' },
               { name: 'Settings.jsx', type: 'react', desc: 'アプリ設定' },
               {
                 name: 'dev/',

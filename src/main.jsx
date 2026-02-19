@@ -47,6 +47,8 @@
   T.pages.MapView = MapViewPage;
   T.pages.Revenue = RevenuePage;
   T.pages.RivalRide = RivalRidePage;
+  T.pages.TransitInfo = TransitInfoPage;
+  T.pages.Events = EventsPage;
   T.pages.Analytics = AnalyticsPage;
   T.pages.Settings = SettingsPage;
   T.pages.DevTools = DevToolsPage;

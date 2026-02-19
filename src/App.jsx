@@ -16,6 +16,8 @@ window.App = () => {
       case 'map': return React.createElement(MapViewPage);
       case 'revenue': return React.createElement(RevenuePage);
       case 'rival-ride': return React.createElement(RivalRidePage);
+      case 'transit-info': return React.createElement(TransitInfoPage);
+      case 'events': return React.createElement(EventsPage);
       case 'analytics': return React.createElement(AnalyticsPage);
       case 'settings': return React.createElement(SettingsPage);
       case 'dev': return React.createElement(DevToolsPage);

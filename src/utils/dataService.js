@@ -691,6 +691,71 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // イベントデータ CRUD
+  // ============================================================
+  function getEvents() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.EVENTS);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveEvents(entries) {
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.EVENTS, JSON.stringify(entries));
+      return true;
+    } catch (e) {
+      AppLogger.error('イベントデータの保存に失敗しました', e.message);
+      return false;
+    }
+  }
+
+  function addEvent(form) {
+    if (!form.name || !form.name.trim()) {
+      return { success: false, errors: ['イベント名を入力してください'] };
+    }
+    const entries = getEvents();
+    const entryDate = form.date || new Date().toISOString().split('T')[0];
+    const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
+    const entry = {
+      id: Date.now(),
+      name: form.name.trim(),
+      date: entryDate,
+      dayOfWeek: dateInfo.dayOfWeek,
+      holiday: dateInfo.holiday || '',
+      startTime: form.startTime || '',
+      endTime: form.endTime || '',
+      location: form.location || '',
+      locationCoords: form.locationCoords || null,
+      scale: form.scale || '',
+      impact: form.impact || '',
+      memo: form.memo || '',
+      timestamp: new Date().toISOString(),
+    };
+    entries.unshift(entry);
+    saveEvents(entries);
+    const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
+    AppLogger.info(`イベント記録追加: ${entry.name} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
+    return { success: true, entry };
+  }
+
+  function deleteEvent(id) {
+    const entries = getEvents();
+    const filtered = entries.filter(e => e.id !== id);
+    saveEvents(filtered);
+    AppLogger.info('イベント記録を削除しました');
+    return true;
+  }
+
+  function clearAllEvents() {
+    saveEvents([]);
+    AppLogger.info('全イベントデータを削除しました');
+    return true;
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -734,5 +799,12 @@ window.DataService = (() => {
     clearAllRivalEntries,
     downloadRivalCSV,
     autoSaveRivalToFile,
+
+    // イベント
+    getEvents,
+    saveEvents,
+    addEvent,
+    deleteEvent,
+    clearAllEvents,
   };
 })();
