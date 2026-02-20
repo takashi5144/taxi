@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.7.2</title>
+  <title>タクシー売上サポート v0.7.3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.7.2',
+  VERSION: '0.7.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1762,7 +1762,7 @@ window.DataService = (() => {
   function _downloadBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.7.1', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -1783,7 +1783,7 @@ window.DataService = (() => {
   function _downloadRivalBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.7.1', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -1808,7 +1808,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.1');
+    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
   }
 
   // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
@@ -1818,7 +1818,7 @@ window.DataService = (() => {
     const entries = getRivalEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.1');
+    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
   }
 
   // 手動JSON保存（ボタン押下時）— フォルダ未設定時はダウンロード
@@ -1828,7 +1828,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.1');
+      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
       if (ok) return;
     }
     _downloadBackup(entries);
@@ -1840,7 +1840,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.1');
+      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
       if (ok) return;
     }
     _downloadRivalBackup(entries);

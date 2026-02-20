@@ -114,7 +114,7 @@ window.DataService = (() => {
   function _downloadBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.7.1', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -135,7 +135,7 @@ window.DataService = (() => {
   function _downloadRivalBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.7.1', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -161,7 +161,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.1');
+    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
   }
 
   // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
@@ -172,7 +172,7 @@ window.DataService = (() => {
     const entries = getRivalEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.1');
+    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
   }
 
   // 手動JSON保存（ボタン押下時）— フォルダ未設定時はダウンロード
@@ -182,7 +182,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.1');
+      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
       if (ok) return;
     }
     _downloadBackup(entries);
@@ -194,7 +194,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.1');
+      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
       if (ok) return;
     }
     _downloadRivalBackup(entries);
