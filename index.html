@@ -5033,7 +5033,9 @@ window.DashboardPage = () => {
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-secondary)' } },
             `¥${overallSummary.totalAmount.toLocaleString()}`
           ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上')
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.totalAmount / 1.1).toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税¥${(overallSummary.totalAmount - Math.floor(overallSummary.totalAmount / 1.1)).toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上（税込）')
         ),
         React.createElement('div', null,
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
@@ -5045,7 +5047,8 @@ window.DashboardPage = () => {
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
             `¥${overallSummary.dailyAvg.toLocaleString()}`
           ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上')
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.dailyAvg / 1.1).toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上（税込）')
         ),
         React.createElement('div', null,
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
@@ -8226,10 +8229,10 @@ window.AnalyticsPage = () => {
     // サマリーカード
     React.createElement('div', { className: 'grid grid--4', style: { marginBottom: 'var(--space-lg)' } },
       [
-        { label: '累計売上', value: `¥${overall.totalAmount.toLocaleString()}`, icon: 'payments', color: 'var(--color-secondary)' },
+        { label: '累計売上（税込）', value: `¥${overall.totalAmount.toLocaleString()}`, sub: `税抜¥${Math.floor(overall.totalAmount / 1.1).toLocaleString()} 税¥${(overall.totalAmount - Math.floor(overall.totalAmount / 1.1)).toLocaleString()}`, icon: 'payments', color: 'var(--color-secondary)' },
         { label: '累計乗車', value: `${overall.rideCount}回`, icon: 'people', color: 'var(--color-primary-light)' },
-        { label: '平均単価', value: `¥${overall.avgAmount.toLocaleString()}`, icon: 'price_check', color: 'var(--color-accent)' },
-        { label: '日平均', value: `¥${overall.dailyAvg.toLocaleString()}`, icon: 'trending_up', color: 'var(--color-warning)' },
+        { label: '平均単価（税込）', value: `¥${overall.avgAmount.toLocaleString()}`, sub: `税抜¥${Math.floor(overall.avgAmount / 1.1).toLocaleString()} 税¥${(overall.avgAmount - Math.floor(overall.avgAmount / 1.1)).toLocaleString()}`, icon: 'price_check', color: 'var(--color-accent)' },
+        { label: '日平均（税込）', value: `¥${overall.dailyAvg.toLocaleString()}`, sub: `税抜¥${Math.floor(overall.dailyAvg / 1.1).toLocaleString()} 税¥${(overall.dailyAvg - Math.floor(overall.dailyAvg / 1.1)).toLocaleString()}`, icon: 'trending_up', color: 'var(--color-warning)' },
       ].map((s, i) =>
         React.createElement(Card, { key: i, className: 'stat-card' },
           React.createElement('span', {
@@ -8237,6 +8240,7 @@ window.AnalyticsPage = () => {
             style: { fontSize: '28px', color: s.color, marginBottom: '4px' },
           }, s.icon),
           React.createElement('div', { className: 'stat-card__value', style: { fontSize: 'var(--font-size-xl)' } }, s.value),
+          s.sub && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, s.sub),
           React.createElement('div', { className: 'stat-card__label' }, s.label)
         )
       )
@@ -8283,9 +8287,12 @@ window.AnalyticsPage = () => {
             style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
           },
             React.createElement('span', { style: { fontWeight: 500 } }, m.month),
-            React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'center' } },
-              React.createElement('span', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, `${m.count}回`),
-              React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${m.amount.toLocaleString()}`)
+            React.createElement('div', { style: { textAlign: 'right' } },
+              React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'center', justifyContent: 'flex-end' } },
+                React.createElement('span', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, `${m.count}回`),
+                React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${m.amount.toLocaleString()}`)
+              ),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(m.amount / 1.1).toLocaleString()} 税¥${(m.amount - Math.floor(m.amount / 1.1)).toLocaleString()}`)
             )
           )
         )
@@ -8317,7 +8324,10 @@ window.AnalyticsPage = () => {
               })
             ),
             React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', textAlign: 'right' } }, `${d.count}回`),
-            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500, textAlign: 'right' } }, `¥${d.amount.toLocaleString()}`)
+            React.createElement('div', { style: { textAlign: 'right' } },
+              React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500 } }, `¥${d.amount.toLocaleString()}`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(d.amount / 1.1).toLocaleString()} 税¥${(d.amount - Math.floor(d.amount / 1.1)).toLocaleString()}`)
+            )
           )
         )
       )
@@ -8371,7 +8381,8 @@ window.AnalyticsPage = () => {
                 ),
                 React.createElement('div', { style: { textAlign: 'right' } },
                   React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500 } }, `${p.count}回`),
-                  React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--color-secondary)' } }, `¥${p.amount.toLocaleString()}`)
+                  React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--color-secondary)' } }, `¥${p.amount.toLocaleString()}`),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(p.amount / 1.1).toLocaleString()} 税¥${(p.amount - Math.floor(p.amount / 1.1)).toLocaleString()}`)
                 )
               )
             )
@@ -8398,7 +8409,8 @@ window.AnalyticsPage = () => {
                 ),
                 React.createElement('div', { style: { textAlign: 'right' } },
                   React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500 } }, `${p.count}回`),
-                  React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)' } }, `¥${p.amount.toLocaleString()}`)
+                  React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)' } }, `¥${p.amount.toLocaleString()}`),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(p.amount / 1.1).toLocaleString()} 税¥${(p.amount - Math.floor(p.amount / 1.1)).toLocaleString()}`)
                 )
               )
             )
@@ -8449,8 +8461,14 @@ window.AnalyticsPage = () => {
               })
             ),
             React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', textAlign: 'right' } }, `${w.count}回`),
-            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', textAlign: 'right' } }, `¥${w.avg.toLocaleString()}`),
-            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500, textAlign: 'right', color: 'var(--color-secondary)' } }, `¥${w.amount.toLocaleString()}`)
+            React.createElement('div', { style: { textAlign: 'right' } },
+              React.createElement('div', { style: { fontSize: 'var(--font-size-sm)' } }, `¥${w.avg.toLocaleString()}`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(w.avg / 1.1).toLocaleString()}`)
+            ),
+            React.createElement('div', { style: { textAlign: 'right' } },
+              React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-secondary)' } }, `¥${w.amount.toLocaleString()}`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(w.amount / 1.1).toLocaleString()} 税¥${(w.amount - Math.floor(w.amount / 1.1)).toLocaleString()}`)
+            )
           )
         )
       )
