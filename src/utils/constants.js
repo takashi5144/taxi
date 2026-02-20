@@ -21,8 +21,8 @@ window.APP_CONSTANTS = {
   // GPS設定
   GPS_OPTIONS: {
     enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: 5000,
+    timeout: 15000,
+    maximumAge: 0,
   },
 
   // ルート定義
