@@ -845,7 +845,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.6.5',
+  VERSION: '0.6.6',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -8966,6 +8966,20 @@ window.DataManagePage = () => {
     mapPickerInstanceRef.current = map;
     const marker = new google.maps.Marker({ map, position: center, visible: false });
     mapPickerMarkerRef.current = marker;
+
+    // GPS現在地を取得してマップの中心に設定
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          map.setCenter(currentPos);
+          map.setZoom(16);
+          new google.maps.Marker({ map, position: currentPos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+      );
+    }
 
     map.addListener('click', (e) => {
       const lat = e.latLng.lat();
