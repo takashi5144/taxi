@@ -286,6 +286,7 @@ ${areaStr}
 
   return {
     callGemini,
+    callGeminiLarge,
     searchTransitInfo,
     searchEvents,
     fetchTrainInfo,

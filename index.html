@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.6.0</title>
+  <title>タクシー売上サポート v0.7.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -37,6 +37,8 @@
   --bg-light: #0f3460;
   --bg-card: #1e2a4a;
   --bg-card-hover: #253252;
+  --bg-secondary: #1e2a4a;
+  --bg-tertiary: #253252;
   --bg-surface: #f5f5f5;
 
   /* テキスト色 */
@@ -388,6 +390,14 @@ a:hover {
 .btn--icon {
   padding: var(--space-sm);
   border-radius: 50%;
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn--ghost:hover {
+  background: rgba(255,255,255,0.08);
 }
 
 /* グリッド */
@@ -845,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.6.8',
+  VERSION: '0.7.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1752,7 +1762,7 @@ window.DataService = (() => {
   function _downloadBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.4.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: '0.7.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -1773,7 +1783,7 @@ window.DataService = (() => {
   function _downloadRivalBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.4.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: '0.7.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -1798,7 +1808,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.4.0');
+    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.0');
   }
 
   // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
@@ -1808,7 +1818,7 @@ window.DataService = (() => {
     const entries = getRivalEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.4.0');
+    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.0');
   }
 
   // 手動JSON保存（ボタン押下時）— フォルダ未設定時はダウンロード
@@ -1818,7 +1828,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.4.0');
+      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.0');
       if (ok) return;
     }
     _downloadBackup(entries);
@@ -1830,7 +1840,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.4.0');
+      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.0');
       if (ok) return;
     }
     _downloadRivalBackup(entries);
@@ -2330,7 +2340,7 @@ window.DataService = (() => {
     const entryDate = form.date || new Date().toISOString().split('T')[0];
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
-      id: Date.now(),
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       amount: parseInt(form.amount),
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
@@ -2424,7 +2434,7 @@ window.DataService = (() => {
     const entryDate = form.date || new Date().toISOString().split('T')[0];
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
-      id: Date.now(),
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
@@ -2587,7 +2597,7 @@ window.DataService = (() => {
     const entryDate = form.date || new Date().toISOString().split('T')[0];
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
-      id: Date.now(),
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       name: form.name.trim(),
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
@@ -3659,7 +3669,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ============================================================
 // Google Maps スクリプトローダー（シングルトン）
 // ============================================================
-const _gmapLoader = {
+window._gmapLoader = {
   status: 'idle',
   loadedKey: null,
   callbacks: [],
@@ -3730,8 +3740,8 @@ console.error = function() {
 };
 
 window.gm_authFailure = () => {
-  _gmapLoader.status = 'error';
-  _gmapLoader.loadedKey = null;
+  window._gmapLoader.status = 'error';
+  window._gmapLoader.loadedKey = null;
   if (typeof AppLogger !== 'undefined') {
     AppLogger.error('Google Maps API 認証失敗 (gm_authFailure): エラータイプ=' + (_gmapErrorType || '不明'));
   }
@@ -3811,7 +3821,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     setMapError(null);
 
     let cancelled = false;
-    _gmapLoader.load(apiKey)
+    window._gmapLoader.load(apiKey)
       .then(() => {
         if (!cancelled) {
           setMapLoaded(true);
@@ -4136,7 +4146,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } },
         React.createElement(Button, {
           variant: 'primary', icon: 'refresh',
-          onClick: () => { _gmapLoader.reset(); _gmapErrorType = ''; setErrorDetail(null); setMapError(null); setMapLoaded(false); },
+          onClick: () => { window._gmapLoader.reset(); _gmapErrorType = ''; setErrorDetail(null); setMapError(null); setMapLoaded(false); },
         }, '再試行'),
         React.createElement(Button, {
           variant: 'secondary', icon: 'settings',
@@ -5057,7 +5067,7 @@ window.MapViewPage = () => {
 // v0.3.6: 乗車時間・降車時間フィールドを追加
 // v0.3.7: 日付・曜日・天候の自動取得
 window.RevenuePage = () => {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
   // 本日の日付をデフォルト値に
   const todayDefault = new Date().toISOString().split('T')[0];
@@ -5128,7 +5138,7 @@ window.RevenuePage = () => {
   }, []);
 
   // データは常にDataServiceから取得（単一のデータソース）
-  const entries = DataService.getEntries();
+  const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
 
   // localStorageの変更を監視して自動更新
   useEffect(() => {
@@ -5974,7 +5984,7 @@ window.RevenuePage = () => {
 (function() {
 // RivalRide.jsx - 他社乗車情報記録ページ
 window.RivalRidePage = () => {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
   const todayDefault = new Date().toISOString().split('T')[0];
 
@@ -6167,7 +6177,7 @@ window.RivalRidePage = () => {
     return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
   }
 
-  const entries = DataService.getRivalEntries();
+  const entries = useMemo(() => DataService.getRivalEntries(), [refreshKey]);
 
   useEffect(() => {
     const handleStorage = (e) => {
@@ -6496,6 +6506,15 @@ window.RivalRidePage = () => {
               value: form.memo,
               onChange: (e) => setForm({ ...form, memo: e.target.value }),
             })
+          ),
+
+          // 送信ボタン
+          React.createElement('div', { style: { gridColumn: '1 / -1', marginTop: 'var(--space-sm)' } },
+            React.createElement(Button, {
+              variant: 'primary',
+              icon: 'add',
+              type: 'submit',
+            }, '記録')
           )
         )
       )
@@ -7249,7 +7268,7 @@ window.TransitInfoPage = () => {
 // Events.jsx - イベント記録ページ
 // 周辺イベントの記録CRUD（RivalRide.jsx パターン踏襲）
 window.EventsPage = () => {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
   const todayDefault = new Date().toISOString().split('T')[0];
 
@@ -7298,7 +7317,7 @@ window.EventsPage = () => {
     '近日中の花火大会・お祭り',
   ];
 
-  const entries = DataService.getEvents();
+  const entries = useMemo(() => DataService.getEvents(), [refreshKey]);
 
   // localStorage変更の監視
   useEffect(() => {
@@ -8389,7 +8408,7 @@ window.SettingsPage = () => {
   const handleClear = () => {
     setApiKey('');
     setInputKey('');
-    _gmapLoader.reset();
+    window._gmapLoader.reset();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -8924,8 +8943,11 @@ window.DataManagePage = () => {
       result = DataService.updateEntry(editingId, editForm);
     } else if (tab === 'rival') {
       result = DataService.updateRivalEntry(editingId, editForm);
+    } else {
+      setErrors(['このタブでは編集できません']);
+      return;
     }
-    if (!result.success) { setErrors(result.errors); return; }
+    if (!result || !result.success) { setErrors((result && result.errors) || ['保存に失敗しました']); return; }
     setEditingId(null);
     setEditForm({});
     setSaved(true);

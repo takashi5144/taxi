@@ -29,25 +29,12 @@ export default async function handler(req, res) {
   // Blob Storeトークン取得（明示的に渡す）
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
 
-  // 診断ログ
-  console.log('[DIAG]', JSON.stringify({
-    tokenSet: !!blobToken,
-    tokenLen: blobToken ? blobToken.length : 0,
-    blobEnvKeys: Object.keys(process.env).filter(k => k.includes('BLOB')),
-    method: req.method,
-    host: req.headers.host || '',
-    origin: req.headers.origin || '',
-    referer: req.headers.referer || '',
-    secFetchSite: req.headers['sec-fetch-site'] || '',
-  }));
-
   try {
     // トークン未設定チェック
     if (!blobToken) {
-      console.error('[API ERROR] BLOB_READ_WRITE_TOKEN is not set. Available env keys with BLOB:', Object.keys(process.env).filter(k => k.includes('BLOB')));
+      console.error('[API] BLOB_READ_WRITE_TOKEN is not set');
       return res.status(503).json({
         error: 'クラウドストレージ未設定',
-        detail: 'BLOB_READ_WRITE_TOKEN環境変数が設定されていません。Vercelダッシュボード → Storage → Blob Store を接続してください。',
       });
     }
 
@@ -106,7 +93,7 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (err) {
-    console.error('[API ERROR]', err.message, err.stack);
-    return res.status(500).json({ error: 'サーバーエラー', detail: err.message });
+    console.error('[API ERROR]', err.message);
+    return res.status(500).json({ error: 'サーバーエラー' });
   }
 }

@@ -1,51 +1,12 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
-const CACHE_NAME = 'taxi-support-v1.0.0';
+// アプリはindex.html単体で動作するため、キャッシュ対象は最小限に絞る
+const CACHE_NAME = 'taxi-support-v0.7.0';
 const STATIC_ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './src/styles/variables.css',
-  './src/styles/global.css',
-  './src/styles/responsive.css',
-  './src/utils/constants.js',
-  './src/utils/logger.js',
-  './src/utils/storage.js',
-  './src/utils/dataService.js',
-  './src/utils/geminiService.js',
-  './src/context/LogContext.jsx',
-  './src/context/MapContext.jsx',
-  './src/context/AppContext.jsx',
-  './src/hooks/useGeolocation.js',
-  './src/hooks/useGoogleMaps.js',
-  './src/hooks/useLogger.js',
-  './src/components/common/Loading.jsx',
-  './src/components/common/Card.jsx',
-  './src/components/common/Button.jsx',
-  './src/components/common/ErrorBoundary.jsx',
-  './src/components/Map/GoogleMap.jsx',
-  './src/components/Map/GpsTracker.jsx',
-  './src/components/Map/MapControls.jsx',
-  './src/components/Layout/Header.jsx',
-  './src/components/Layout/Sidebar.jsx',
-  './src/components/Layout/BottomNav.jsx',
-  './src/components/Layout/Layout.jsx',
-  './src/pages/Dashboard.jsx',
-  './src/pages/MapView.jsx',
-  './src/pages/Revenue.jsx',
-  './src/pages/RivalRide.jsx',
-  './src/pages/TransitInfo.jsx',
-  './src/pages/Events.jsx',
-  './src/pages/Analytics.jsx',
-  './src/pages/DataManage.jsx',
-  './src/pages/Settings.jsx',
-  './src/pages/dev/Logs.jsx',
-  './src/pages/dev/Structure.jsx',
-  './src/pages/dev/ApiStatus.jsx',
-  './src/pages/dev/DevTools.jsx',
-  './src/App.jsx',
-  './src/main.jsx',
 ];
 
 // CDNリソース（ネットワーク優先、キャッシュフォールバック）
@@ -96,6 +57,11 @@ self.addEventListener('fetch', (event) => {
 
   // API呼び出しはキャッシュしない
   if (request.url.includes('/api/')) {
+    return;
+  }
+
+  // Gemini API はキャッシュしない
+  if (request.url.includes('generativelanguage.googleapis.com')) {
     return;
   }
 

@@ -114,7 +114,7 @@ window.DataService = (() => {
   function _downloadBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.4.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: '0.7.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -135,7 +135,7 @@ window.DataService = (() => {
   function _downloadRivalBackup(entries) {
     try {
       const dateStr = new Date().toISOString().split('T')[0];
-      const data = JSON.stringify({ version: '0.4.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
+      const data = JSON.stringify({ version: '0.7.0', exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -161,7 +161,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.4.0');
+    await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.0');
   }
 
   // 他社乗車記録の自動保存（サブフォルダ「他社乗車」）
@@ -172,7 +172,7 @@ window.DataService = (() => {
     const entries = getRivalEntries();
     if (entries.length === 0) return;
     const dateStr = new Date().toISOString().split('T')[0];
-    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.4.0');
+    await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.0');
   }
 
   // 手動JSON保存（ボタン押下時）— フォルダ未設定時はダウンロード
@@ -182,7 +182,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.4.0');
+      const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, '0.7.0');
       if (ok) return;
     }
     _downloadBackup(entries);
@@ -194,7 +194,7 @@ window.DataService = (() => {
     if (entries.length === 0) return;
     if (_dirHandle) {
       const dateStr = new Date().toISOString().split('T')[0];
-      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.4.0');
+      const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, '0.7.0');
       if (ok) return;
     }
     _downloadRivalBackup(entries);
@@ -269,12 +269,17 @@ window.DataService = (() => {
   // ============================================================
   // クラウド同期（Vercel Blob Storage）
   // ============================================================
+  function _getSyncSecret() {
+    return (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+  }
+
   async function _syncToCloud(type, entries) {
     try {
       const res = await fetch(`/api/data?type=${type}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(_getSyncSecret() ? { 'Authorization': 'Bearer ' + _getSyncSecret() } : {}),
         },
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
@@ -640,7 +645,7 @@ window.DataService = (() => {
     const entryDate = form.date || new Date().toISOString().split('T')[0];
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
-      id: Date.now(),
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       amount: parseInt(form.amount),
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
@@ -655,6 +660,8 @@ window.DataService = (() => {
       purpose: form.purpose || '',
       memo: form.memo || '',
       source: form.source || '',
+      pickupCoords: form.pickupCoords || null,
+      dropoffCoords: form.dropoffCoords || null,
       timestamp: new Date().toISOString(),
     };
 
@@ -717,7 +724,7 @@ window.DataService = (() => {
     const entryDate = form.date || new Date().toISOString().split('T')[0];
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
-      id: Date.now(),
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
@@ -814,7 +821,7 @@ window.DataService = (() => {
     const entryDate = form.date || new Date().toISOString().split('T')[0];
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
-      id: Date.now(),
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       name: form.name.trim(),
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
@@ -849,6 +856,115 @@ window.DataService = (() => {
     return true;
   }
 
+  function updateEntry(id, updates) {
+    const entries = getEntries();
+    const idx = entries.findIndex(e => e.id === id);
+    if (idx === -1) return { success: false, errors: ['記録が見つかりません'] };
+    if (updates.amount != null) {
+      const amt = parseInt(updates.amount);
+      if (isNaN(amt) || amt < 1 || amt > 1000000) return { success: false, errors: ['金額は1〜1,000,000の範囲で入力してください'] };
+      updates.amount = amt;
+    }
+    entries[idx] = { ...entries[idx], ...updates };
+    saveEntries(entries);
+    AppLogger.info('売上記録を更新しました');
+    autoSaveToFile();
+    _syncToCloud('revenue', entries);
+    return { success: true, entry: entries[idx] };
+  }
+
+  function updateRivalEntry(id, updates) {
+    const entries = getRivalEntries();
+    const idx = entries.findIndex(e => e.id === id);
+    if (idx === -1) return { success: false, errors: ['記録が見つかりません'] };
+    if (updates.location != null && !updates.location.trim()) return { success: false, errors: ['乗車場所を入力してください'] };
+    entries[idx] = { ...entries[idx], ...updates };
+    saveRivalEntries(entries);
+    AppLogger.info('他社乗車記録を更新しました');
+    autoSaveRivalToFile();
+    _syncToCloud('rival', entries);
+    return { success: true, entry: entries[idx] };
+  }
+
+  function getWeatherBreakdown() {
+    const entries = getEntries();
+    const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
+    return weathers.map(w => {
+      const matched = entries.filter(e => (w === '未設定') ? (!e.weather) : (e.weather === w));
+      const amount = matched.reduce((s, e) => s + (e.amount || 0), 0);
+      return { weather: w, count: matched.length, amount, avg: matched.length > 0 ? Math.round(amount / matched.length) : 0 };
+    });
+  }
+
+  function getHeatmapData() {
+    const entries = getEntries();
+    const rival = getRivalEntries();
+    const points = [];
+    entries.forEach(e => {
+      if (e.pickupCoords) points.push({ lat: e.pickupCoords.lat, lng: e.pickupCoords.lng, weight: 1 });
+      if (e.dropoffCoords) points.push({ lat: e.dropoffCoords.lat, lng: e.dropoffCoords.lng, weight: 0.5 });
+    });
+    rival.forEach(e => {
+      if (e.locationCoords) points.push({ lat: e.locationCoords.lat, lng: e.locationCoords.lng, weight: 0.7 });
+    });
+    return points;
+  }
+
+  function getRivalHourlyBreakdown() {
+    const entries = getRivalEntries();
+    const result = [];
+    for (let h = 0; h < 24; h++) result.push({ hour: h, label: h + '時', count: 0 });
+    entries.forEach(e => {
+      if (e.time) {
+        const hour = parseInt(e.time.split(':')[0], 10);
+        if (hour >= 0 && hour < 24) result[hour].count += 1;
+      }
+    });
+    return result;
+  }
+
+  function getRivalDayOfWeekBreakdown() {
+    const entries = getRivalEntries();
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    const result = days.map((name, i) => ({ name, index: i, count: 0 }));
+    entries.forEach(e => {
+      const idx = getDayOfWeekIndex(e.timestamp);
+      result[idx].count += 1;
+    });
+    return result;
+  }
+
+  function getRivalLocationBreakdown() {
+    const entries = getRivalEntries();
+    const map = {};
+    entries.forEach(e => {
+      const loc = e.location || '不明';
+      map[loc] = (map[loc] || 0) + 1;
+    });
+    return Object.entries(map).map(([location, count]) => ({ location, count })).sort((a, b) => b.count - a.count).slice(0, 10);
+  }
+
+  function getRivalWeatherBreakdown() {
+    const entries = getRivalEntries();
+    const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
+    return weathers.map(w => {
+      const count = entries.filter(e => (w === '未設定') ? (!e.weather) : (e.weather === w)).length;
+      return { weather: w, count };
+    });
+  }
+
+  function autoSaveTransitToFile(transitData) {
+    if (!_dirHandle) return;
+    try {
+      const json = JSON.stringify(transitData, null, 2);
+      _dirHandle.getFileHandle('transit_info.json', { create: true })
+        .then(fh => fh.createWritable())
+        .then(w => { w.write(json); return w; })
+        .then(w => w.close())
+        .catch(() => {});
+    } catch {}
+  }
+
   // ============================================================
   // 公開API
   // ============================================================
@@ -868,9 +984,12 @@ window.DataService = (() => {
     getAreaBreakdown,
     getWeeklyBreakdown,
     getMonthlyBreakdown,
+    getWeatherBreakdown,
+    getHeatmapData,
 
     // CRUD
     addEntry,
+    updateEntry,
     deleteEntry,
     clearAllEntries,
     validateEntry,
@@ -890,11 +1009,16 @@ window.DataService = (() => {
     getRivalEntries,
     saveRivalEntries,
     addRivalEntry,
+    updateRivalEntry,
     deleteRivalEntry,
     clearAllRivalEntries,
     downloadRivalCSV,
     autoSaveRivalToFile,
     manualSaveRivalToFile,
+    getRivalHourlyBreakdown,
+    getRivalDayOfWeekBreakdown,
+    getRivalLocationBreakdown,
+    getRivalWeatherBreakdown,
 
     // クラウド同期
     loadFromCloud,
@@ -906,5 +1030,8 @@ window.DataService = (() => {
     addEvent,
     deleteEvent,
     clearAllEvents,
+
+    // トランジット
+    autoSaveTransitToFile,
   };
 })();
