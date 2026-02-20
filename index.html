@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.5.3</title>
+  <title>タクシー売上サポート v0.6.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -848,7 +848,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.5.3',
+  VERSION: '0.6.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -922,6 +922,7 @@ window.APP_CONSTANTS = {
     EVENTS: 'taxi_app_events',
     SYNC_SECRET: 'taxi_app_sync_secret',
     TRANSIT_INFO: 'taxi_app_transit_info',
+    NOTIFICATION_ENABLED: 'taxi_app_notification_enabled',
   },
 
   // サイト構造（開発者ツール用）
@@ -1376,6 +1377,259 @@ window.JapaneseHolidays = (() => {
   };
 })();
 
+})();
+
+// ============================================================
+// FILE: src/utils/notificationService.js
+// ============================================================
+(function() {
+window.NotificationService = (() => {
+  function isSupported() {
+    return 'Notification' in window;
+  }
+
+  function getPermission() {
+    return isSupported() ? Notification.permission : 'denied';
+  }
+
+  async function requestPermission() {
+    if (!isSupported()) return 'denied';
+    return await Notification.requestPermission();
+  }
+
+  function isEnabled() {
+    return localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.NOTIFICATION_ENABLED) === 'true';
+  }
+
+  function setEnabled(val) {
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.NOTIFICATION_ENABLED, val ? 'true' : 'false');
+  }
+
+  function send(title, options = {}) {
+    if (!isSupported() || !isEnabled() || getPermission() !== 'granted') return;
+    try {
+      new Notification(title, { icon: './icons/icon-192.png', ...options });
+    } catch (e) {
+      AppLogger.warn('通知送信失敗: ' + e.message);
+    }
+  }
+
+  function sendTroubleAlert(text) {
+    if (!text || !isEnabled()) return;
+    const keywords = ['遅延', '運休', '事故', '見合わせ', '運転取りやめ', '不通'];
+    const hasAlert = keywords.some(kw => text.includes(kw));
+    if (hasAlert) {
+      send('交通情報アラート', { body: text.slice(0, 200), tag: 'trouble-alert' });
+    }
+  }
+
+  return { isSupported, getPermission, requestPermission, isEnabled, setEnabled, send, sendTroubleAlert };
+})();
+})();
+
+// ============================================================
+// FILE: src/utils/lightgbmService.js
+// ============================================================
+(function() {
+// LightGBM-style Gradient Boosting Decision Tree for demand prediction
+// ブラウザ内で学習・推論を完結させる軽量GBDT実装。
+// 特徴: histogram-style split finding, leaf-wise growth, L2 regularization
+window.LightGBMService = (() => {
+  const WEATHER_CODE = { '晴れ': 0, '曇り': 1, '雨': 2, '雪': 3, '': 4, '未設定': 4 };
+
+  // ── 単一決定木の構築 ──
+  // residuals を目的変数として、分散削減基準で分割
+  function buildTree(X, residuals, maxDepth, minLeaf, lambda) {
+    const nF = X[0].length;
+
+    function leafVal(idx) {
+      const g = idx.reduce((s, i) => s + residuals[i], 0);
+      return -g / (idx.length + lambda);
+    }
+
+    function split(idx, depth) {
+      if (depth >= maxDepth || idx.length < minLeaf * 2) {
+        return { v: leafVal(idx) };
+      }
+
+      let bestGain = 0, bestF = -1, bestTh = 0, bestLI = null, bestRI = null;
+      const pSum = idx.reduce((s, i) => s + residuals[i], 0);
+      const pH = idx.length;
+      const pScore = (pSum * pSum) / (pH + lambda);
+
+      for (let f = 0; f < nF; f++) {
+        const sorted = [...idx].sort((a, b) => X[a][f] - X[b][f]);
+        let lSum = 0, lH = 0;
+        for (let k = 0; k < sorted.length - 1; k++) {
+          lSum += residuals[sorted[k]];
+          lH++;
+          if (lH < minLeaf || (pH - lH) < minLeaf) continue;
+          if (X[sorted[k]][f] === X[sorted[k + 1]][f]) continue;
+
+          const rSum = pSum - lSum;
+          const rH = pH - lH;
+          const gain = (lSum * lSum) / (lH + lambda) + (rSum * rSum) / (rH + lambda) - pScore;
+
+          if (gain > bestGain) {
+            bestGain = gain;
+            bestF = f;
+            bestTh = (X[sorted[k]][f] + X[sorted[k + 1]][f]) / 2;
+            bestLI = sorted.slice(0, k + 1);
+            bestRI = sorted.slice(k + 1);
+          }
+        }
+      }
+
+      if (bestF === -1) return { v: leafVal(idx) };
+      return {
+        f: bestF, th: bestTh,
+        l: split(bestLI, depth + 1),
+        r: split(bestRI, depth + 1),
+      };
+    }
+
+    return split(Array.from({ length: X.length }, (_, i) => i), 0);
+  }
+
+  function predictOne(node, x) {
+    if ('v' in node) return node.v;
+    return x[node.f] <= node.th ? predictOne(node.l, x) : predictOne(node.r, x);
+  }
+
+  // ── 勾配ブースティング学習 ──
+  function train(X, y, opts = {}) {
+    const { nTrees = 50, maxDepth = 5, lr = 0.1, minLeaf = 2, lambda = 1.0 } = opts;
+    const n = X.length;
+    if (n < 3) return null;
+
+    const base = y.reduce((s, v) => s + v, 0) / n;
+    const preds = new Float64Array(n).fill(base);
+    const trees = [];
+
+    for (let t = 0; t < nTrees; t++) {
+      const residuals = y.map((yi, i) => yi - preds[i]);
+      const tree = buildTree(X, residuals, maxDepth, minLeaf, lambda);
+      trees.push(tree);
+      for (let i = 0; i < n; i++) {
+        preds[i] += lr * predictOne(tree, X[i]);
+      }
+    }
+
+    return { trees, base, lr };
+  }
+
+  function predict(model, x) {
+    if (!model) return 0;
+    let p = model.base;
+    for (const t of model.trees) p += model.lr * predictOne(t, x);
+    return Math.max(0, p);
+  }
+
+  // ── 学習データ準備 ──
+  // 売上データ + 他社乗車データから特徴量を抽出
+  // features: [lat, lng, hour, dayOfWeek, weatherCode]
+  // target: demand weight (金額 or 固定値)
+  function prepareData() {
+    const entries = DataService.getEntries();
+    const rivals = DataService.getRivalEntries();
+    const X = [], y = [];
+
+    entries.forEach(e => {
+      const d = new Date(e.timestamp);
+      const wc = WEATHER_CODE[e.weather] ?? 4;
+      const hr = d.getHours();
+      const dow = d.getDay();
+      const w = e.amount || 1000;
+      if (e.pickupCoords && e.pickupCoords.lat && e.pickupCoords.lng) {
+        X.push([e.pickupCoords.lat, e.pickupCoords.lng, hr, dow, wc]);
+        y.push(w);
+      }
+      if (e.dropoffCoords && e.dropoffCoords.lat && e.dropoffCoords.lng) {
+        X.push([e.dropoffCoords.lat, e.dropoffCoords.lng, hr, dow, wc]);
+        y.push(w);
+      }
+    });
+
+    rivals.forEach(r => {
+      if (!r.locationCoords || !r.locationCoords.lat || !r.locationCoords.lng) return;
+      const hr = r.time ? parseInt(r.time.split(':')[0], 10) : 12;
+      const dow = r.date ? new Date(r.date).getDay() : 0;
+      const wc = WEATHER_CODE[r.weather] ?? 4;
+      X.push([r.locationCoords.lat, r.locationCoords.lng, hr, dow, wc]);
+      y.push(500);
+    });
+
+    if (X.length < 3) return { X, y };
+
+    // 負例（需要ゼロのバックグラウンドサンプル）を追加
+    const latMin = Math.min(...X.map(x => x[0])) - 0.015;
+    const latMax = Math.max(...X.map(x => x[0])) + 0.015;
+    const lngMin = Math.min(...X.map(x => x[1])) - 0.015;
+    const lngMax = Math.max(...X.map(x => x[1])) + 0.015;
+    const nBg = Math.max(X.length * 2, 40);
+    // seeded random for reproducibility
+    let seed = 42;
+    const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; };
+    for (let i = 0; i < nBg; i++) {
+      X.push([
+        latMin + rand() * (latMax - latMin),
+        lngMin + rand() * (lngMax - lngMin),
+        Math.floor(rand() * 24),
+        Math.floor(rand() * 7),
+        Math.floor(rand() * 5),
+      ]);
+      y.push(0);
+    }
+
+    return { X, y };
+  }
+
+  // ── モデル学習（公開API）──
+  function trainModel(opts) {
+    const { X, y } = prepareData();
+    if (X.length < 5) return null;
+    const model = train(X, y, opts);
+    if (model) {
+      AppLogger.info(`LightGBM学習完了: ${model.trees.length}本の木, 学習サンプル${X.length}件`);
+    }
+    return model;
+  }
+
+  // ── グリッド予測（ヒートマップ用）──
+  // bounds: { north, south, east, west }
+  // 現在の条件（hour, dow, weather）で需要スコアを予測
+  function predictGrid(model, bounds, hour, dow, weather, step) {
+    if (!model || !bounds) return [];
+    const wc = WEATHER_CODE[weather] ?? 4;
+    // ステップ幅をバウンド幅に応じて自動調整
+    const latRange = bounds.north - bounds.south;
+    const lngRange = bounds.east - bounds.west;
+    const gridStep = step || Math.max(Math.min(latRange, lngRange) / 60, 0.001);
+    const points = [];
+
+    for (let lat = bounds.south; lat <= bounds.north; lat += gridStep) {
+      for (let lng = bounds.west; lng <= bounds.east; lng += gridStep) {
+        const score = predict(model, [lat, lng, hour, dow, wc]);
+        if (score > 10) {
+          points.push({ lat, lng, weight: score });
+        }
+      }
+    }
+
+    return points;
+  }
+
+  // ── モデル情報 ──
+  function getModelInfo(model) {
+    if (!model) return null;
+    return {
+      nTrees: model.trees.length,
+      basePrediction: Math.round(model.base),
+    };
+  }
+
+  return { trainModel, predict, predictGrid, getModelInfo, WEATHER_CODE };
+})();
 })();
 
 // ============================================================
@@ -1903,6 +2157,54 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 天候別集計
+  // ============================================================
+  function getWeatherBreakdown() {
+    const entries = getEntries();
+    const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
+    const result = {};
+    weathers.forEach(w => { result[w] = { name: w, amount: 0, count: 0, avg: 0 }; });
+
+    entries.forEach(e => {
+      const w = e.weather && weathers.includes(e.weather) ? e.weather : '未設定';
+      result[w].amount += e.amount || 0;
+      result[w].count += 1;
+    });
+
+    weathers.forEach(w => {
+      result[w].avg = result[w].count > 0 ? Math.round(result[w].amount / result[w].count) : 0;
+    });
+
+    return weathers.map(w => result[w]);
+  }
+
+  // ============================================================
+  // ヒートマップデータ
+  // ============================================================
+  function getHeatmapData() {
+    const entries = getEntries();
+    const rivals = getRivalEntries();
+    const points = [];
+
+    entries.forEach(e => {
+      if (e.pickupCoords && e.pickupCoords.lat && e.pickupCoords.lng) {
+        points.push({ lat: e.pickupCoords.lat, lng: e.pickupCoords.lng, weight: e.amount || 1000 });
+      }
+      if (e.dropoffCoords && e.dropoffCoords.lat && e.dropoffCoords.lng) {
+        points.push({ lat: e.dropoffCoords.lat, lng: e.dropoffCoords.lng, weight: e.amount || 1000 });
+      }
+    });
+
+    rivals.forEach(r => {
+      if (r.locationCoords && r.locationCoords.lat && r.locationCoords.lng) {
+        points.push({ lat: r.locationCoords.lat, lng: r.locationCoords.lng, weight: 500 });
+      }
+    });
+
+    return points;
+  }
+
+  // ============================================================
   // 週別集計
   // ============================================================
   function getWeeklyBreakdown(weeks = 12) {
@@ -2041,6 +2343,8 @@ window.DataService = (() => {
       gender: form.gender || '',
       purpose: form.purpose || '',
       memo: form.memo || '',
+      pickupCoords: form.pickupCoords || null,
+      dropoffCoords: form.dropoffCoords || null,
       timestamp: new Date().toISOString(),
     };
 
@@ -2136,6 +2440,61 @@ window.DataService = (() => {
     _syncToCloud('rival', []);
     AppLogger.info('全他社乗車データを削除しました');
     return true;
+  }
+
+  // ============================================================
+  // 他社乗車分析
+  // ============================================================
+  function getRivalHourlyBreakdown() {
+    const entries = getRivalEntries();
+    const result = [];
+    for (let h = 0; h < 24; h++) {
+      result.push({ hour: h, label: `${h}時`, count: 0 });
+    }
+    entries.forEach(e => {
+      if (e.time) {
+        const hour = parseInt(e.time.split(':')[0], 10);
+        if (hour >= 0 && hour < 24) result[hour].count += 1;
+      }
+    });
+    return result;
+  }
+
+  function getRivalDayOfWeekBreakdown() {
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    const result = days.map((name, i) => ({ name, index: i, count: 0 }));
+    const entries = getRivalEntries();
+    entries.forEach(e => {
+      if (e.date) {
+        const idx = new Date(e.date).getDay();
+        if (idx >= 0 && idx < 7) result[idx].count += 1;
+      }
+    });
+    return result;
+  }
+
+  function getRivalLocationBreakdown() {
+    const entries = getRivalEntries();
+    const locs = {};
+    entries.forEach(e => {
+      if (e.location) {
+        if (!locs[e.location]) locs[e.location] = { name: e.location, count: 0 };
+        locs[e.location].count += 1;
+      }
+    });
+    return Object.values(locs).sort((a, b) => b.count - a.count).slice(0, 10);
+  }
+
+  function getRivalWeatherBreakdown() {
+    const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
+    const result = {};
+    weathers.forEach(w => { result[w] = { name: w, count: 0 }; });
+    const entries = getRivalEntries();
+    entries.forEach(e => {
+      const w = e.weather && weathers.includes(e.weather) ? e.weather : '未設定';
+      result[w].count += 1;
+    });
+    return weathers.map(w => result[w]);
   }
 
   function downloadRivalCSV() {
@@ -2242,7 +2601,7 @@ window.DataService = (() => {
       + '-' + String(now.getDate()).padStart(2, '0')
       + '_' + String(now.getHours()).padStart(2, '0')
       + String(now.getMinutes()).padStart(2, '0');
-    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateTimeStr}.json`, [transitData], '0.5.3');
+    await _saveToSubFolder('公共交通機関情報', `交通情報_${dateTimeStr}.json`, [transitData], '0.6.0');
   }
 
   // ============================================================
@@ -2264,6 +2623,8 @@ window.DataService = (() => {
     getAreaBreakdown,
     getWeeklyBreakdown,
     getMonthlyBreakdown,
+    getWeatherBreakdown,
+    getHeatmapData,
 
     // CRUD
     addEntry,
@@ -2291,6 +2652,10 @@ window.DataService = (() => {
     downloadRivalCSV,
     autoSaveRivalToFile,
     manualSaveRivalToFile,
+    getRivalHourlyBreakdown,
+    getRivalDayOfWeekBreakdown,
+    getRivalLocationBreakdown,
+    getRivalWeatherBreakdown,
 
     // クラウド同期
     loadFromCloud,
@@ -3296,7 +3661,7 @@ const _gmapLoader = {
       }
       this.status = 'loading';
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&v=weekly`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&v=weekly&libraries=visualization`;
       script.async = true;
       script.onload = () => {
         this.status = 'loaded';
@@ -3350,9 +3715,15 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const markerRef = useRef(null);
   const accuracyCircleRef = useRef(null);
   const trafficLayerRef = useRef(null);
+  const heatmapLayerRef = useRef(null);
+  const aiHeatmapLayerRef = useRef(null);
+  const aiModelRef = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(null);
   const [showTraffic, setShowTraffic] = useState(true);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showAiHeatmap, setShowAiHeatmap] = useState(false);
+  const [aiTraining, setAiTraining] = useState(false);
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
@@ -3518,6 +3889,130 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     if (!trafficLayerRef.current || !mapInstanceRef.current) return;
     trafficLayerRef.current.setMap(showTraffic ? mapInstanceRef.current : null);
   }, [showTraffic]);
+
+  // ヒートマップレイヤーの表示/非表示
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.google || !window.google.maps.visualization) return;
+    const map = mapInstanceRef.current;
+
+    if (showHeatmap) {
+      const points = DataService.getHeatmapData();
+      if (points.length === 0) return;
+      const heatData = points.map(p => ({
+        location: new google.maps.LatLng(p.lat, p.lng),
+        weight: p.weight,
+      }));
+      if (heatmapLayerRef.current) {
+        heatmapLayerRef.current.setMap(null);
+      }
+      heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
+        data: heatData,
+        map: map,
+        radius: 30,
+        opacity: 0.7,
+      });
+    } else {
+      if (heatmapLayerRef.current) {
+        heatmapLayerRef.current.setMap(null);
+        heatmapLayerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (heatmapLayerRef.current) {
+        heatmapLayerRef.current.setMap(null);
+        heatmapLayerRef.current = null;
+      }
+    };
+  }, [showHeatmap]);
+
+  // AI予測ヒートマップの表示/非表示
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.google || !window.google.maps.visualization) return;
+    const map = mapInstanceRef.current;
+
+    if (!showAiHeatmap) {
+      if (aiHeatmapLayerRef.current) {
+        aiHeatmapLayerRef.current.setMap(null);
+        aiHeatmapLayerRef.current = null;
+      }
+      return;
+    }
+
+    setAiTraining(true);
+    // 非同期で学習・予測（UIブロック回避）
+    setTimeout(() => {
+      try {
+        // モデルをキャッシュ、データ変更時はnullリセット
+        if (!aiModelRef.current) {
+          aiModelRef.current = LightGBMService.trainModel();
+        }
+
+        if (!aiModelRef.current) {
+          setAiTraining(false);
+          AppLogger.warn('AI予測: GPS付きデータが不足しています（5件以上必要）');
+          setShowAiHeatmap(false);
+          return;
+        }
+
+        // 現在の条件を取得
+        const now = new Date();
+        const hour = now.getHours();
+        const dow = now.getDay();
+        const entries = DataService.getEntries();
+        const latestWeather = entries.length > 0 ? (entries[0].weather || '') : '';
+
+        // マップの表示範囲を取得
+        const bounds = map.getBounds();
+        if (!bounds) { setAiTraining(false); return; }
+        const ne = bounds.getNorthEast();
+        const sw = bounds.getSouthWest();
+        const mapBounds = { north: ne.lat(), south: sw.lat(), east: ne.lng(), west: sw.lng() };
+
+        const points = LightGBMService.predictGrid(aiModelRef.current, mapBounds, hour, dow, latestWeather);
+
+        if (aiHeatmapLayerRef.current) {
+          aiHeatmapLayerRef.current.setMap(null);
+        }
+
+        if (points.length > 0) {
+          const heatData = points.map(p => ({
+            location: new google.maps.LatLng(p.lat, p.lng),
+            weight: p.weight,
+          }));
+          aiHeatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
+            data: heatData,
+            map: map,
+            radius: 25,
+            opacity: 0.6,
+            gradient: [
+              'rgba(0, 0, 0, 0)',
+              'rgba(66, 133, 244, 0.3)',
+              'rgba(0, 200, 255, 0.5)',
+              'rgba(0, 230, 118, 0.6)',
+              'rgba(255, 235, 59, 0.7)',
+              'rgba(255, 152, 0, 0.85)',
+              'rgba(244, 67, 54, 1)',
+            ],
+          });
+          const info = LightGBMService.getModelInfo(aiModelRef.current);
+          AppLogger.info(`AI需要予測: ${points.length}グリッド表示, ${info.nTrees}本の木, 基準値¥${info.basePrediction}`);
+        } else {
+          AppLogger.info('AI需要予測: 現在の条件では需要予測なし');
+        }
+      } catch (e) {
+        AppLogger.error('AI予測エラー: ' + e.message);
+      }
+      setAiTraining(false);
+    }, 50);
+
+    return () => {
+      if (aiHeatmapLayerRef.current) {
+        aiHeatmapLayerRef.current.setMap(null);
+        aiHeatmapLayerRef.current = null;
+      }
+    };
+  }, [showAiHeatmap]);
 
   // 現在位置マーカー更新
   useEffect(() => {
@@ -3699,7 +4194,92 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'open_in_new'),
           'Google Mapsで開く'
+        ),
+
+        // 需要ヒートマップトグル
+        React.createElement('button', {
+          onClick: () => {
+            const pts = DataService.getHeatmapData();
+            if (pts.length === 0 && !showHeatmap) {
+              AppLogger.warn('GPS付き乗車データを記録するとヒートマップが表示されます');
+              return;
+            }
+            setShowHeatmap(prev => !prev);
+          },
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: 'pointer',
+            border: showHeatmap ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showHeatmap ? '#f59e0b' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'whatshot'),
+          `ヒートマップ ${showHeatmap ? 'ON' : 'OFF'}`
+        ),
+
+        // AI需要予測トグル
+        React.createElement('button', {
+          onClick: () => {
+            if (showAiHeatmap) {
+              setShowAiHeatmap(false);
+            } else {
+              aiModelRef.current = null; // 再学習
+              setShowAiHeatmap(true);
+            }
+          },
+          disabled: aiTraining,
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: aiTraining ? 'wait' : 'pointer',
+            border: showAiHeatmap ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showAiHeatmap ? '#8b5cf6' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+            opacity: aiTraining ? 0.7 : 1,
+          },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '16px', animation: aiTraining ? 'spin 1s linear infinite' : 'none' },
+          }, aiTraining ? 'sync' : 'psychology'),
+          aiTraining ? 'LightGBM 学習中...' : `AI予測 ${showAiHeatmap ? 'ON' : 'OFF'}`
         )
+      ),
+
+      // AI予測 情報メッセージ
+      showAiHeatmap && !aiTraining && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '8px 12px', borderRadius: '6px',
+          background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)',
+          fontSize: 'var(--font-size-xs)', color: '#a78bfa',
+          display: 'flex', alignItems: 'center', gap: '6px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'psychology'),
+        (() => {
+          const now = new Date();
+          const days = ['日', '月', '火', '水', '木', '金', '土'];
+          const entries = DataService.getEntries();
+          const w = entries.length > 0 ? (entries[0].weather || '未設定') : '未設定';
+          return `LightGBM予測: ${days[now.getDay()]}曜 ${now.getHours()}時 ${w} の需要分布`;
+        })()
+      ),
+
+      // ヒートマップ データなしメッセージ
+      showHeatmap && DataService.getHeatmapData().length === 0 && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '8px 12px', borderRadius: '6px',
+          background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+          fontSize: 'var(--font-size-xs)', color: '#f59e0b',
+          display: 'flex', alignItems: 'center', gap: '6px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'info'),
+        'GPS付き乗車データを記録するとヒートマップが表示されます'
       ),
 
       // 渋滞凡例
@@ -4186,6 +4766,13 @@ window.DashboardPage = () => {
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
   const overallSummary = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
 
+  const hourlyRate = useMemo(() => {
+    if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 2) {
+      return Math.round(todaySummary.totalAmount / (todaySummary.workMinutes / 60));
+    }
+    return null;
+  }, [refreshKey]);
+
   const stats = [
     {
       label: '本日の売上',
@@ -4247,6 +4834,24 @@ window.DashboardPage = () => {
           )
         )
       )
+    ),
+
+    // リアルタイム時給
+    hourlyRate !== null && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(249,168,37,0.15), rgba(255,152,0,0.08))',
+        border: '1px solid rgba(249,168,37,0.3)',
+        textAlign: 'center',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)' } }, 'speed'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'リアルタイム時給')
+      ),
+      React.createElement('div', {
+        style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-secondary)' },
+      }, `¥${hourlyRate.toLocaleString()}/h`)
     ),
 
     // 本日の統計カード
@@ -4643,8 +5248,17 @@ window.RevenuePage = () => {
     e.preventDefault();
     setErrors([]);
 
+    // GPS座標をformに注入
+    const formWithCoords = { ...form };
+    if (gpsInfo.pickup && gpsInfo.pickup.lat != null) {
+      formWithCoords.pickupCoords = { lat: gpsInfo.pickup.lat, lng: gpsInfo.pickup.lng };
+    }
+    if (gpsInfo.dropoff && gpsInfo.dropoff.lat != null) {
+      formWithCoords.dropoffCoords = { lat: gpsInfo.dropoff.lat, lng: gpsInfo.dropoff.lng };
+    }
+
     // DataServiceのaddEntryに完全委譲（バリデーション含む）
-    const result = DataService.addEntry(form);
+    const result = DataService.addEntry(formWithCoords);
     if (!result.success) {
       setErrors(result.errors);
       return;
@@ -6078,6 +6692,11 @@ window.TransitInfoPage = () => {
       if (result.success) saveToStorage(updated);
       return updated;
     });
+
+    // 遅延・トラブル情報取得成功時にプッシュ通知
+    if (categoryKey === 'trouble' && result.success && result.text) {
+      NotificationService.sendTroubleAlert(result.text);
+    }
   }, [geminiApiKey, region, categories, saveToStorage]);
 
   // 全カテゴリ一括取得
@@ -7257,7 +7876,7 @@ window.AnalyticsPage = () => {
   // localStorageの変更を監視して自動更新（Dashboardと同じパターン）
   useEffect(() => {
     const handleStorage = (e) => {
-      if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
+      if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA || e.key === APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES) {
         setRefreshKey(k => k + 1);
       }
     };
@@ -7281,6 +7900,13 @@ window.AnalyticsPage = () => {
   const areas = useMemo(() => DataService.getAreaBreakdown(), [refreshKey]);
   const overall = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
   const monthly = useMemo(() => DataService.getMonthlyBreakdown(), [refreshKey]);
+
+  const weather = useMemo(() => DataService.getWeatherBreakdown(), [refreshKey]);
+  const rivalHourly = useMemo(() => DataService.getRivalHourlyBreakdown(), [refreshKey]);
+  const rivalDow = useMemo(() => DataService.getRivalDayOfWeekBreakdown(), [refreshKey]);
+  const rivalLocs = useMemo(() => DataService.getRivalLocationBreakdown(), [refreshKey]);
+  const rivalWeather = useMemo(() => DataService.getRivalWeatherBreakdown(), [refreshKey]);
+  const rivalTotal = useMemo(() => DataService.getRivalEntries().length, [refreshKey]);
 
   const hasData = overall.rideCount > 0;
 
@@ -7363,6 +7989,8 @@ window.AnalyticsPage = () => {
     { id: 'dayOfWeek', label: '曜日別', icon: 'date_range' },
     { id: 'hourly', label: '時間帯別', icon: 'schedule' },
     { id: 'area', label: 'エリア別', icon: 'place' },
+    { id: 'weather', label: '天候別', icon: 'cloud' },
+    { id: 'rival', label: '他社分析', icon: 'local_taxi' },
   ];
 
   return React.createElement('div', null,
@@ -7551,6 +8179,108 @@ window.AnalyticsPage = () => {
               )
             )
       )
+    ),
+
+    // 天候別タブ
+    tab === 'weather' && React.createElement(React.Fragment, null,
+      React.createElement(Card, { title: '天候別 平均売上', style: { marginBottom: 'var(--space-lg)' } },
+        (() => {
+          const withData = weather.filter(w => w.count > 0);
+          return withData.length > 0
+            ? React.createElement(BarChart, { data: withData, valueKey: 'avg', labelKey: 'name', color: 'var(--color-primary-light)', height: 160 })
+            : React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' } }, 'データなし');
+        })(),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-around', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px' },
+        }, weather.filter(w => w.count > 0).map(w => React.createElement('span', { key: w.name, style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } },
+            w.name === '晴れ' ? 'wb_sunny' : w.name === '曇り' ? 'cloud' : w.name === '雨' ? 'water_drop' : w.name === '雪' ? 'ac_unit' : 'help_outline'
+          ), w.name
+        )))
+      ),
+      React.createElement(Card, { title: '天候別 合計売上', style: { marginBottom: 'var(--space-lg)' } },
+        (() => {
+          const withData = weather.filter(w => w.count > 0);
+          return withData.length > 0
+            ? React.createElement(HBarChart, { data: withData, nameKey: 'name', valueKey: 'amount', color: 'var(--color-primary-light)' })
+            : React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' } }, 'データなし');
+        })()
+      ),
+      React.createElement(Card, { title: '天候別 詳細' },
+        weather.map((w, i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'grid', gridTemplateColumns: '80px 1fr 60px 80px 80px', gap: '8px', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+          },
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } },
+                w.name === '晴れ' ? 'wb_sunny' : w.name === '曇り' ? 'cloud' : w.name === '雨' ? 'water_drop' : w.name === '雪' ? 'ac_unit' : 'help_outline'
+              ), w.name
+            ),
+            React.createElement('div', {
+              style: { background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '6px', overflow: 'hidden' },
+            },
+              React.createElement('div', {
+                style: { width: `${w.count > 0 ? (w.amount / Math.max(...weather.map(x => x.amount), 1)) * 100 : 0}%`, height: '100%', background: 'var(--color-primary-light)', borderRadius: '4px' },
+              })
+            ),
+            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', textAlign: 'right' } }, `${w.count}回`),
+            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', textAlign: 'right' } }, `¥${w.avg.toLocaleString()}`),
+            React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 500, textAlign: 'right', color: 'var(--color-secondary)' } }, `¥${w.amount.toLocaleString()}`)
+          )
+        )
+      )
+    ),
+
+    // 他社分析タブ
+    tab === 'rival' && React.createElement(React.Fragment, null,
+      // サマリー
+      React.createElement(Card, {
+        style: { marginBottom: 'var(--space-lg)', textAlign: 'center', padding: 'var(--space-lg)' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-warning)' } }, 'local_taxi'),
+          React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, '他社乗車記録数')
+        ),
+        React.createElement('div', { style: { fontSize: '2rem', fontWeight: 700 } }, `${rivalTotal}件`)
+      ),
+
+      rivalTotal === 0 && React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '12px' } }, 'info'),
+        React.createElement('p', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, '他社乗車データを記録すると、ここに分析結果が表示されます。')
+      ),
+
+      // 時間帯別
+      rivalTotal > 0 && React.createElement(Card, { title: '時間帯別 他社乗車件数', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(BarChart, { data: rivalHourly, valueKey: 'count', labelKey: 'label', color: 'var(--color-warning)', height: 140, maxBars: 24, prefix: '' }),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px' },
+        },
+          React.createElement('span', null, '0時'),
+          React.createElement('span', null, '6時'),
+          React.createElement('span', null, '12時'),
+          React.createElement('span', null, '18時'),
+          React.createElement('span', null, '23時')
+        )
+      ),
+
+      // 曜日別
+      rivalTotal > 0 && React.createElement(Card, { title: '曜日別 他社乗車件数', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(BarChart, { data: rivalDow, valueKey: 'count', labelKey: 'name', color: 'var(--color-accent)', height: 140, prefix: '' }),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-around', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px' },
+        }, rivalDow.map(d => React.createElement('span', { key: d.name }, d.name)))
+      ),
+
+      // 場所ランキング
+      rivalTotal > 0 && rivalLocs.length > 0 && React.createElement(Card, { title: '乗車場所ランキング TOP10', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(HBarChart, { data: rivalLocs, nameKey: 'name', valueKey: 'count', color: 'var(--color-warning)', prefix: '' })
+      ),
+
+      // 天候別
+      rivalTotal > 0 && React.createElement(Card, { title: '天候別 他社乗車件数' },
+        React.createElement(HBarChart, { data: rivalWeather.filter(w => w.count > 0), nameKey: 'name', valueKey: 'count', color: 'var(--color-primary-light)', prefix: '' })
+      )
     )
   );
 };
@@ -7578,6 +8308,7 @@ window.SettingsPage = () => {
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncTestResult, setSyncTestResult] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleSave = () => {
     setApiKey(inputKey.trim());
@@ -7922,6 +8653,48 @@ window.SettingsPage = () => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'cloud_sync'),
         syncStatus
+      )
+    ),
+
+    // プッシュ通知設定
+    React.createElement(Card, { title: 'プッシュ通知', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, '交通機関の遅延・トラブル情報をブラウザ通知でお知らせします。'),
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '通知'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+            !NotificationService.isSupported() ? 'このブラウザは通知に対応していません'
+              : NotificationService.getPermission() === 'denied' ? 'ブラウザの通知が拒否されています。ブラウザ設定から許可してください'
+              : '遅延・運休・事故などの交通情報を自動通知'
+          )
+        ),
+        React.createElement('button', {
+          onClick: async () => {
+            if (!NotificationService.isSupported()) return;
+            if (NotificationService.isEnabled()) {
+              NotificationService.setEnabled(false);
+              setRefreshKey(k => k + 1);
+            } else {
+              const perm = await NotificationService.requestPermission();
+              if (perm === 'granted') {
+                NotificationService.setEnabled(true);
+                NotificationService.send('通知テスト', { body: '通知が有効になりました' });
+              }
+              setRefreshKey(k => k + 1);
+            }
+          },
+          disabled: !NotificationService.isSupported() || NotificationService.getPermission() === 'denied',
+          style: {
+            padding: '8px 20px', borderRadius: '20px', border: 'none', cursor: 'pointer',
+            fontWeight: 700, fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-family)',
+            background: NotificationService.isEnabled() ? 'var(--color-accent)' : 'rgba(255,255,255,0.1)',
+            color: NotificationService.isEnabled() ? '#fff' : 'var(--text-secondary)',
+            opacity: (!NotificationService.isSupported() || NotificationService.getPermission() === 'denied') ? 0.5 : 1,
+            transition: 'all 0.2s ease',
+          },
+        }, NotificationService.isEnabled() ? 'ON' : 'OFF')
       )
     ),
 
