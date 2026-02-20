@@ -13,9 +13,12 @@ window.GeminiService = (() => {
     }
 
     try {
-      const response = await fetch(`${API_URL}?key=${apiKey}`, {
+      const response = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
@@ -102,9 +105,12 @@ ${areaStr}
     }
 
     try {
-      const response = await fetch(`${API_URL}?key=${apiKey}`, {
+      const response = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {

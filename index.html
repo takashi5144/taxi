@@ -1651,12 +1651,18 @@ window.DataService = (() => {
   // ============================================================
   // クラウド同期（Vercel Blob Storage）
   // ============================================================
+  function _getSyncSecret() {
+    return (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+  }
+
   async function _syncToCloud(type, entries) {
     try {
+      const secret = _getSyncSecret();
       const res = await fetch(`/api/data?type=${type}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}),
         },
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
@@ -2323,9 +2329,12 @@ window.GeminiService = (() => {
     }
 
     try {
-      const response = await fetch(`${API_URL}?key=${apiKey}`, {
+      const response = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
@@ -2412,9 +2421,12 @@ ${areaStr}
     }
 
     try {
-      const response = await fetch(`${API_URL}?key=${apiKey}`, {
+      const response = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
@@ -7597,7 +7609,7 @@ window.SettingsPage = () => {
         React.createElement('label', { className: 'form-label' }, 'APIキー'),
         React.createElement('input', {
           className: 'form-input',
-          type: 'text',
+          type: 'password',
           placeholder: 'AIzaSy...',
           value: inputKey,
           onChange: (e) => setInputKey(e.target.value),
@@ -7781,6 +7793,32 @@ window.SettingsPage = () => {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
       }, 'Vercel Blob Storageを使用してデータをクラウドに保存・同期します。記録追加時に自動的にクラウドへ保存されます。'),
 
+      React.createElement('div', { className: 'form-group', style: { marginBottom: 'var(--space-md)' } },
+        React.createElement('label', { className: 'form-label' }, '同期シークレット'),
+        React.createElement('input', {
+          className: 'form-input',
+          type: 'password',
+          placeholder: 'Vercel環境変数のSYNC_SECRETと同じ値',
+          value: syncSecret,
+          onChange: (e) => setSyncSecret(e.target.value),
+          style: { fontFamily: 'monospace' },
+        }),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' } },
+          React.createElement(Button, {
+            variant: 'primary',
+            icon: 'save',
+            onClick: () => {
+              localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, syncSecret.trim());
+              setSyncStatus('シークレットを保存しました');
+              setTimeout(() => setSyncStatus(null), 2000);
+            },
+          }, '保存'),
+          React.createElement('span', {
+            style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' },
+          }, '※ Vercelダッシュボードの環境変数SYNC_SECRETと同じ値を設定')
+        )
+      ),
+
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
         React.createElement(Button, {
           variant: 'secondary',
@@ -7836,7 +7874,8 @@ window.SettingsPage = () => {
             try {
               const revenueEntries = DataService.getEntries();
               const rivalEntries = DataService.getRivalEntries();
-              const headers = { 'Content-Type': 'application/json' };
+              const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+              const headers = { 'Content-Type': 'application/json', ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}) };
               const [r1, r2] = await Promise.all([
                 fetch('/api/data?type=revenue', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: revenueEntries.length, entries: revenueEntries }) }),
                 fetch('/api/data?type=rival', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: rivalEntries.length, entries: rivalEntries }) }),

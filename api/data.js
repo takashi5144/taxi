@@ -13,8 +13,15 @@ function safeCompare(a, b) {
 export default async function handler(req, res) {
   // キャッシュ防止
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS - 自ドメインのみ許可
+  const allowedOrigins = [
+    'https://taxi1-inky.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+  ];
+  const reqOrigin = req.headers.origin || '';
+  const corsOrigin = allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0];
+  res.setHeader('Access-Control-Allow-Origin', corsOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -45,21 +52,15 @@ export default async function handler(req, res) {
     }
 
     // 認証チェック
-    // 明示的にクロスオリジンの場合のみSYNC_SECRET必須
-    // ブラウザのfetch()はGETでOrigin/Referer/Sec-Fetch-Siteを送らない場合があるため
-    // 「ヘッダーなし＝同一オリジン」として許可する（サーバー側のblobTokenが保護層）
-    const origin = req.headers.origin || '';
-    const host = req.headers.host || '';
-    const secFetchSite = req.headers['sec-fetch-site'] || '';
-    const isCrossOrigin = secFetchSite === 'cross-site' ||
-      (origin && host && !origin.includes(host));
-
-    if (isCrossOrigin) {
-      // 明示的クロスオリジン: SYNC_SECRET必須
+    // POST/DELETEは常にSYNC_SECRET必須（GETは読み取り専用なので許可）
+    if (req.method === 'POST' || req.method === 'DELETE') {
       const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
       const expected = (process.env.SYNC_SECRET || '').trim();
+      if (!expected) {
+        return res.status(503).json({ error: 'SYNC_SECRET環境変数が未設定です' });
+      }
       if (!safeCompare(secret, expected)) {
-        return res.status(401).json({ error: '認証エラー' });
+        return res.status(401).json({ error: '認証エラー: シークレットが一致しません' });
       }
     }
 
