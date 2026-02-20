@@ -332,6 +332,25 @@ window.DataService = (() => {
     return { merged, total: local.length };
   }
 
+  async function autoSync() {
+    try {
+      const [r1, r2] = await Promise.all([
+        syncFromCloud('revenue'),
+        syncFromCloud('rival'),
+      ]);
+      const totalMerged = (r1.merged || 0) + (r2.merged || 0);
+      if (totalMerged > 0) {
+        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, 他社+${r2.merged}件`);
+      } else {
+        AppLogger.debug('自動同期: 新規データなし');
+      }
+      return { revenue: r1, rival: r2 };
+    } catch (e) {
+      AppLogger.warn('自動同期エラー: ' + e.message);
+      return null;
+    }
+  }
+
   // ============================================================
   // 日付ヘルパー
   // ============================================================
@@ -1023,6 +1042,7 @@ window.DataService = (() => {
     // クラウド同期
     loadFromCloud,
     syncFromCloud,
+    autoSync,
 
     // イベント
     getEvents,

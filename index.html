@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.7.1</title>
+  <title>タクシー売上サポート v0.7.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.7.1',
+  VERSION: '0.7.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1979,6 +1979,25 @@ window.DataService = (() => {
     return { merged, total: local.length };
   }
 
+  async function autoSync() {
+    try {
+      const [r1, r2] = await Promise.all([
+        syncFromCloud('revenue'),
+        syncFromCloud('rival'),
+      ]);
+      const totalMerged = (r1.merged || 0) + (r2.merged || 0);
+      if (totalMerged > 0) {
+        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, 他社+${r2.merged}件`);
+      } else {
+        AppLogger.debug('自動同期: 新規データなし');
+      }
+      return { revenue: r1, rival: r2 };
+    } catch (e) {
+      AppLogger.warn('自動同期エラー: ' + e.message);
+      return null;
+    }
+  }
+
   // ============================================================
   // 日付ヘルパー
   // ============================================================
@@ -2704,6 +2723,7 @@ window.DataService = (() => {
     // クラウド同期
     loadFromCloud,
     syncFromCloud,
+    autoSync,
 
     // イベント
     getEvents,
@@ -3167,6 +3187,33 @@ window.AppProvider = ({ children }) => {
     if (!window.location.hash) {
       window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
     }
+  }, []);
+
+  // ── 自動同期（SYNC_SECRET設定時のみ） ──
+  useEffect(() => {
+    const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+    if (!secret) return;
+
+    // A. アプリ起動時に自動同期
+    DataService.autoSync();
+
+    // B. ページ復帰時（タブ切替から戻った時）に自動同期
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        DataService.autoSync();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // C. 5分間隔の定期同期
+    const intervalId = setInterval(() => {
+      DataService.autoSync();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(intervalId);
+    };
   }, []);
 
   const value = {
@@ -4879,8 +4926,9 @@ window.DashboardPage = () => {
 
   const stats = [
     {
-      label: '本日の売上',
+      label: '本日の売上（税込）',
       value: `¥${todaySummary.totalAmount.toLocaleString()}`,
+      sub: `税抜¥${Math.floor(todaySummary.totalAmount / 1.1).toLocaleString()} 税¥${(todaySummary.totalAmount - Math.floor(todaySummary.totalAmount / 1.1)).toLocaleString()}`,
       icon: 'payments',
       color: 'var(--color-secondary)',
     },
@@ -4967,6 +5015,7 @@ window.DashboardPage = () => {
             style: { fontSize: '32px', color: stat.color, marginBottom: '8px' },
           }, stat.icon),
           React.createElement('div', { className: 'stat-card__value' }, stat.value),
+          stat.sub && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, stat.sub),
           React.createElement('div', { className: 'stat-card__label' }, stat.label)
         )
       )
@@ -5028,9 +5077,10 @@ window.DashboardPage = () => {
               new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
             )
           ),
-          React.createElement('div', {
-            style: { fontWeight: 700, color: 'var(--color-secondary)' },
-          }, `¥${entry.amount.toLocaleString()}`)
+          React.createElement('div', { style: { textAlign: 'right' } },
+            React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${entry.amount.toLocaleString()}`),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
+          )
         )
       ),
       todaySummary.entries.length > 5 && React.createElement(Button, {
@@ -5419,10 +5469,16 @@ window.RevenuePage = () => {
 
     // 本日の合計
     React.createElement(Card, { style: { marginBottom: 'var(--space-lg)', textAlign: 'center' } },
-      React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, '本日の売上合計'),
+      React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, '本日の売上合計（税込）'),
       React.createElement('div', {
         style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '8px 0' },
       }, `¥${todayTotal.toLocaleString()}`),
+      React.createElement('div', {
+        style: { display: 'flex', justifyContent: 'center', gap: '16px', margin: '4px 0 8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' },
+      },
+        React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
+        React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
+      ),
       React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' } },
         `本日 ${todayEntries.length} 件 / 全 ${entries.length} 件（累計 ¥${allTotal.toLocaleString()}）`
       )
@@ -5586,7 +5642,7 @@ window.RevenuePage = () => {
 
           // 金額
           React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, '金額 (円) *'),
+            React.createElement('label', { className: 'form-label' }, '金額 (税込・円) *'),
             React.createElement('input', {
               className: 'form-input',
               type: 'number',
@@ -5596,7 +5652,25 @@ window.RevenuePage = () => {
               value: form.amount,
               onChange: (e) => { setForm({ ...form, amount: e.target.value }); setErrors([]); },
               required: true,
-            })
+            }),
+            // 税内訳表示
+            form.amount && parseInt(form.amount) > 0 && (() => {
+              const taxIncluded = parseInt(form.amount);
+              const taxExcluded = Math.floor(taxIncluded / 1.1);
+              const tax = taxIncluded - taxExcluded;
+              return React.createElement('div', {
+                style: {
+                  marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
+                  background: 'rgba(249,168,37,0.08)', border: '1px solid rgba(249,168,37,0.15)',
+                  fontSize: '12px', color: 'var(--text-secondary)',
+                  display: 'flex', gap: '12px', flexWrap: 'wrap',
+                },
+              },
+                React.createElement('span', null, `税抜: ¥${taxExcluded.toLocaleString()}`),
+                React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${tax.toLocaleString()}`),
+                React.createElement('span', null, `税込: ¥${taxIncluded.toLocaleString()}`)
+              );
+            })()
           ),
 
           // 乗車地（GPS付き）
@@ -6013,9 +6087,10 @@ window.RevenuePage = () => {
               })()
             )
           ),
-          React.createElement('div', {
-            style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: 'var(--font-size-lg)', marginRight: '12px' },
-          }, `¥${entry.amount.toLocaleString()}`),
+          React.createElement('div', { style: { marginRight: '12px', textAlign: 'right' } },
+            React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: 'var(--font-size-lg)' } }, `¥${entry.amount.toLocaleString()}`),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
+          ),
           React.createElement('button', {
             onClick: () => handleDelete(entry.id),
             style: {
@@ -8742,6 +8817,21 @@ window.SettingsPage = () => {
         }, syncTestResult === 'success' ? 'クラウドに正常に接続できました' : syncTestResult)
       ),
 
+      // 自動同期ステータス
+      React.createElement('div', {
+        style: {
+          padding: '8px 12px', borderRadius: '8px', marginBottom: 'var(--space-md)',
+          background: syncSecret ? 'rgba(0, 200, 83, 0.1)' : 'rgba(255, 152, 0, 0.1)',
+          border: `1px solid ${syncSecret ? 'rgba(0, 200, 83, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
+          display: 'flex', alignItems: 'center', gap: '8px',
+          fontSize: 'var(--font-size-sm)',
+          color: syncSecret ? 'var(--color-accent)' : 'var(--color-warning)',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, syncSecret ? 'sync' : 'sync_disabled'),
+        syncSecret ? '自動同期: 有効（起動時・タブ復帰時・5分間隔）' : '自動同期: SYNC_SECRET未設定のため無効'
+      ),
+
       // 手動同期ボタン
       React.createElement('div', {
         style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' },
@@ -9260,7 +9350,10 @@ window.DataManagePage = () => {
             entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
           )
         ),
-        React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px', marginRight: '8px', whiteSpace: 'nowrap' } }, `¥${entry.amount.toLocaleString()}`),
+        React.createElement('div', { style: { marginRight: '8px', whiteSpace: 'nowrap', textAlign: 'right' } },
+          React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${entry.amount.toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
+        ),
         React.createElement('button', {
           onClick: () => startEdit(entry, 'revenue'),
           style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary-light)', padding: '4px' },
