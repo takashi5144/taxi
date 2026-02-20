@@ -38,6 +38,7 @@ const STATIC_ASSETS = [
   './src/pages/TransitInfo.jsx',
   './src/pages/Events.jsx',
   './src/pages/Analytics.jsx',
+  './src/pages/DataManage.jsx',
   './src/pages/Settings.jsx',
   './src/pages/dev/Logs.jsx',
   './src/pages/dev/Structure.jsx',

@@ -12,7 +12,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.5.3',
+  VERSION: '0.6.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -34,6 +34,7 @@ window.APP_CONSTANTS = {
     TRANSIT_INFO: 'transit-info',
     EVENTS: 'events',
     ANALYTICS: 'analytics',
+    DATA_MANAGE: 'data-manage',
     SETTINGS: 'settings',
     DEV_TOOLS: 'dev',
     DEV_LOGS: 'dev-logs',
@@ -48,6 +49,7 @@ window.APP_CONSTANTS = {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
+    { id: 'data-manage', label: 'データ管理', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ],
 
@@ -144,6 +146,7 @@ window.APP_CONSTANTS = {
               { name: 'Analytics.jsx', type: 'react', desc: '売上分析' },
               { name: 'TransitInfo.jsx', type: 'react', desc: '公共交通機関情報' },
               { name: 'Events.jsx', type: 'react', desc: 'イベント記録' },
+              { name: 'DataManage.jsx', type: 'react', desc: 'データ管理（編集・削除）' },
               { name: 'Settings.jsx', type: 'react', desc: 'アプリ設定' },
               {
                 name: 'dev/',

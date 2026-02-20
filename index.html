@@ -848,7 +848,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.6.0',
+  VERSION: '0.6.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -870,6 +870,7 @@ window.APP_CONSTANTS = {
     TRANSIT_INFO: 'transit-info',
     EVENTS: 'events',
     ANALYTICS: 'analytics',
+    DATA_MANAGE: 'data-manage',
     SETTINGS: 'settings',
     DEV_TOOLS: 'dev',
     DEV_LOGS: 'dev-logs',
@@ -884,6 +885,7 @@ window.APP_CONSTANTS = {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
+    { id: 'data-manage', label: 'データ管理', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ],
 
@@ -981,6 +983,7 @@ window.APP_CONSTANTS = {
               { name: 'Analytics.jsx', type: 'react', desc: '売上分析' },
               { name: 'TransitInfo.jsx', type: 'react', desc: '公共交通機関情報' },
               { name: 'Events.jsx', type: 'react', desc: 'イベント記録' },
+              { name: 'DataManage.jsx', type: 'react', desc: 'データ管理（編集・削除）' },
               { name: 'Settings.jsx', type: 'react', desc: 'アプリ設定' },
               {
                 name: 'dev/',
@@ -2368,6 +2371,23 @@ window.DataService = (() => {
     return true;
   }
 
+  function updateEntry(id, updates) {
+    const entries = getEntries();
+    const idx = entries.findIndex(e => e.id === id);
+    if (idx === -1) return { success: false, errors: ['記録が見つかりません'] };
+    if (updates.amount != null) {
+      const amt = parseInt(updates.amount);
+      if (isNaN(amt) || amt < 1 || amt > 1000000) return { success: false, errors: ['金額は1〜1,000,000の範囲で入力してください'] };
+      updates.amount = amt;
+    }
+    entries[idx] = { ...entries[idx], ...updates };
+    saveEntries(entries);
+    AppLogger.info('売上記録を更新しました');
+    autoSaveToFile();
+    _syncToCloud('revenue', entries);
+    return { success: true, entry: entries[idx] };
+  }
+
   function clearAllEntries() {
     saveEntries([]);
     _syncToCloud('revenue', []);
@@ -2433,6 +2453,19 @@ window.DataService = (() => {
     autoSaveRivalToFile();
     _syncToCloud('rival', filtered);
     return true;
+  }
+
+  function updateRivalEntry(id, updates) {
+    const entries = getRivalEntries();
+    const idx = entries.findIndex(e => e.id === id);
+    if (idx === -1) return { success: false, errors: ['記録が見つかりません'] };
+    if (updates.location != null && !updates.location.trim()) return { success: false, errors: ['乗車場所を入力してください'] };
+    entries[idx] = { ...entries[idx], ...updates };
+    saveRivalEntries(entries);
+    AppLogger.info('他社乗車記録を更新しました');
+    autoSaveRivalToFile();
+    _syncToCloud('rival', entries);
+    return { success: true, entry: entries[idx] };
   }
 
   function clearAllRivalEntries() {
@@ -2628,6 +2661,7 @@ window.DataService = (() => {
 
     // CRUD
     addEntry,
+    updateEntry,
     deleteEntry,
     clearAllEntries,
     validateEntry,
@@ -2647,6 +2681,7 @@ window.DataService = (() => {
     getRivalEntries,
     saveRivalEntries,
     addRivalEntry,
+    updateRivalEntry,
     deleteRivalEntry,
     clearAllRivalEntries,
     downloadRivalCSV,
@@ -8784,6 +8819,400 @@ window.SettingsPage = () => {
 })();
 
 // ============================================================
+// FILE: src/pages/DataManage.jsx
+// ============================================================
+(function() {
+// DataManage.jsx - データ管理ページ（売上・他社・交通情報の編集・削除）
+window.DataManagePage = () => {
+  const { useState, useEffect, useCallback, useMemo } = React;
+  const [tab, setTab] = useState('revenue');
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [errors, setErrors] = useState([]);
+  const [saved, setSaved] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const tabs = [
+    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
+    { id: 'rival', label: '他社記録', icon: 'local_taxi' },
+    { id: 'transit', label: '交通情報', icon: 'directions_transit' },
+  ];
+
+  // データ読み込み
+  const revenueEntries = useMemo(() => DataService.getEntries(), [refreshKey]);
+  const rivalEntries = useMemo(() => DataService.getRivalEntries(), [refreshKey]);
+  const transitData = useMemo(() => {
+    try {
+      const saved = AppStorage.get(APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO, {});
+      return saved;
+    } catch { return {}; }
+  }, [refreshKey]);
+
+  // storage変更を監視
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if ([APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES, APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO].includes(e.key)) {
+        setRefreshKey(k => k + 1);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // 編集開始
+  const startEdit = useCallback((entry, type) => {
+    setEditingId(entry.id);
+    setEditForm(type === 'revenue'
+      ? { amount: String(entry.amount), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '' }
+      : { date: entry.date || '', time: entry.time || '', weather: entry.weather || '', location: entry.location || '', memo: entry.memo || '' }
+    );
+    setErrors([]);
+  }, []);
+
+  // 編集保存
+  const saveEdit = useCallback(() => {
+    setErrors([]);
+    let result;
+    if (tab === 'revenue') {
+      result = DataService.updateEntry(editingId, editForm);
+    } else if (tab === 'rival') {
+      result = DataService.updateRivalEntry(editingId, editForm);
+    }
+    if (!result.success) { setErrors(result.errors); return; }
+    setEditingId(null);
+    setEditForm({});
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    setRefreshKey(k => k + 1);
+  }, [tab, editingId, editForm]);
+
+  // 削除確認→実行
+  const handleDelete = useCallback((id) => {
+    if (confirmDelete === id) {
+      if (tab === 'revenue') DataService.deleteEntry(id);
+      else if (tab === 'rival') DataService.deleteRivalEntry(id);
+      setConfirmDelete(null);
+      setRefreshKey(k => k + 1);
+    } else {
+      setConfirmDelete(id);
+      setTimeout(() => setConfirmDelete(null), 3000);
+    }
+  }, [tab, confirmDelete]);
+
+  // 交通情報の個別カテゴリ削除
+  const deleteTransitCategory = useCallback((key) => {
+    const current = AppStorage.get(APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO, {});
+    delete current[key];
+    AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO, current);
+    setRefreshKey(k => k + 1);
+  }, []);
+
+  // 検索フィルター
+  const filteredRevenue = useMemo(() => {
+    if (!search) return revenueEntries;
+    const q = search.toLowerCase();
+    return revenueEntries.filter(e =>
+      (e.pickup || '').toLowerCase().includes(q) || (e.dropoff || '').toLowerCase().includes(q) ||
+      (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q) ||
+      String(e.amount).includes(q)
+    );
+  }, [revenueEntries, search]);
+
+  const filteredRival = useMemo(() => {
+    if (!search) return rivalEntries;
+    const q = search.toLowerCase();
+    return rivalEntries.filter(e =>
+      (e.location || '').toLowerCase().includes(q) || (e.date || '').includes(q) ||
+      (e.memo || '').toLowerCase().includes(q)
+    );
+  }, [rivalEntries, search]);
+
+  // 天候選択肢
+  const weatherOptions = ['', '晴れ', '曇り', '雨', '雪'];
+
+  // 共通入力フィールド生成
+  const field = (label, key, type, opts) => {
+    const val = editForm[key] || '';
+    return React.createElement('div', { key, style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+      React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', minWidth: '56px', textAlign: 'right' } }, label),
+      type === 'select'
+        ? React.createElement('select', {
+            value: val,
+            onChange: e => setEditForm(f => ({ ...f, [key]: e.target.value })),
+            style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' },
+          }, (opts || []).map(o => React.createElement('option', { key: o, value: o }, o || '未設定')))
+        : React.createElement('input', {
+            type: type || 'text',
+            value: val,
+            onChange: e => setEditForm(f => ({ ...f, [key]: e.target.value })),
+            style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' },
+          })
+    );
+  };
+
+  // 編集フォーム
+  const editPanel = (type) => {
+    if (!editingId) return null;
+    return React.createElement('div', {
+      style: { background: 'rgba(26,115,232,0.08)', border: '1px solid rgba(26,115,232,0.3)', borderRadius: '10px', padding: '14px', marginBottom: '12px' },
+    },
+      React.createElement('div', { style: { fontWeight: 600, fontSize: '13px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)' } }, 'edit'),
+        'データ編集'
+      ),
+      type === 'revenue' ? React.createElement(React.Fragment, null,
+        field('金額', 'amount', 'number'),
+        field('日付', 'date', 'date'),
+        field('天候', 'weather', 'select', weatherOptions),
+        field('乗車地', 'pickup', 'text'),
+        field('乗車時刻', 'pickupTime', 'time'),
+        field('降車地', 'dropoff', 'text'),
+        field('降車時刻', 'dropoffTime', 'time'),
+        field('人数', 'passengers', 'number'),
+        field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
+        field('目的', 'purpose', 'text'),
+        field('メモ', 'memo', 'text')
+      ) : React.createElement(React.Fragment, null,
+        field('日付', 'date', 'date'),
+        field('時刻', 'time', 'time'),
+        field('天候', 'weather', 'select', weatherOptions),
+        field('場所', 'location', 'text'),
+        field('メモ', 'memo', 'text')
+      ),
+      errors.length > 0 && React.createElement('div', { style: { color: 'var(--color-danger)', fontSize: '12px', marginTop: '6px' } },
+        errors.join(', ')
+      ),
+      React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' } },
+        React.createElement(Button, { variant: 'ghost', onClick: () => { setEditingId(null); setErrors([]); } }, 'キャンセル'),
+        React.createElement(Button, { icon: 'save', onClick: saveEdit }, '保存')
+      )
+    );
+  };
+
+  // 売上エントリ行
+  const revenueRow = (entry) => {
+    const isEditing = editingId === entry.id;
+    const isConfirm = confirmDelete === entry.id;
+    const eDate = entry.date || new Date(entry.timestamp).toISOString().split('T')[0];
+    const info = entry.dayOfWeek ? { dayOfWeek: entry.dayOfWeek, holiday: entry.holiday, isSunday: entry.dayOfWeek === '日', isSaturday: entry.dayOfWeek === '土', isHoliday: !!entry.holiday } : JapaneseHolidays.getDateInfo(eDate);
+    const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
+
+    return React.createElement('div', { key: entry.id },
+      isEditing && editPanel('revenue'),
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: isEditing ? 0.5 : 1 },
+      },
+        React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+          React.createElement('div', { style: { fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', fontSize: '13px' } },
+            entry.pickupTime && React.createElement('span', { style: { fontSize: '10px', color: 'var(--color-primary-light)', fontWeight: 600, padding: '1px 5px', borderRadius: '3px', background: 'rgba(26,115,232,0.12)' } }, entry.pickupTime),
+            React.createElement('span', null, entry.pickup || '---'),
+            React.createElement('span', { style: { color: 'var(--text-muted)', margin: '0 2px' } }, '→'),
+            entry.dropoffTime && React.createElement('span', { style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: 600, padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,200,83,0.12)' } }, entry.dropoffTime),
+            React.createElement('span', null, entry.dropoff || '---')
+          ),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' } },
+            React.createElement('span', null, eDate),
+            React.createElement('span', { style: { color: dayColor, fontWeight: 600 } }, `(${info.dayOfWeek})`),
+            info.holiday && React.createElement('span', { style: { color: '#ef4444', fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(239,68,68,0.1)' } }, info.holiday),
+            entry.weather && React.createElement('span', null, entry.weather),
+            entry.passengers && React.createElement('span', { style: { fontSize: '10px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' } }, `${entry.passengers}名`),
+            entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
+          )
+        ),
+        React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px', marginRight: '8px', whiteSpace: 'nowrap' } }, `¥${entry.amount.toLocaleString()}`),
+        React.createElement('button', {
+          onClick: () => startEdit(entry, 'revenue'),
+          style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary-light)', padding: '4px' },
+          title: '編集',
+        }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'edit')),
+        React.createElement('button', {
+          onClick: () => handleDelete(entry.id),
+          style: { background: 'none', border: 'none', cursor: 'pointer', color: isConfirm ? 'var(--color-danger)' : 'var(--text-muted)', padding: '4px' },
+          title: isConfirm ? 'もう一度押して削除' : '削除',
+        }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, isConfirm ? 'delete_forever' : 'delete_outline'))
+      )
+    );
+  };
+
+  // 他社エントリ行
+  const rivalRow = (entry) => {
+    const isEditing = editingId === entry.id;
+    const isConfirm = confirmDelete === entry.id;
+    const info = entry.dayOfWeek ? { dayOfWeek: entry.dayOfWeek, holiday: entry.holiday, isSunday: entry.dayOfWeek === '日', isSaturday: entry.dayOfWeek === '土', isHoliday: !!entry.holiday } : JapaneseHolidays.getDateInfo(entry.date);
+    const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
+
+    return React.createElement('div', { key: entry.id },
+      isEditing && editPanel('rival'),
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: isEditing ? 0.5 : 1 },
+      },
+        React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+          React.createElement('div', { style: { fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)' } }, 'local_taxi'),
+            React.createElement('span', null, entry.location || '---')
+          ),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' } },
+            React.createElement('span', null, entry.date),
+            React.createElement('span', { style: { color: dayColor, fontWeight: 600 } }, `(${info.dayOfWeek})`),
+            info.holiday && React.createElement('span', { style: { color: '#ef4444', fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(239,68,68,0.1)' } }, info.holiday),
+            entry.time && React.createElement('span', { style: { fontSize: '11px', color: 'var(--color-primary-light)', fontWeight: 600, padding: '1px 5px', borderRadius: '3px', background: 'rgba(26,115,232,0.12)' } }, entry.time),
+            entry.weather && React.createElement('span', null, entry.weather),
+            entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
+          )
+        ),
+        React.createElement('button', {
+          onClick: () => startEdit(entry, 'rival'),
+          style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary-light)', padding: '4px' },
+          title: '編集',
+        }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'edit')),
+        React.createElement('button', {
+          onClick: () => handleDelete(entry.id),
+          style: { background: 'none', border: 'none', cursor: 'pointer', color: isConfirm ? 'var(--color-danger)' : 'var(--text-muted)', padding: '4px' },
+          title: isConfirm ? 'もう一度押して削除' : '削除',
+        }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, isConfirm ? 'delete_forever' : 'delete_outline'))
+      )
+    );
+  };
+
+  // 交通情報カテゴリラベル
+  const transitLabels = { trouble: '遅延・運休情報', train: '電車情報', bus: 'バス情報', flight: 'フライト情報' };
+  const transitIcons = { trouble: 'warning', train: 'train', bus: 'directions_bus', flight: 'flight' };
+
+  return React.createElement('div', null,
+    // タブバー
+    React.createElement('div', { style: { display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px' } },
+      tabs.map(t => React.createElement('button', {
+        key: t.id,
+        onClick: () => { setTab(t.id); setEditingId(null); setErrors([]); setSearch(''); },
+        style: {
+          display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 14px',
+          borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+          background: tab === t.id ? 'var(--color-primary)' : 'var(--bg-tertiary)',
+          color: tab === t.id ? '#fff' : 'var(--text-secondary)',
+          whiteSpace: 'nowrap', transition: 'all 0.2s',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, t.icon),
+        t.label
+      ))
+    ),
+
+    // 検索バー（売上・他社タブ）
+    tab !== 'transit' && React.createElement('div', { style: { marginBottom: '12px' } },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px 12px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-muted)' } }, 'search'),
+        React.createElement('input', {
+          type: 'text', value: search, placeholder: '検索...',
+          onChange: e => setSearch(e.target.value),
+          style: { flex: 1, border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' },
+        }),
+        search && React.createElement('button', {
+          onClick: () => setSearch(''),
+          style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px' },
+        }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'close'))
+      )
+    ),
+
+    // 保存成功バナー
+    saved && React.createElement('div', {
+      style: { background: 'rgba(0,200,83,0.15)', border: '1px solid rgba(0,200,83,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--color-accent)' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'check_circle'),
+      '保存しました'
+    ),
+
+    // === 売上記録タブ ===
+    tab === 'revenue' && React.createElement(React.Fragment, null,
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
+        React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
+          `${filteredRevenue.length}件${search ? ` (全${revenueEntries.length}件中)` : ''}`
+        ),
+        revenueEntries.length > 0 && React.createElement(Button, {
+          variant: 'danger', icon: 'delete_forever',
+          onClick: () => { if (confirm('全ての売上記録を削除しますか？この操作は取り消せません。')) { DataService.clearAllEntries(); setRefreshKey(k => k + 1); } },
+          style: { padding: '5px 10px', fontSize: '11px' },
+        }, '全削除')
+      ),
+      filteredRevenue.length === 0
+        ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', opacity: 0.3, display: 'block', marginBottom: '8px' } }, 'receipt_long'),
+            search ? '該当する記録がありません' : '売上記録がありません'
+          )
+        : React.createElement(Card, null, filteredRevenue.map(e => revenueRow(e)))
+    ),
+
+    // === 他社記録タブ ===
+    tab === 'rival' && React.createElement(React.Fragment, null,
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
+        React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
+          `${filteredRival.length}件${search ? ` (全${rivalEntries.length}件中)` : ''}`
+        ),
+        rivalEntries.length > 0 && React.createElement(Button, {
+          variant: 'danger', icon: 'delete_forever',
+          onClick: () => { if (confirm('全ての他社乗車記録を削除しますか？この操作は取り消せません。')) { DataService.clearAllRivalEntries(); setRefreshKey(k => k + 1); } },
+          style: { padding: '5px 10px', fontSize: '11px' },
+        }, '全削除')
+      ),
+      filteredRival.length === 0
+        ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', opacity: 0.3, display: 'block', marginBottom: '8px' } }, 'local_taxi'),
+            search ? '該当する記録がありません' : '他社乗車記録がありません'
+          )
+        : React.createElement(Card, null, filteredRival.map(e => rivalRow(e)))
+    ),
+
+    // === 交通情報タブ ===
+    tab === 'transit' && React.createElement(React.Fragment, null,
+      React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' } },
+        '保存済みの公共交通機関情報'
+      ),
+      Object.keys(transitData).length === 0
+        ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', opacity: 0.3, display: 'block', marginBottom: '8px' } }, 'directions_transit'),
+            '保存された交通情報がありません'
+          )
+        : React.createElement(Card, null,
+            Object.entries(transitData).map(([key, val]) =>
+              React.createElement('div', {
+                key,
+                style: { padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+              },
+                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px' } },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: key === 'trouble' ? 'var(--color-warning)' : 'var(--color-primary-light)' } }, transitIcons[key] || 'info'),
+                    transitLabels[key] || key
+                  ),
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                    val.fetchedAt && React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, new Date(val.fetchedAt).toLocaleString('ja-JP')),
+                    React.createElement('button', {
+                      onClick: () => { if (confirm(`「${transitLabels[key] || key}」のデータを削除しますか？`)) deleteTransitCategory(key); },
+                      style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' },
+                      title: '削除',
+                    }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'delete_outline'))
+                  )
+                ),
+                val.text && React.createElement('div', {
+                  style: { fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, maxHeight: '120px', overflow: 'auto', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', whiteSpace: 'pre-wrap' },
+                }, val.text.slice(0, 500) + (val.text.length > 500 ? '...' : ''))
+              )
+            )
+          ),
+      Object.keys(transitData).length > 0 && React.createElement('div', { style: { marginTop: '12px', display: 'flex', justifyContent: 'flex-end' } },
+        React.createElement(Button, {
+          variant: 'danger', icon: 'delete_forever',
+          onClick: () => { if (confirm('全ての交通情報を削除しますか？')) { AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO, {}); setRefreshKey(k => k + 1); } },
+          style: { padding: '5px 10px', fontSize: '11px' },
+        }, '全削除')
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
 // FILE: src/pages/dev/Logs.jsx
 // ============================================================
 (function() {
@@ -9327,6 +9756,7 @@ window.App = () => {
       case 'transit-info': return React.createElement(TransitInfoPage);
       case 'events': return React.createElement(EventsPage);
       case 'analytics': return React.createElement(AnalyticsPage);
+      case 'data-manage': return React.createElement(DataManagePage);
       case 'settings': return React.createElement(SettingsPage);
       case 'dev': return React.createElement(DevToolsPage);
       case 'dev-logs': return React.createElement(LogsPage);
