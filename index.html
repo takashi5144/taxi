@@ -845,7 +845,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.6.4',
+  VERSION: '0.6.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2255,7 +2255,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -2270,8 +2270,9 @@ window.DataService = (() => {
       const passengers = e.passengers || '';
       const gender = e.gender || '';
       const purpose = (e.purpose || '').replace(/,/g, '、');
+      const source = e.source || '';
       const memo = (e.memo || '').replace(/,/g, '、');
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${memo}`;
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -2343,6 +2344,7 @@ window.DataService = (() => {
       gender: form.gender || '',
       purpose: form.purpose || '',
       memo: form.memo || '',
+      source: form.source || '',
       pickupCoords: form.pickupCoords || null,
       dropoffCoords: form.dropoffCoords || null,
       timestamp: new Date().toISOString(),
@@ -5079,7 +5081,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -5296,7 +5298,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+    setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -5474,6 +5476,39 @@ window.RevenuePage = () => {
                 },
                   React.createElement('span', { style: { fontSize: '16px' } }, w.icon),
                   w.value
+                )
+              )
+            )
+          ),
+
+          // 配車方法
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '配車方法'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...[
+                { value: 'Go', icon: '🟢' },
+                { value: 'Uber', icon: '⚫' },
+                { value: 'DIDI', icon: '🟠' },
+                { value: '電話', icon: '📞' },
+                { value: '流し', icon: '🚕' },
+              ].map(s =>
+                React.createElement('button', {
+                  key: s.value,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, source: form.source === s.value ? '' : s.value }),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '8px 14px', borderRadius: '8px',
+                    fontSize: '13px', fontWeight: form.source === s.value ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.source === s.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.source === s.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.source === s.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '16px' } }, s.icon),
+                  s.value
                 )
               )
             )
@@ -5899,6 +5934,9 @@ window.RevenuePage = () => {
                   entry.purpose && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(26,115,232,0.1)', color: 'var(--color-primary-light)' },
                   }, entry.purpose),
+                  entry.source && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: '600' },
+                  }, entry.source),
                   React.createElement('span', null, new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })),
                   entry.memo && React.createElement('span', null, `| ${entry.memo}`)
                 );
@@ -8832,7 +8870,7 @@ window.DataManagePage = () => {
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const todayDefault = new Date().toISOString().split('T')[0];
-  const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+  const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [addErrors, setAddErrors] = useState([]);
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const [addCoords, setAddCoords] = useState({ pickupCoords: null, dropoffCoords: null });
@@ -8872,7 +8910,7 @@ window.DataManagePage = () => {
   const startEdit = useCallback((entry, type) => {
     setEditingId(entry.id);
     setEditForm(type === 'revenue'
-      ? { amount: String(entry.amount), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '' }
+      ? { amount: String(entry.amount), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '', source: entry.source || '' }
       : { date: entry.date || '', time: entry.time || '', weather: entry.weather || '', location: entry.location || '', memo: entry.memo || '' }
     );
     setErrors([]);
@@ -8976,7 +9014,7 @@ window.DataManagePage = () => {
     const formWithCoords = { ...addForm, pickupCoords: addCoords.pickupCoords, dropoffCoords: addCoords.dropoffCoords };
     const result = DataService.addEntry(formWithCoords);
     if (!result.success) { setAddErrors(result.errors); return; }
-    setAddForm({ date: todayDefault, weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+    setAddForm({ date: todayDefault, weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setAddCoords({ pickupCoords: null, dropoffCoords: null });
     setMapPickerField(null);
     setShowAddForm(false);
@@ -9049,6 +9087,7 @@ window.DataManagePage = () => {
         field('人数', 'passengers', 'number'),
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
         field('目的', 'purpose', 'text'),
+        field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し']),
         field('メモ', 'memo', 'text')
       ) : React.createElement(React.Fragment, null,
         field('日付', 'date', 'date'),
@@ -9094,6 +9133,7 @@ window.DataManagePage = () => {
             info.holiday && React.createElement('span', { style: { color: '#ef4444', fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(239,68,68,0.1)' } }, info.holiday),
             entry.weather && React.createElement('span', null, entry.weather),
             entry.passengers && React.createElement('span', { style: { fontSize: '10px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' } }, `${entry.passengers}名`),
+            entry.source && React.createElement('span', { style: { fontSize: '10px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: 600 } }, entry.source),
             entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
           )
         ),
@@ -9289,6 +9329,12 @@ window.DataManagePage = () => {
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '性別'),
                 React.createElement('select', { value: addForm.gender, onChange: e => setAddForm(f => ({ ...f, gender: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } },
                   ['', '男性', '女性', 'その他'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
+                )
+              ),
+              React.createElement('div', null,
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '配車方法'),
+                React.createElement('select', { value: addForm.source, onChange: e => setAddForm(f => ({ ...f, source: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } },
+                  ['', 'Go', 'Uber', 'DIDI', '電話', '流し'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
                 )
               ),
               React.createElement('div', null,

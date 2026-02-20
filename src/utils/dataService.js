@@ -565,7 +565,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -580,8 +580,9 @@ window.DataService = (() => {
       const passengers = e.passengers || '';
       const gender = e.gender || '';
       const purpose = (e.purpose || '').replace(/,/g, '、');
+      const source = e.source || '';
       const memo = (e.memo || '').replace(/,/g, '、');
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${memo}`;
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -653,6 +654,7 @@ window.DataService = (() => {
       gender: form.gender || '',
       purpose: form.purpose || '',
       memo: form.memo || '',
+      source: form.source || '',
       timestamp: new Date().toISOString(),
     };
 
