@@ -30,7 +30,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', source: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -238,7 +238,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
+    setForm({ date: todayDefault, weather: form.weather, source: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -336,106 +336,6 @@ window.RevenuePage = () => {
 
       React.createElement('form', { onSubmit: handleSubmit },
         React.createElement('div', { className: 'grid grid--2' },
-          // 日付（自動：本日 + 曜日・祝日を自動計算）
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-              '日付 *',
-              React.createElement('span', {
-                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動')
-            ),
-            React.createElement('input', {
-              className: 'form-input',
-              type: 'date',
-              value: form.date,
-              onChange: (e) => setForm({ ...form, date: e.target.value }),
-              required: true,
-              style: { colorScheme: 'dark' },
-            }),
-            // 曜日・祝日の自動表示
-            form.date && (() => {
-              const info = JapaneseHolidays.getDateInfo(form.date);
-              const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-secondary)';
-              return React.createElement('div', {
-                style: { marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-              },
-                React.createElement('span', {
-                  style: {
-                    fontSize: '13px', fontWeight: '600', color: dayColor,
-                    padding: '2px 10px', borderRadius: '4px',
-                    background: info.isSunday || info.isHoliday ? 'rgba(239,68,68,0.12)' : info.isSaturday ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.06)',
-                  },
-                }, `${info.dayOfWeek}曜日`),
-                info.holiday && React.createElement('span', {
-                  style: {
-                    fontSize: '12px', fontWeight: '600', color: '#ef4444',
-                    padding: '2px 10px', borderRadius: '4px',
-                    background: 'rgba(239,68,68,0.12)',
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                  },
-                },
-                  React.createElement('span', { style: { fontSize: '13px' } }, '🎌'),
-                  info.holiday
-                )
-              );
-            })()
-          ),
-
-          // 天候（自動取得 + 手動変更可）
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-              '天候',
-              weatherLoading && React.createElement('span', {
-                style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: '400', animation: 'pulse 1.5s ease-in-out infinite' },
-              }, '取得中...'),
-              !weatherLoading && form.weather && React.createElement('span', {
-                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動取得済')
-            ),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-              ...[
-                { value: '晴れ', icon: '☀️' },
-                { value: '曇り', icon: '☁️' },
-                { value: '雨', icon: '🌧️' },
-                { value: '雪', icon: '❄️' },
-              ].map(w =>
-                React.createElement('button', {
-                  key: w.value,
-                  type: 'button',
-                  onClick: () => setForm({ ...form, weather: form.weather === w.value ? '' : w.value }),
-                  style: {
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '8px 14px', borderRadius: '8px',
-                    fontSize: '13px', fontWeight: form.weather === w.value ? '700' : '400',
-                    cursor: 'pointer',
-                    border: form.weather === w.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: form.weather === w.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
-                    color: form.weather === w.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  },
-                },
-                  React.createElement('span', { style: { fontSize: '16px' } }, w.icon),
-                  w.value
-                )
-              )
-            )
-          ),
-
-          // 金額
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, '金額 (円) *'),
-            React.createElement('input', {
-              className: 'form-input',
-              type: 'number',
-              min: '1',
-              max: '1000000',
-              placeholder: '3500',
-              value: form.amount,
-              onChange: (e) => { setForm({ ...form, amount: e.target.value }); setErrors([]); },
-              required: true,
-            })
-          ),
-
           // 乗車地（GPS付き）
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '乗車地'),
@@ -596,6 +496,139 @@ window.RevenuePage = () => {
                 '現在'
               )
             )
+          ),
+
+          // 日付（自動：本日 + 曜日・祝日を自動計算）
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              '日付 *',
+              React.createElement('span', {
+                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
+              }, '自動')
+            ),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'date',
+              value: form.date,
+              onChange: (e) => setForm({ ...form, date: e.target.value }),
+              required: true,
+              style: { colorScheme: 'dark' },
+            }),
+            // 曜日・祝日の自動表示
+            form.date && (() => {
+              const info = JapaneseHolidays.getDateInfo(form.date);
+              const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-secondary)';
+              return React.createElement('div', {
+                style: { marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+              },
+                React.createElement('span', {
+                  style: {
+                    fontSize: '13px', fontWeight: '600', color: dayColor,
+                    padding: '2px 10px', borderRadius: '4px',
+                    background: info.isSunday || info.isHoliday ? 'rgba(239,68,68,0.12)' : info.isSaturday ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.06)',
+                  },
+                }, `${info.dayOfWeek}曜日`),
+                info.holiday && React.createElement('span', {
+                  style: {
+                    fontSize: '12px', fontWeight: '600', color: '#ef4444',
+                    padding: '2px 10px', borderRadius: '4px',
+                    background: 'rgba(239,68,68,0.12)',
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '13px' } }, '🎌'),
+                  info.holiday
+                )
+              );
+            })()
+          ),
+
+          // 天候（自動取得 + 手動変更可）
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              '天候',
+              weatherLoading && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: '400', animation: 'pulse 1.5s ease-in-out infinite' },
+              }, '取得中...'),
+              !weatherLoading && form.weather && React.createElement('span', {
+                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
+              }, '自動取得済')
+            ),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...[
+                { value: '晴れ', icon: '☀️' },
+                { value: '曇り', icon: '☁️' },
+                { value: '雨', icon: '🌧️' },
+                { value: '雪', icon: '❄️' },
+              ].map(w =>
+                React.createElement('button', {
+                  key: w.value,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, weather: form.weather === w.value ? '' : w.value }),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '8px 14px', borderRadius: '8px',
+                    fontSize: '13px', fontWeight: form.weather === w.value ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.weather === w.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.weather === w.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.weather === w.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '16px' } }, w.icon),
+                  w.value
+                )
+              )
+            )
+          ),
+
+          // 配車方法
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '配車方法'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...[
+                { value: 'Go', icon: '🟢' },
+                { value: 'Uber', icon: '🟡' },
+                { value: 'DIDI', icon: '🟠' },
+                { value: '電話', icon: '📞' },
+                { value: '流し', icon: '🚕' },
+              ].map(s =>
+                React.createElement('button', {
+                  key: s.value,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, source: form.source === s.value ? '' : s.value }),
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    padding: '8px 14px', borderRadius: '8px',
+                    fontSize: '13px', fontWeight: form.source === s.value ? '700' : '400',
+                    cursor: 'pointer',
+                    border: form.source === s.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: form.source === s.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                    color: form.source === s.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: '16px' } }, s.icon),
+                  s.value
+                )
+              )
+            )
+          ),
+
+          // 金額
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '金額 (円) *'),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'number',
+              min: '1',
+              max: '1000000',
+              placeholder: '3500',
+              value: form.amount,
+              onChange: (e) => { setForm({ ...form, amount: e.target.value }); setErrors([]); },
+              required: true,
+            })
           ),
 
           // お客様人数
@@ -832,6 +865,9 @@ window.RevenuePage = () => {
                     style: { color: '#ef4444', fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(239,68,68,0.1)' },
                   }, info.holiday),
                   entry.weather && React.createElement('span', null, entry.weather),
+                  entry.source && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)', color: 'var(--color-accent)' },
+                  }, entry.source),
                   entry.passengers && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' },
                   }, `${entry.passengers}名`),
