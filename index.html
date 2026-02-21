@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.8.5</title>
+  <title>タクシー売上サポート v0.8.6</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.8.5',
+  VERSION: '0.8.6',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -10913,9 +10913,40 @@ window.DataManagePage = () => {
                   ['', 'Go', 'Uber', 'DIDI', '電話', '流し'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
                 )
               ),
-              React.createElement('div', null,
-                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '目的'),
-                React.createElement('input', { type: 'text', value: addForm.purpose, placeholder: '例: 通勤', onChange: e => setAddForm(f => ({ ...f, purpose: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
+              React.createElement('div', { style: { gridColumn: '1 / -1' } },
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '用途'),
+                React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                  ...[
+                    { value: '通勤', icon: '🏢' },
+                    { value: '通院', icon: '🏥' },
+                    { value: '買物', icon: '🛒' },
+                    { value: '観光', icon: '📸' },
+                    { value: '出張', icon: '💼' },
+                    { value: '送迎', icon: '🚗' },
+                    { value: '空港', icon: '✈️' },
+                    { value: '飲食', icon: '🍺' },
+                    { value: 'その他', icon: '📝' },
+                  ].map(p =>
+                    React.createElement('button', {
+                      key: p.value,
+                      type: 'button',
+                      onClick: () => setAddForm(f => ({ ...f, purpose: f.purpose === p.value ? '' : p.value })),
+                      style: {
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        padding: '6px 10px', borderRadius: '8px',
+                        fontSize: '12px', fontWeight: addForm.purpose === p.value ? '700' : '400',
+                        cursor: 'pointer',
+                        border: addForm.purpose === p.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                        background: addForm.purpose === p.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
+                        color: addForm.purpose === p.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                        transition: 'all 0.15s ease',
+                      },
+                    },
+                      React.createElement('span', { style: { fontSize: '14px' } }, p.icon),
+                      p.value
+                    )
+                  )
+                )
               ),
               React.createElement('div', { style: { gridColumn: '1 / -1' } },
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
