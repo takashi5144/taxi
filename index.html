@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.8.2',
+  VERSION: '0.8.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1638,7 +1638,60 @@ window.LightGBMService = (() => {
     };
   }
 
-  return { trainModel, predict, predictGrid, getModelInfo, WEATHER_CODE };
+  // ── 単価予測モデル学習 ──
+  // features: [lat, lng, hour, dayOfWeek, weatherCode]
+  // target: 金額（¥）
+  function preparePriceData() {
+    const entries = DataService.getEntries();
+    const X = [], y = [];
+
+    entries.forEach(e => {
+      if (!e.pickupCoords || !e.pickupCoords.lat || !e.pickupCoords.lng) return;
+      if (!e.amount || e.amount <= 0) return;
+      const d = new Date(e.timestamp);
+      const wc = WEATHER_CODE[e.weather] ?? 4;
+      const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : d.getHours();
+      const dow = d.getDay();
+      X.push([e.pickupCoords.lat, e.pickupCoords.lng, hr, dow, wc]);
+      y.push(e.amount);
+    });
+
+    return { X, y };
+  }
+
+  function trainPriceModel(opts) {
+    const { X, y } = preparePriceData();
+    if (X.length < 5) return null;
+    const model = train(X, y, { nTrees: 40, maxDepth: 4, lr: 0.1, minLeaf: 2, lambda: 1.0, ...opts });
+    if (model) {
+      AppLogger.info(`単価予測モデル学習完了: ${model.trees.length}本の木, 学習サンプル${X.length}件`);
+    }
+    return model;
+  }
+
+  // ── 単価予測グリッド ──
+  function predictPriceGrid(model, bounds, hour, dow, weather, step) {
+    if (!model || !bounds) return [];
+    const wc = WEATHER_CODE[weather] ?? 4;
+    const latRange = bounds.north - bounds.south;
+    const lngRange = bounds.east - bounds.west;
+    const gridStep = step || Math.max(Math.min(latRange, lngRange) / 40, 0.002);
+    const points = [];
+
+    for (let lat = bounds.south; lat <= bounds.north; lat += gridStep) {
+      for (let lng = bounds.west; lng <= bounds.east; lng += gridStep) {
+        const price = predict(model, [lat, lng, hour, dow, wc]);
+        if (price > 100) {
+          const tier = price <= 1000 ? 'short' : price <= 1999 ? 'mid' : 'long';
+          points.push({ lat, lng, price: Math.round(price), tier });
+        }
+      }
+    }
+
+    return points;
+  }
+
+  return { trainModel, trainPriceModel, predict, predictGrid, predictPriceGrid, getModelInfo, WEATHER_CODE };
 })();
 })();
 
@@ -4204,6 +4257,12 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const [priceTierSource, setPriceTierSource] = useState('all');
   const priceTierMarkersRef = useRef([]);
   const [nearbyEstimate, setNearbyEstimate] = useState(null);
+  const [showPricePredict, setShowPricePredict] = useState(false);
+  const [priceTraining, setPriceTraining] = useState(false);
+  const priceModelRef = useRef(null);
+  const pricePredictMarkersRef = useRef([]);
+  const [simHour, setSimHour] = useState(new Date().getHours());
+  const [simMode, setSimMode] = useState(false);
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
@@ -4443,9 +4502,9 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           return;
         }
 
-        // 現在の条件を取得
+        // 現在の条件を取得（シミュレーションモード対応）
         const now = new Date();
-        const hour = now.getHours();
+        const hour = simMode ? simHour : now.getHours();
         const dow = now.getDay();
         const entries = DataService.getEntries();
         const latestWeather = entries.length > 0 ? (entries[0].weather || '') : '';
@@ -4500,7 +4559,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         aiHeatmapLayerRef.current = null;
       }
     };
-  }, [showAiHeatmap]);
+  }, [showAiHeatmap, simHour, simMode]);
 
   // 単価ランクマーカーレイヤーの表示/非表示
   useEffect(() => {
@@ -4548,6 +4607,75 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       priceTierMarkersRef.current = [];
     };
   }, [showPriceTier, priceTierSource]);
+
+  // AI単価予測レイヤーの表示/非表示
+  useEffect(() => {
+    pricePredictMarkersRef.current.forEach(m => m.setMap(null));
+    pricePredictMarkersRef.current = [];
+
+    if (!showPricePredict || !mapInstanceRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+
+    setPriceTraining(true);
+    setTimeout(() => {
+      try {
+        if (!priceModelRef.current) {
+          priceModelRef.current = LightGBMService.trainPriceModel();
+        }
+        if (!priceModelRef.current) {
+          setPriceTraining(false);
+          AppLogger.warn('単価予測: GPS+金額付きデータが不足しています（5件以上必要）');
+          setShowPricePredict(false);
+          return;
+        }
+
+        const bounds = map.getBounds();
+        if (!bounds) { setPriceTraining(false); return; }
+        const ne = bounds.getNorthEast();
+        const sw = bounds.getSouthWest();
+        const mapBounds = { north: ne.lat(), south: sw.lat(), east: ne.lng(), west: sw.lng() };
+
+        const hour = simMode ? simHour : new Date().getHours();
+        const dow = new Date().getDay();
+        const entries = DataService.getEntries();
+        const weather = entries.length > 0 ? (entries[0].weather || '') : '';
+
+        const points = LightGBMService.predictPriceGrid(priceModelRef.current, mapBounds, hour, dow, weather);
+
+        const tierColors = { short: '#4CAF50', mid: '#FFC107', long: '#F44336' };
+
+        points.forEach(p => {
+          const marker = new google.maps.Marker({
+            position: { lat: p.lat, lng: p.lng },
+            map: map,
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              fillColor: tierColors[p.tier],
+              fillOpacity: 0.45,
+              strokeColor: tierColors[p.tier],
+              strokeWeight: 0.5,
+              scale: p.tier === 'long' ? 14 : p.tier === 'mid' ? 11 : 8,
+            },
+            title: '予測単価: ¥' + p.price.toLocaleString(),
+            clickable: false,
+            zIndex: p.tier === 'long' ? 3 : p.tier === 'mid' ? 2 : 1,
+          });
+          pricePredictMarkersRef.current.push(marker);
+        });
+
+        const info = LightGBMService.getModelInfo(priceModelRef.current);
+        AppLogger.info('AI単価予測: ' + points.length + 'グリッド表示, ' + info.nTrees + '本の木');
+      } catch (e) {
+        AppLogger.error('単価予測エラー: ' + e.message);
+      }
+      setPriceTraining(false);
+    }, 50);
+
+    return () => {
+      pricePredictMarkersRef.current.forEach(m => m.setMap(null));
+      pricePredictMarkersRef.current = [];
+    };
+  }, [showPricePredict, simHour, simMode]);
 
   // 現在位置マーカー更新
   useEffect(() => {
@@ -4837,6 +4965,101 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'paid'),
           `単価マップ ${showPriceTier ? 'ON' : 'OFF'}`
+        ),
+
+        // AI単価予測トグル
+        React.createElement('button', {
+          onClick: () => {
+            if (showPricePredict) {
+              setShowPricePredict(false);
+            } else {
+              priceModelRef.current = null;
+              setShowPricePredict(true);
+            }
+          },
+          disabled: priceTraining,
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: priceTraining ? 'wait' : 'pointer',
+            border: showPricePredict ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showPricePredict ? '#ec4899' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+            opacity: priceTraining ? 0.7 : 1,
+          },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '16px', animation: priceTraining ? 'spin 1s linear infinite' : 'none' },
+          }, priceTraining ? 'sync' : 'auto_awesome'),
+          priceTraining ? '単価学習中...' : `AI単価予測 ${showPricePredict ? 'ON' : 'OFF'}`
+        )
+      ),
+
+      // 時間帯シミュレーション スライダー
+      (showAiHeatmap || showPricePredict) && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(236,72,153,0.08)', border: '1px solid rgba(236,72,153,0.25)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#ec4899' } }, 'schedule'),
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 600, color: '#ec4899' } }, '時間帯シミュレーション')
+          ),
+          React.createElement('button', {
+            onClick: () => {
+              const next = !simMode;
+              setSimMode(next);
+              if (!next) {
+                setSimHour(new Date().getHours());
+              }
+            },
+            style: {
+              padding: '3px 10px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+              fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
+              background: simMode ? '#ec4899' : 'rgba(255,255,255,0.1)',
+              color: simMode ? '#fff' : 'var(--text-secondary)',
+            },
+          }, simMode ? 'シミュレーションON' : 'OFF（現在時刻）')
+        ),
+
+        // スライダー
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px' },
+        },
+          React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', minWidth: '24px' } }, '0時'),
+          React.createElement('input', {
+            type: 'range', min: 0, max: 23, step: 1,
+            value: simHour,
+            onChange: (e) => { setSimMode(true); setSimHour(parseInt(e.target.value, 10)); },
+            style: { flex: 1, accentColor: '#ec4899' },
+          }),
+          React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', minWidth: '30px' } }, '23時')
+        ),
+
+        React.createElement('div', {
+          style: { textAlign: 'center', marginTop: '4px' },
+        },
+          React.createElement('span', {
+            style: { fontSize: '16px', fontWeight: 700, color: simMode ? '#ec4899' : 'var(--text-secondary)' },
+          }, simHour + '時台'),
+          !simMode && React.createElement('span', {
+            style: { fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' },
+          }, '（現在時刻）'),
+          simMode && React.createElement('span', {
+            style: { fontSize: '11px', color: '#ec4899', marginLeft: '8px' },
+          }, (() => {
+            const diff = simHour - new Date().getHours();
+            if (diff === 0) return '（現在）';
+            return diff > 0 ? '（' + diff + '時間後）' : '（' + Math.abs(diff) + '時間前）';
+          })())
         )
       ),
 
@@ -4855,7 +5078,8 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           const days = ['日', '月', '火', '水', '木', '金', '土'];
           const entries = DataService.getEntries();
           const w = entries.length > 0 ? (entries[0].weather || '未設定') : '未設定';
-          return `LightGBM予測: ${days[now.getDay()]}曜 ${now.getHours()}時 ${w} の需要分布`;
+          const hr = simMode ? simHour : now.getHours();
+          return `LightGBM予測: ${days[now.getDay()]}曜 ${hr}時 ${w} の需要分布${simMode ? ' (シミュレーション)' : ''}`;
         })()
       ),
 
@@ -4870,6 +5094,42 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'info'),
         'GPS付き乗車データを記録するとヒートマップが表示されます'
+      ),
+
+      // AI単価予測 情報メッセージ
+      showPricePredict && !priceTraining && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '8px 12px', borderRadius: '6px',
+          background: 'rgba(236,72,153,0.1)', border: '1px solid rgba(236,72,153,0.3)',
+          fontSize: 'var(--font-size-xs)', color: '#f472b6',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'auto_awesome'),
+          (() => {
+            const hr = simMode ? simHour : new Date().getHours();
+            const days = ['日', '月', '火', '水', '木', '金', '土'];
+            return 'AI単価予測: ' + days[new Date().getDay()] + '曜 ' + hr + '時' + (simMode ? ' (シミュレーション)' : '');
+          })()
+        ),
+        React.createElement('div', {
+          style: { display: 'flex', gap: '10px', fontSize: '10px', color: 'var(--text-secondary)' },
+        },
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+            React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: '#4CAF50', display: 'inline-block' } }),
+            '¥1,000以下'
+          ),
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+            React.createElement('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#FFC107', display: 'inline-block' } }),
+            '¥1,001〜1,999'
+          ),
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+            React.createElement('span', { style: { width: '12px', height: '12px', borderRadius: '50%', background: '#F44336', display: 'inline-block' } }),
+            '¥2,000以上'
+          )
+        )
       ),
 
       // 単価マップ表示時: 配車方法フィルター + 周辺推定 + 凡例

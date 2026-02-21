@@ -1,6 +1,6 @@
 {
   "name": "taxi-sales-support",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "タクシードライバー向け売上サポートツール",
   "private": true,
   "type": "module",
