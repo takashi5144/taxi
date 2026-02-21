@@ -10391,10 +10391,12 @@ window.SettingsPage = () => {
 // 音声入力テキストをパースして各フィールドに分解する
 function parseVoiceInput(text) {
   const result = {};
-  // 全角数字→半角変換
-  let remaining = text.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 全角数字→半角変換 + カンマ除去（Speech APIが「3,500円」のように返す場合に対応）
+  let remaining = text
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/(\d),(\d)/g, '$1$2');
 
-  // 金額: 「3500円」
+  // 金額: 「3500円」「3500 円」
   const amountMatch = remaining.match(/(\d+)\s*円/);
   if (amountMatch) {
     result.amount = amountMatch[1];
@@ -10402,13 +10404,13 @@ function parseVoiceInput(text) {
   }
 
   // 天候
-  const weatherMatch = remaining.match(/晴れ|曇り|雨|雪/);
+  const weatherMatch = remaining.match(/晴れ|曇り?|雨|雪/);
   if (weatherMatch) {
-    result.weather = weatherMatch[0];
+    result.weather = weatherMatch[0] === '曇' ? '曇り' : weatherMatch[0];
     remaining = remaining.replace(weatherMatch[0], ' ');
   }
 
-  // 人数: 「1名」「2人」
+  // 人数: 「1名」「2人」「一名」
   const passMatch = remaining.match(/(\d+)\s*[名人]/);
   if (passMatch) {
     result.passengers = passMatch[1];
@@ -10422,16 +10424,21 @@ function parseVoiceInput(text) {
     remaining = remaining.replace(genderMatch[0], ' ');
   }
 
-  // 配車方法（単語境界を考慮）
-  const sourceMatch = remaining.match(/(?:^|[\s　])(?:go|uber|didi|電話|流し)(?:[\s　]|$)/i);
-  if (sourceMatch) {
-    const raw = sourceMatch[0].trim();
-    const normalized = raw.toLowerCase();
-    if (normalized === 'go') result.source = 'Go';
-    else if (normalized === 'uber') result.source = 'Uber';
-    else if (normalized === 'didi') result.source = 'DIDI';
-    else result.source = raw;
-    remaining = remaining.replace(sourceMatch[0], ' ');
+  // 配車方法（ラテン文字 + カタカナ両対応、単語境界なし）
+  const sourcePatterns = [
+    { pattern: /(?:ゴー|[Gg][Oo](?!ogle))/, value: 'Go' },
+    { pattern: /(?:ウーバー|[Uu]ber)/, value: 'Uber' },
+    { pattern: /(?:ディディ|ディーディー|[Dd][Ii][Dd][Ii])/, value: 'DIDI' },
+    { pattern: /電話/, value: '電話' },
+    { pattern: /流し|ながし/, value: '流し' },
+  ];
+  for (const sp of sourcePatterns) {
+    const m = remaining.match(sp.pattern);
+    if (m) {
+      result.source = sp.value;
+      remaining = remaining.replace(m[0], ' ');
+      break;
+    }
   }
 
   // 用途
@@ -10443,7 +10450,7 @@ function parseVoiceInput(text) {
 
   // 金額フォールバック: 3桁以上の単独数字
   if (!result.amount) {
-    const numMatch = remaining.match(/(?:^|[\s　])(\d{3,})(?:[\s　]|$)/);
+    const numMatch = remaining.match(/(\d{3,})/);
     if (numMatch) {
       result.amount = numMatch[1];
       remaining = remaining.replace(numMatch[0], ' ');
@@ -10697,30 +10704,37 @@ window.DataManagePage = () => {
     recognition.lang = 'ja-JP';
     recognition.continuous = false;
     recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    // 認識済みテキストを蓄積（onresultは複数回呼ばれる可能性）
+    let accumulatedFinal = '';
     recognition.onresult = (event) => {
-      let finalTranscript = '';
       let interimTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript;
+          accumulatedFinal += transcript;
         } else {
           interimTranscript += transcript;
         }
       }
-      setInterimText(interimTranscript || finalTranscript);
-      if (finalTranscript) {
-        const parsed = parseVoiceInput(finalTranscript);
+      setInterimText(interimTranscript || accumulatedFinal);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      if (accumulatedFinal) {
+        console.log('[Voice] 認識テキスト:', accumulatedFinal);
+        const parsed = parseVoiceInput(accumulatedFinal);
+        console.log('[Voice] パース結果:', JSON.stringify(parsed));
         setAddForm(f => {
           const updated = { ...f };
-          if (parsed.amount && !f.amount) updated.amount = parsed.amount;
-          if (parsed.weather && !f.weather) updated.weather = parsed.weather;
-          if (parsed.passengers && f.passengers === '1') updated.passengers = parsed.passengers;
-          if (parsed.gender && !f.gender) updated.gender = parsed.gender;
-          if (parsed.source && !f.source) updated.source = parsed.source;
-          if (parsed.purpose && !f.purpose) updated.purpose = parsed.purpose;
-          if (parsed.pickup && !f.pickup) updated.pickup = parsed.pickup;
-          if (parsed.dropoff && !f.dropoff) updated.dropoff = parsed.dropoff;
+          if (parsed.amount) updated.amount = parsed.amount;
+          if (parsed.weather) updated.weather = parsed.weather;
+          if (parsed.passengers) updated.passengers = parsed.passengers;
+          if (parsed.gender) updated.gender = parsed.gender;
+          if (parsed.source) updated.source = parsed.source;
+          if (parsed.purpose) updated.purpose = parsed.purpose;
+          if (parsed.pickup) updated.pickup = parsed.pickup;
+          if (parsed.dropoff) updated.dropoff = parsed.dropoff;
           if (parsed.memo && !f.memo) updated.memo = parsed.memo;
           // 日付未設定なら今日
           if (!f.date) updated.date = new Date().toISOString().split('T')[0];
@@ -10734,15 +10748,24 @@ window.DataManagePage = () => {
         setVoiceSuccess(true);
         setTimeout(() => setVoiceSuccess(false), 1500);
         setInterimText('');
-        setIsListening(false);
+      } else {
+        setInterimText('');
       }
     };
-    recognition.onerror = () => { setIsListening(false); setInterimText(''); };
-    recognition.onend = () => { setIsListening(false); };
+    recognition.onerror = (e) => {
+      console.warn('[Voice] エラー:', e.error);
+      setIsListening(false);
+      setInterimText('');
+    };
     recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
-    setInterimText('');
+    try {
+      recognition.start();
+      setIsListening(true);
+      setInterimText('');
+    } catch (e) {
+      console.warn('[Voice] 開始エラー:', e);
+      setIsListening(false);
+    }
   }, [isListening]);
 
   // 音声認識クリーンアップ
