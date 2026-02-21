@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.8.1',
+  VERSION: '0.8.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2511,6 +2511,81 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 単価ランク別ヒートマップデータ（地図用）
+  // ============================================================
+  function getPriceTierHeatmapData(filterSource) {
+    const entries = getEntries();
+    const points = [];
+
+    entries.forEach(e => {
+      if (!e.pickupCoords || !e.pickupCoords.lat || !e.pickupCoords.lng) return;
+      if (filterSource && e.source !== filterSource) return;
+      const amt = e.amount || 0;
+      const tier = amt <= 1000 ? 'short' : amt <= 1999 ? 'mid' : 'long';
+      points.push({
+        lat: e.pickupCoords.lat,
+        lng: e.pickupCoords.lng,
+        amount: amt,
+        tier,
+        source: e.source || '未設定',
+        area: e.pickup || '',
+        hour: e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp),
+      });
+    });
+
+    return points;
+  }
+
+  // ============================================================
+  // 現在地周辺の推定単価（地図パネル用）
+  // ============================================================
+  function getNearbyEstimate(lat, lng, radiusKm) {
+    radiusKm = radiusKm || 2;
+    const entries = getEntries();
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentDow = now.getDay();
+    const nearby = [];
+
+    entries.forEach(e => {
+      if (!e.pickupCoords || !e.pickupCoords.lat || !e.pickupCoords.lng) return;
+      const dLat = e.pickupCoords.lat - lat;
+      const dLng = e.pickupCoords.lng - lng;
+      const dist = Math.sqrt(dLat * dLat + dLng * dLng) * 111; // 粗い距離(km)
+      if (dist <= radiusKm) {
+        nearby.push(e);
+      }
+    });
+
+    if (nearby.length === 0) return { count: 0, avgPrice: 0, tierCounts: { short: 0, mid: 0, long: 0 }, sources: {}, topArea: '' };
+
+    let total = 0;
+    const tierCounts = { short: 0, mid: 0, long: 0 };
+    const sources = {};
+    const areaCounts = {};
+
+    nearby.forEach(e => {
+      const amt = e.amount || 0;
+      total += amt;
+      const tier = amt <= 1000 ? 'short' : amt <= 1999 ? 'mid' : 'long';
+      tierCounts[tier] += 1;
+      const src = e.source || '未設定';
+      sources[src] = (sources[src] || 0) + 1;
+      if (e.pickup) areaCounts[e.pickup] = (areaCounts[e.pickup] || 0) + 1;
+    });
+
+    const topArea = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      count: nearby.length,
+      avgPrice: Math.round(total / nearby.length),
+      tierCounts,
+      sources,
+      topArea: topArea ? topArea[0] : '',
+    };
+  }
+
+  // ============================================================
   // ヒートマップデータ
   // ============================================================
   function getHeatmapData() {
@@ -2994,6 +3069,8 @@ window.DataService = (() => {
     getUnitPriceAnalysis,
     getBusinessRecommendation,
     getSourceAreaPriceBreakdown,
+    getPriceTierHeatmapData,
+    getNearbyEstimate,
     getHeatmapData,
 
     // CRUD
@@ -4123,6 +4200,10 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showAiHeatmap, setShowAiHeatmap] = useState(false);
   const [aiTraining, setAiTraining] = useState(false);
+  const [showPriceTier, setShowPriceTier] = useState(false);
+  const [priceTierSource, setPriceTierSource] = useState('all');
+  const priceTierMarkersRef = useRef([]);
+  const [nearbyEstimate, setNearbyEstimate] = useState(null);
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
@@ -4421,6 +4502,53 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     };
   }, [showAiHeatmap]);
 
+  // 単価ランクマーカーレイヤーの表示/非表示
+  useEffect(() => {
+    // 既存マーカーをクリア
+    priceTierMarkersRef.current.forEach(m => m.setMap(null));
+    priceTierMarkersRef.current = [];
+    setNearbyEstimate(null);
+
+    if (!showPriceTier || !mapInstanceRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+    const src = priceTierSource === 'all' ? null : priceTierSource;
+    const points = DataService.getPriceTierHeatmapData(src);
+
+    if (points.length === 0) return;
+
+    const tierColors = { short: '#4CAF50', mid: '#FFC107', long: '#F44336' };
+    const tierLabels = { short: '短', mid: '中', long: '長' };
+
+    points.forEach(p => {
+      const marker = new google.maps.Marker({
+        position: { lat: p.lat, lng: p.lng },
+        map: map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: tierColors[p.tier],
+          fillOpacity: 0.7,
+          strokeColor: '#fff',
+          strokeWeight: 1,
+          scale: p.tier === 'long' ? 10 : p.tier === 'mid' ? 8 : 6,
+        },
+        title: `¥${p.amount.toLocaleString()} (${p.source}) ${p.area}`,
+        zIndex: p.tier === 'long' ? 3 : p.tier === 'mid' ? 2 : 1,
+      });
+      priceTierMarkersRef.current.push(marker);
+    });
+
+    // 現在位置の周辺推定
+    const pos = currentPosition || mapCenter;
+    if (pos && pos.lat && pos.lng) {
+      setNearbyEstimate(DataService.getNearbyEstimate(pos.lat, pos.lng, 2));
+    }
+
+    return () => {
+      priceTierMarkersRef.current.forEach(m => m.setMap(null));
+      priceTierMarkersRef.current = [];
+    };
+  }, [showPriceTier, priceTierSource]);
+
   // 現在位置マーカー更新
   useEffect(() => {
     if (!mapInstanceRef.current || !currentPosition || !window.google) return;
@@ -4687,6 +4815,31 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         )
       ),
 
+        // 単価マップトグル
+        React.createElement('button', {
+          onClick: () => {
+            const pts = DataService.getPriceTierHeatmapData(null);
+            if (pts.length === 0 && !showPriceTier) {
+              AppLogger.warn('GPS付き乗車データを記録すると単価マップが表示されます');
+              return;
+            }
+            setShowPriceTier(prev => !prev);
+          },
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: 'pointer',
+            border: showPriceTier ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showPriceTier ? '#10b981' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'paid'),
+          `単価マップ ${showPriceTier ? 'ON' : 'OFF'}`
+        )
+      ),
+
       // AI予測 情報メッセージ
       showAiHeatmap && !aiTraining && React.createElement('div', {
         style: {
@@ -4717,6 +4870,108 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'info'),
         'GPS付き乗車データを記録するとヒートマップが表示されます'
+      ),
+
+      // 単価マップ表示時: 配車方法フィルター + 周辺推定 + 凡例
+      showPriceTier && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
+        },
+      },
+        // 配車方法フィルター
+        React.createElement('div', {
+          style: { display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' },
+        },
+          React.createElement('span', {
+            style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginRight: '4px' },
+          }, '配車方法:'),
+          ...['all', 'Go', 'Uber', 'DIDI', '電話', '流し'].map(s =>
+            React.createElement('button', {
+              key: s,
+              onClick: () => setPriceTierSource(s),
+              style: {
+                padding: '3px 10px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
+                background: priceTierSource === s ? '#10b981' : 'rgba(255,255,255,0.1)',
+                color: priceTierSource === s ? '#fff' : 'var(--text-secondary)',
+                transition: 'all 0.15s ease',
+              },
+            }, s === 'all' ? '全て' : s)
+          )
+        ),
+
+        // 周辺推定
+        nearbyEstimate && nearbyEstimate.count > 0 && React.createElement('div', {
+          style: {
+            padding: '8px', borderRadius: '6px', background: 'rgba(0,0,0,0.2)',
+            marginBottom: '8px',
+          },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#10b981' } }, 'near_me'),
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 600, color: '#10b981' } }, '現在地周辺（半径2km）')
+          ),
+          React.createElement('div', {
+            style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '11px' },
+          },
+            React.createElement('div', null,
+              React.createElement('span', { style: { color: 'var(--text-muted)' } }, '推定客単価 '),
+              React.createElement('span', { style: { fontWeight: 700, color: '#fff', fontSize: '14px' } }, '¥' + nearbyEstimate.avgPrice.toLocaleString())
+            ),
+            React.createElement('div', null,
+              React.createElement('span', { style: { color: 'var(--text-muted)' } }, '過去データ '),
+              React.createElement('span', { style: { fontWeight: 600, color: '#fff' } }, nearbyEstimate.count + '件')
+            ),
+            React.createElement('div', null,
+              React.createElement('span', { style: { color: 'var(--text-muted)' } }, '単価構成 '),
+              React.createElement('span', { style: { color: '#4CAF50' } }, '短' + nearbyEstimate.tierCounts.short),
+              ' ',
+              React.createElement('span', { style: { color: '#FFC107' } }, '中' + nearbyEstimate.tierCounts.mid),
+              ' ',
+              React.createElement('span', { style: { color: '#F44336' } }, '長' + nearbyEstimate.tierCounts.long)
+            ),
+            nearbyEstimate.topArea && React.createElement('div', null,
+              React.createElement('span', { style: { color: 'var(--text-muted)' } }, '最多エリア '),
+              React.createElement('span', { style: { fontWeight: 600, color: '#fff' } }, nearbyEstimate.topArea)
+            )
+          ),
+          // 配車方法内訳
+          Object.keys(nearbyEstimate.sources).length > 0 && React.createElement('div', {
+            style: { marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' },
+          },
+            ...Object.entries(nearbyEstimate.sources).sort((a, b) => b[1] - a[1]).map(([src, cnt]) =>
+              React.createElement('span', {
+                key: src,
+                style: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-secondary)' },
+              }, src + ' ' + cnt + '件')
+            )
+          )
+        ),
+
+        // 凡例
+        React.createElement('div', {
+          style: { display: 'flex', gap: '12px', alignItems: 'center', fontSize: '11px' },
+        },
+          React.createElement('span', { style: { fontWeight: 600, color: 'var(--text-secondary)' } }, '凡例:'),
+          ...[
+            { c: '#4CAF50', l: '¥1,000以下', s: 6 },
+            { c: '#FFC107', l: '¥1,001〜1,999', s: 8 },
+            { c: '#F44336', l: '¥2,000以上', s: 10 },
+          ].map(item =>
+            React.createElement('span', {
+              key: item.l,
+              style: { display: 'flex', alignItems: 'center', gap: '3px' },
+            },
+              React.createElement('span', {
+                style: { display: 'inline-block', width: item.s * 2 + 'px', height: item.s * 2 + 'px', borderRadius: '50%', background: item.c, opacity: 0.7 },
+              }),
+              React.createElement('span', { style: { color: 'var(--text-secondary)' } }, item.l)
+            )
+          )
+        )
       ),
 
       // 渋滞凡例
