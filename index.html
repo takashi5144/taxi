@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.8.0',
+  VERSION: '0.8.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2407,6 +2407,110 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 配車方法×エリア×単価ランク クロス分析
+  // ============================================================
+  function getSourceAreaPriceBreakdown() {
+    const entries = getEntries();
+    const sources = ['Go', 'Uber', 'DIDI', '電話', '流し'];
+    const priceTiers = [
+      { key: 'short', label: '¥1,000以下', min: 0, max: 1000 },
+      { key: 'mid', label: '¥1,001〜1,999', min: 1001, max: 1999 },
+      { key: 'long', label: '¥2,000以上', min: 2000, max: Infinity },
+    ];
+
+    // 配車方法×エリアごとの集計
+    const sourceAreaMap = {};
+    // 配車方法×単価ランクの集計
+    const sourceTierMap = {};
+    sources.forEach(s => {
+      sourceTierMap[s] = {};
+      priceTiers.forEach(t => { sourceTierMap[s][t.key] = { count: 0, amount: 0 }; });
+    });
+    // エリア×単価ランクの集計
+    const areaTierMap = {};
+
+    entries.forEach(e => {
+      const src = e.source && sources.includes(e.source) ? e.source : null;
+      const area = e.pickup || '';
+      const amt = e.amount || 0;
+      const tier = amt <= 1000 ? 'short' : amt <= 1999 ? 'mid' : 'long';
+
+      // 配車方法×エリア
+      if (src && area) {
+        const key = src + '::' + area;
+        if (!sourceAreaMap[key]) sourceAreaMap[key] = { source: src, area, count: 0, amount: 0, avg: 0, tiers: { short: 0, mid: 0, long: 0 } };
+        sourceAreaMap[key].count += 1;
+        sourceAreaMap[key].amount += amt;
+        sourceAreaMap[key].tiers[tier] += 1;
+      }
+
+      // 配車方法×単価ランク
+      if (src) {
+        sourceTierMap[src][tier].count += 1;
+        sourceTierMap[src][tier].amount += amt;
+      }
+
+      // エリア×単価ランク
+      if (area) {
+        if (!areaTierMap[area]) {
+          areaTierMap[area] = { area, total: 0, tiers: {} };
+          priceTiers.forEach(t => { areaTierMap[area].tiers[t.key] = { count: 0, amount: 0 }; });
+        }
+        areaTierMap[area].total += 1;
+        areaTierMap[area].tiers[tier].count += 1;
+        areaTierMap[area].tiers[tier].amount += amt;
+      }
+    });
+
+    // 平均算出
+    Object.values(sourceAreaMap).forEach(v => { v.avg = v.count > 0 ? Math.round(v.amount / v.count) : 0; });
+
+    // 配車方法×エリア: 上位をソート
+    const sourceAreaList = Object.values(sourceAreaMap).sort((a, b) => b.count - a.count).slice(0, 30);
+
+    // 配車方法×単価ランク: 構造化
+    const sourceTierList = sources.map(s => ({
+      source: s,
+      tiers: priceTiers.map(t => ({
+        ...t,
+        count: sourceTierMap[s][t.key].count,
+        amount: sourceTierMap[s][t.key].amount,
+        avg: sourceTierMap[s][t.key].count > 0 ? Math.round(sourceTierMap[s][t.key].amount / sourceTierMap[s][t.key].count) : 0,
+      })),
+      totalCount: priceTiers.reduce((sum, t) => sum + sourceTierMap[s][t.key].count, 0),
+    }));
+
+    // エリア×単価ランク: 上位エリア
+    const areaTierList = Object.values(areaTierMap)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+      .map(a => ({
+        area: a.area,
+        total: a.total,
+        tiers: priceTiers.map(t => ({
+          ...t,
+          count: a.tiers[t.key].count,
+          amount: a.tiers[t.key].amount,
+          pct: a.total > 0 ? Math.round((a.tiers[t.key].count / a.total) * 100) : 0,
+        })),
+      }));
+
+    // エリア×配車方法マトリクス（平均単価）: 上位エリア×全配車方法
+    const topAreas = areaTierList.map(a => a.area);
+    const matrixData = topAreas.map(area => {
+      const row = { area };
+      sources.forEach(src => {
+        const key = src + '::' + area;
+        const d = sourceAreaMap[key];
+        row[src] = d ? { count: d.count, avg: d.avg, tiers: d.tiers } : { count: 0, avg: 0, tiers: { short: 0, mid: 0, long: 0 } };
+      });
+      return row;
+    });
+
+    return { priceTiers, sources, sourceAreaList, sourceTierList, areaTierList, matrixData };
+  }
+
+  // ============================================================
   // ヒートマップデータ
   // ============================================================
   function getHeatmapData() {
@@ -2889,6 +2993,7 @@ window.DataService = (() => {
     getAreaTimeBreakdown,
     getUnitPriceAnalysis,
     getBusinessRecommendation,
+    getSourceAreaPriceBreakdown,
     getHeatmapData,
 
     // CRUD
@@ -8344,6 +8449,7 @@ window.AnalyticsPage = () => {
   const areaTime = useMemo(() => DataService.getAreaTimeBreakdown(), [refreshKey]);
   const unitPrice = useMemo(() => DataService.getUnitPriceAnalysis(), [refreshKey]);
   const recommendation = useMemo(() => DataService.getBusinessRecommendation(), [refreshKey]);
+  const sourceAreaPrice = useMemo(() => DataService.getSourceAreaPriceBreakdown(), [refreshKey]);
 
   const hasData = overall.rideCount > 0;
 
@@ -8936,6 +9042,179 @@ window.AnalyticsPage = () => {
           React.createElement(HBarChart, {
             data: unitPrice.byPassengers.filter(p => p.count > 0), nameKey: 'name', valueKey: 'avg', color: 'var(--color-secondary)',
           })
+        )
+      ),
+
+      // E. 配車方法×エリア×単価ランク クロス分析
+      sourceAreaPrice.matrixData.length > 0 && React.createElement(Card, {
+        title: '配車方法×エリア×単価 クロス分析',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        // 凡例
+        React.createElement('div', {
+          style: { display: 'flex', gap: '12px', marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', flexWrap: 'wrap' },
+        },
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('span', { style: { width: '10px', height: '10px', borderRadius: '2px', background: 'rgba(244,67,54,0.6)', display: 'inline-block' } }),
+            '¥2,000以上'
+          ),
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('span', { style: { width: '10px', height: '10px', borderRadius: '2px', background: 'rgba(255,193,7,0.6)', display: 'inline-block' } }),
+            '¥1,001〜1,999'
+          ),
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('span', { style: { width: '10px', height: '10px', borderRadius: '2px', background: 'rgba(76,175,80,0.6)', display: 'inline-block' } }),
+            '¥1,000以下'
+          )
+        ),
+
+        // エリア×配車方法マトリクス（平均単価 + 単価ランク内訳バー）
+        React.createElement('div', { style: { overflowX: 'auto' } },
+          React.createElement('div', {
+            style: {
+              display: 'grid',
+              gridTemplateColumns: '100px repeat(5, 1fr)',
+              gap: '2px',
+              fontSize: 'var(--font-size-xs)',
+              minWidth: '480px',
+            },
+          },
+            // ヘッダー
+            React.createElement('div', { style: { padding: '8px 4px', fontWeight: 600, color: 'var(--text-secondary)' } }, 'エリア'),
+            ...sourceAreaPrice.sources.map(s =>
+              React.createElement('div', { key: s, style: { padding: '8px 4px', textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' } }, s)
+            ),
+
+            // データ行
+            ...sourceAreaPrice.matrixData.flatMap(row => [
+              React.createElement('div', {
+                key: row.area + '-lbl',
+                style: { padding: '8px 4px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center' },
+                title: row.area,
+              }, row.area.length > 8 ? row.area.slice(0, 8) + '…' : row.area),
+
+              ...sourceAreaPrice.sources.map(src => {
+                const d = row[src];
+                if (d.count === 0) {
+                  return React.createElement('div', {
+                    key: row.area + '-' + src,
+                    style: { padding: '8px 4px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-muted)' },
+                  }, '-');
+                }
+                const total = d.tiers.short + d.tiers.mid + d.tiers.long;
+                const pctS = total > 0 ? (d.tiers.short / total) * 100 : 0;
+                const pctM = total > 0 ? (d.tiers.mid / total) * 100 : 0;
+                const pctL = total > 0 ? (d.tiers.long / total) * 100 : 0;
+                return React.createElement('div', {
+                  key: row.area + '-' + src,
+                  style: { padding: '6px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' },
+                  title: row.area + ' × ' + src + ': ' + d.count + '件 平均¥' + d.avg.toLocaleString() + ' (短' + d.tiers.short + '/中' + d.tiers.mid + '/長' + d.tiers.long + ')',
+                },
+                  React.createElement('div', { style: { fontWeight: 600, marginBottom: '3px' } }, '¥' + d.avg.toLocaleString()),
+                  React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)', marginBottom: '3px' } }, d.count + '件'),
+                  // 単価ランク内訳バー
+                  React.createElement('div', {
+                    style: { display: 'flex', height: '4px', borderRadius: '2px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)' },
+                  },
+                    pctS > 0 && React.createElement('div', { style: { width: pctS + '%', background: 'rgba(76,175,80,0.7)' } }),
+                    pctM > 0 && React.createElement('div', { style: { width: pctM + '%', background: 'rgba(255,193,7,0.7)' } }),
+                    pctL > 0 && React.createElement('div', { style: { width: pctL + '%', background: 'rgba(244,67,54,0.7)' } })
+                  )
+                );
+              })
+            ])
+          )
+        ),
+
+        React.createElement('div', {
+          style: { marginTop: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' },
+        }, 'セルをタップで詳細表示 | バー: 緑=短距離 黄=中距離 赤=長距離')
+      ),
+
+      // 配車方法別 単価ランク構成
+      sourceAreaPrice.sourceTierList.some(s => s.totalCount > 0) && React.createElement(Card, {
+        title: '配車方法別 単価ランク構成',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        React.createElement('div', { style: { display: 'grid', gap: 'var(--space-md)' } },
+          sourceAreaPrice.sourceTierList.filter(s => s.totalCount > 0).map(s =>
+            React.createElement('div', { key: s.source },
+              React.createElement('div', {
+                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
+              },
+                React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, s.source),
+                React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, s.totalCount + '件')
+              ),
+              // 積み上げバー
+              React.createElement('div', {
+                style: { display: 'flex', height: '20px', borderRadius: '4px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)' },
+              },
+                ...s.tiers.map(t => {
+                  const pct = s.totalCount > 0 ? (t.count / s.totalCount) * 100 : 0;
+                  if (pct === 0) return null;
+                  const colors = { short: 'rgba(76,175,80,0.7)', mid: 'rgba(255,193,7,0.7)', long: 'rgba(244,67,54,0.7)' };
+                  return React.createElement('div', {
+                    key: t.key,
+                    style: {
+                      width: pct + '%', background: colors[t.key],
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '9px', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap',
+                      minWidth: pct > 8 ? 'auto' : '0',
+                    },
+                    title: t.label + ': ' + t.count + '件 平均¥' + t.avg.toLocaleString(),
+                  }, pct >= 15 ? Math.round(pct) + '%' : '');
+                })
+              ),
+              // ラベル
+              React.createElement('div', {
+                style: { display: 'flex', justifyContent: 'space-between', marginTop: '3px', fontSize: '10px', color: 'var(--text-muted)' },
+              },
+                ...s.tiers.filter(t => t.count > 0).map(t =>
+                  React.createElement('span', { key: t.key }, t.label + ' ' + t.count + '件 avg¥' + t.avg.toLocaleString())
+                )
+              )
+            )
+          )
+        )
+      ),
+
+      // エリア別 単価ランク構成
+      sourceAreaPrice.areaTierList.length > 0 && React.createElement(Card, {
+        title: 'エリア別 単価ランク構成',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        React.createElement('div', { style: { display: 'grid', gap: 'var(--space-md)' } },
+          sourceAreaPrice.areaTierList.map(a =>
+            React.createElement('div', { key: a.area },
+              React.createElement('div', {
+                style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
+              },
+                React.createElement('span', {
+                  style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' },
+                  title: a.area,
+                }, a.area),
+                React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, a.total + '件')
+              ),
+              // 積み上げバー
+              React.createElement('div', {
+                style: { display: 'flex', height: '16px', borderRadius: '4px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)' },
+              },
+                ...a.tiers.map(t => {
+                  if (t.pct === 0) return null;
+                  const colors = { short: 'rgba(76,175,80,0.7)', mid: 'rgba(255,193,7,0.7)', long: 'rgba(244,67,54,0.7)' };
+                  return React.createElement('div', {
+                    key: t.key,
+                    style: {
+                      width: t.pct + '%', background: colors[t.key],
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '9px', fontWeight: 600, color: '#fff',
+                    },
+                    title: t.label + ': ' + t.count + '件 (' + t.pct + '%)',
+                  }, t.pct >= 15 ? t.pct + '%' : '');
+                })
+              )
+            )
+          )
         )
       ),
 
