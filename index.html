@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.8.3',
+  VERSION: '0.8.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -4940,8 +4940,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             style: { fontSize: '16px', animation: aiTraining ? 'spin 1s linear infinite' : 'none' },
           }, aiTraining ? 'sync' : 'psychology'),
           aiTraining ? 'LightGBM 学習中...' : `AI予測 ${showAiHeatmap ? 'ON' : 'OFF'}`
-        )
-      ),
+        ),
 
         // 単価マップトグル
         React.createElement('button', {
@@ -9461,7 +9460,7 @@ window.AnalyticsPage = () => {
           },
             // ヘッダー行
             React.createElement('div', { style: { padding: '6px 4px', fontWeight: 600, color: 'var(--text-secondary)' } }, 'エリア'),
-            ..['0-3', '4-7', '8-11', '12-15', '16-19', '20-23'].map(label =>
+            ...['0-3', '4-7', '8-11', '12-15', '16-19', '20-23'].map(label =>
               React.createElement('div', { key: label, style: { padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' } }, label + '時')
             ),
 
@@ -9557,6 +9556,63 @@ window.AnalyticsPage = () => {
           React.createElement(HBarChart, {
             data: unitPrice.byPassengers.filter(p => p.count > 0), nameKey: 'name', valueKey: 'avg', color: 'var(--color-secondary)',
           })
+        )
+      ),
+
+      // D. 配車方法・用途分析
+      React.createElement(Card, { title: '配車方法・用途分析' },
+        // 配車方法別
+        React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '配車方法別'),
+          React.createElement('div', { style: { marginBottom: '12px' } },
+            React.createElement(HBarChart, {
+              data: sourceData.filter(s => s.count > 0), nameKey: 'name', valueKey: 'amount', color: 'var(--color-primary-light)',
+            })
+          ),
+          React.createElement('div', {
+            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
+          },
+            sourceData.filter(s => s.count > 0).map((s, i) =>
+              React.createElement('div', {
+                key: i,
+                style: {
+                  padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                  fontSize: 'var(--font-size-xs)', textAlign: 'center',
+                },
+              },
+                React.createElement('div', { style: { fontWeight: 600, marginBottom: '2px' } }, s.name),
+                React.createElement('div', { style: { color: 'var(--text-secondary)' } }, s.count + '件'),
+                React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, '平均¥' + s.avg.toLocaleString())
+              )
+            )
+          )
+        ),
+
+        // 用途別
+        React.createElement('div', null,
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '用途別'),
+          React.createElement('div', { style: { marginBottom: '12px' } },
+            React.createElement(HBarChart, {
+              data: purposeData.filter(p => p.count > 0), nameKey: 'name', valueKey: 'amount', color: 'var(--color-accent)',
+            })
+          ),
+          React.createElement('div', {
+            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
+          },
+            purposeData.filter(p => p.count > 0).map((p, i) =>
+              React.createElement('div', {
+                key: i,
+                style: {
+                  padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                  fontSize: 'var(--font-size-xs)', textAlign: 'center',
+                },
+              },
+                React.createElement('div', { style: { fontWeight: 600, marginBottom: '2px' } }, p.name),
+                React.createElement('div', { style: { color: 'var(--text-secondary)' } }, p.count + '件'),
+                React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, '平均¥' + p.avg.toLocaleString())
+              )
+            )
+          )
         )
       ),
 
@@ -9727,63 +9783,6 @@ window.AnalyticsPage = () => {
                     title: t.label + ': ' + t.count + '件 (' + t.pct + '%)',
                   }, t.pct >= 15 ? t.pct + '%' : '');
                 })
-              )
-            )
-          )
-        )
-      ),
-
-      // D. 配車方法・用途分析
-      React.createElement(Card, { title: '配車方法・用途分析' },
-        // 配車方法別
-        React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
-          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '配車方法別'),
-          React.createElement('div', { style: { marginBottom: '12px' } },
-            React.createElement(HBarChart, {
-              data: sourceData.filter(s => s.count > 0), nameKey: 'name', valueKey: 'amount', color: 'var(--color-primary-light)',
-            })
-          ),
-          React.createElement('div', {
-            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
-          },
-            sourceData.filter(s => s.count > 0).map((s, i) =>
-              React.createElement('div', {
-                key: i,
-                style: {
-                  padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
-                  fontSize: 'var(--font-size-xs)', textAlign: 'center',
-                },
-              },
-                React.createElement('div', { style: { fontWeight: 600, marginBottom: '2px' } }, s.name),
-                React.createElement('div', { style: { color: 'var(--text-secondary)' } }, s.count + '件'),
-                React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, '平均¥' + s.avg.toLocaleString())
-              )
-            )
-          )
-        ),
-
-        // 用途別
-        React.createElement('div', null,
-          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '用途別'),
-          React.createElement('div', { style: { marginBottom: '12px' } },
-            React.createElement(HBarChart, {
-              data: purposeData.filter(p => p.count > 0), nameKey: 'name', valueKey: 'amount', color: 'var(--color-accent)',
-            })
-          ),
-          React.createElement('div', {
-            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
-          },
-            purposeData.filter(p => p.count > 0).map((p, i) =>
-              React.createElement('div', {
-                key: i,
-                style: {
-                  padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
-                  fontSize: 'var(--font-size-xs)', textAlign: 'center',
-                },
-              },
-                React.createElement('div', { style: { fontWeight: 600, marginBottom: '2px' } }, p.name),
-                React.createElement('div', { style: { color: 'var(--text-secondary)' } }, p.count + '件'),
-                React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, '平均¥' + p.avg.toLocaleString())
               )
             )
           )
