@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.7.3',
+  VERSION: '0.8.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2208,6 +2208,205 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 配車方法別集計
+  // ============================================================
+  function getSourceBreakdown() {
+    const entries = getEntries();
+    const sources = ['Go', 'Uber', 'DIDI', '電話', '流し', '未設定'];
+    const result = {};
+    sources.forEach(s => { result[s] = { name: s, amount: 0, count: 0, avg: 0 }; });
+
+    entries.forEach(e => {
+      const s = e.source && sources.includes(e.source) ? e.source : '未設定';
+      result[s].amount += e.amount || 0;
+      result[s].count += 1;
+    });
+
+    sources.forEach(s => {
+      result[s].avg = result[s].count > 0 ? Math.round(result[s].amount / result[s].count) : 0;
+    });
+
+    return sources.map(s => result[s]);
+  }
+
+  // ============================================================
+  // 用途別集計
+  // ============================================================
+  function getPurposeBreakdown() {
+    const entries = getEntries();
+    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'その他', '未設定'];
+    const result = {};
+    purposes.forEach(p => { result[p] = { name: p, amount: 0, count: 0, avg: 0 }; });
+
+    entries.forEach(e => {
+      const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : '未設定';
+      result[p].amount += e.amount || 0;
+      result[p].count += 1;
+    });
+
+    purposes.forEach(p => {
+      result[p].avg = result[p].count > 0 ? Math.round(result[p].amount / result[p].count) : 0;
+    });
+
+    return purposes.map(p => result[p]);
+  }
+
+  // ============================================================
+  // エリア×時間帯クロス集計
+  // ============================================================
+  function getAreaTimeBreakdown() {
+    const entries = getEntries();
+    const areaMap = {};
+
+    entries.forEach(e => {
+      const area = e.pickup || '';
+      if (!area) return;
+      const hour = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
+
+      if (!areaMap[area]) {
+        areaMap[area] = { area, hours: {}, totalCount: 0, totalAmount: 0 };
+      }
+      areaMap[area].totalCount += 1;
+      areaMap[area].totalAmount += e.amount || 0;
+
+      if (!areaMap[area].hours[hour]) {
+        areaMap[area].hours[hour] = { hour, count: 0, amount: 0 };
+      }
+      areaMap[area].hours[hour].count += 1;
+      areaMap[area].hours[hour].amount += e.amount || 0;
+    });
+
+    return Object.values(areaMap)
+      .sort((a, b) => b.totalCount - a.totalCount)
+      .slice(0, 10)
+      .map(a => ({
+        area: a.area,
+        totalCount: a.totalCount,
+        totalAmount: a.totalAmount,
+        hours: Array.from({ length: 24 }, (_, h) => a.hours[h] || { hour: h, count: 0, amount: 0 }),
+      }));
+  }
+
+  // ============================================================
+  // 客単価分析
+  // ============================================================
+  function getUnitPriceAnalysis() {
+    const entries = getEntries();
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+    const byDow = {};
+    dayNames.forEach(d => { byDow[d] = { name: d, total: 0, count: 0, avg: 0 }; });
+
+    const byHour = {};
+    for (let h = 0; h < 24; h++) { byHour[h] = { name: h + '時', hour: h, total: 0, count: 0, avg: 0 }; }
+
+    const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
+    const byWeather = {};
+    weathers.forEach(w => { byWeather[w] = { name: w, total: 0, count: 0, avg: 0 }; });
+
+    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'その他', '未設定'];
+    const byPurpose = {};
+    purposes.forEach(p => { byPurpose[p] = { name: p, total: 0, count: 0, avg: 0 }; });
+
+    const passengerLabels = ['1人', '2人', '3人以上'];
+    const byPassengers = {};
+    passengerLabels.forEach(p => { byPassengers[p] = { name: p, total: 0, count: 0, avg: 0 }; });
+
+    entries.forEach(e => {
+      const amt = e.amount || 0;
+
+      const dow = getDayOfWeek(e.timestamp);
+      byDow[dow].total += amt;
+      byDow[dow].count += 1;
+
+      const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
+      byHour[hr].total += amt;
+      byHour[hr].count += 1;
+
+      const w = e.weather && weathers.includes(e.weather) ? e.weather : '未設定';
+      byWeather[w].total += amt;
+      byWeather[w].count += 1;
+
+      const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : '未設定';
+      byPurpose[p].total += amt;
+      byPurpose[p].count += 1;
+
+      const pNum = parseInt(e.passengers, 10) || 0;
+      const pKey = pNum <= 1 ? '1人' : pNum === 2 ? '2人' : '3人以上';
+      byPassengers[pKey].total += amt;
+      byPassengers[pKey].count += 1;
+    });
+
+    const calcAvg = obj => { Object.values(obj).forEach(v => { v.avg = v.count > 0 ? Math.round(v.total / v.count) : 0; }); };
+    calcAvg(byDow); calcAvg(byHour); calcAvg(byWeather); calcAvg(byPurpose); calcAvg(byPassengers);
+
+    return {
+      byDayOfWeek: dayNames.map(d => byDow[d]),
+      byHour: Array.from({ length: 24 }, (_, h) => byHour[h]),
+      byWeather: weathers.map(w => byWeather[w]),
+      byPurpose: purposes.map(p => byPurpose[p]),
+      byPassengers: passengerLabels.map(p => byPassengers[p]),
+    };
+  }
+
+  // ============================================================
+  // 今日のおすすめ（業務推奨）
+  // ============================================================
+  function getBusinessRecommendation() {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentDow = getDayOfWeek(now.toISOString());
+    const currentDowIndex = now.getDay();
+
+    const entries = getEntries();
+
+    // 現在の時間帯で売上が高いエリアTOP3
+    const areaByHour = {};
+    entries.forEach(e => {
+      const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
+      if (hr === currentHour && e.pickup) {
+        if (!areaByHour[e.pickup]) areaByHour[e.pickup] = { name: e.pickup, amount: 0, count: 0 };
+        areaByHour[e.pickup].amount += e.amount || 0;
+        areaByHour[e.pickup].count += 1;
+      }
+    });
+    const topAreas = Object.values(areaByHour).sort((a, b) => b.amount - a.amount).slice(0, 3);
+
+    // 今日の曜日で平均単価が高い時間帯TOP3
+    const hourByDow = {};
+    for (let h = 0; h < 24; h++) hourByDow[h] = { hour: h, name: h + '時', total: 0, count: 0, avg: 0 };
+    entries.forEach(e => {
+      const dow = getDayOfWeekIndex(e.timestamp);
+      if (dow === currentDowIndex) {
+        const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
+        hourByDow[hr].total += e.amount || 0;
+        hourByDow[hr].count += 1;
+      }
+    });
+    Object.values(hourByDow).forEach(v => { v.avg = v.count > 0 ? Math.round(v.total / v.count) : 0; });
+    const topHours = Object.values(hourByDow).filter(v => v.count > 0).sort((a, b) => b.avg - a.avg).slice(0, 3);
+
+    // 推定客単価（曜日+時間帯の平均）
+    let estTotal = 0, estCount = 0;
+    entries.forEach(e => {
+      const dow = getDayOfWeekIndex(e.timestamp);
+      const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
+      if (dow === currentDowIndex && hr === currentHour) {
+        estTotal += e.amount || 0;
+        estCount += 1;
+      }
+    });
+    const estimatedUnitPrice = estCount > 0 ? Math.round(estTotal / estCount) : 0;
+
+    return {
+      topAreas,
+      topHours,
+      estimatedUnitPrice,
+      currentCondition: { dayOfWeek: currentDow, hour: currentHour },
+    };
+  }
+
+  // ============================================================
   // ヒートマップデータ
   // ============================================================
   function getHeatmapData() {
@@ -2685,6 +2884,11 @@ window.DataService = (() => {
     getWeeklyBreakdown,
     getMonthlyBreakdown,
     getWeatherBreakdown,
+    getSourceBreakdown,
+    getPurposeBreakdown,
+    getAreaTimeBreakdown,
+    getUnitPriceAnalysis,
+    getBusinessRecommendation,
     getHeatmapData,
 
     // CRUD
@@ -8135,6 +8339,12 @@ window.AnalyticsPage = () => {
   const rivalWeather = useMemo(() => DataService.getRivalWeatherBreakdown(), [refreshKey]);
   const rivalTotal = useMemo(() => DataService.getRivalEntries().length, [refreshKey]);
 
+  const sourceData = useMemo(() => DataService.getSourceBreakdown(), [refreshKey]);
+  const purposeData = useMemo(() => DataService.getPurposeBreakdown(), [refreshKey]);
+  const areaTime = useMemo(() => DataService.getAreaTimeBreakdown(), [refreshKey]);
+  const unitPrice = useMemo(() => DataService.getUnitPriceAnalysis(), [refreshKey]);
+  const recommendation = useMemo(() => DataService.getBusinessRecommendation(), [refreshKey]);
+
   const hasData = overall.rideCount > 0;
 
   // バーチャートコンポーネント（CSS純正）
@@ -8218,6 +8428,7 @@ window.AnalyticsPage = () => {
     { id: 'area', label: 'エリア別', icon: 'place' },
     { id: 'weather', label: '天候別', icon: 'cloud' },
     { id: 'rival', label: '他社分析', icon: 'local_taxi' },
+    { id: 'forecast', label: '業務予測', icon: 'tips_and_updates' },
   ];
 
   return React.createElement('div', null,
@@ -8522,6 +8733,267 @@ window.AnalyticsPage = () => {
       // 天候別
       rivalTotal > 0 && React.createElement(Card, { title: '天候別 他社乗車件数' },
         React.createElement(HBarChart, { data: rivalWeather.filter(w => w.count > 0), nameKey: 'name', valueKey: 'count', color: 'var(--color-primary-light)', prefix: '' })
+      )
+    ),
+
+    // 業務予測タブ
+    tab === 'forecast' && React.createElement(React.Fragment, null,
+
+      // A. 今日のおすすめカード
+      React.createElement(Card, {
+        style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-lg)' },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-md)' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-accent)' } }, 'tips_and_updates'),
+          React.createElement('h3', { style: { margin: 0 } }, '今日のおすすめ')
+        ),
+        React.createElement('div', {
+          style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' },
+        },
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'calendar_today'),
+            recommendation.currentCondition.dayOfWeek + '曜日'
+          ),
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
+            recommendation.currentCondition.hour + '時台'
+          )
+        ),
+
+        // 推定客単価
+        React.createElement('div', {
+          style: {
+            textAlign: 'center', padding: 'var(--space-lg)', marginBottom: 'var(--space-md)',
+            background: 'rgba(0,200,83,0.08)', borderRadius: '12px', border: '1px solid rgba(0,200,83,0.2)',
+          },
+        },
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginBottom: '4px' } }, '推定客単価'),
+          React.createElement('div', { style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-accent)' } },
+            recommendation.estimatedUnitPrice > 0 ? '¥' + recommendation.estimatedUnitPrice.toLocaleString() : 'データ不足'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '4px' } },
+            recommendation.currentCondition.dayOfWeek + '曜 ' + recommendation.currentCondition.hour + '時台の平均'
+          )
+        ),
+
+        // TOP3エリア & 時間帯を横並び
+        React.createElement('div', {
+          style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' },
+        },
+          // 売上が高いエリアTOP3
+          React.createElement('div', null,
+            React.createElement('div', {
+              style: { fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)' } }, 'place'),
+              '売上が高いエリア'
+            ),
+            recommendation.topAreas.length > 0
+              ? recommendation.topAreas.map((a, i) =>
+                  React.createElement('div', {
+                    key: i,
+                    style: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 'var(--font-size-sm)' },
+                  },
+                    React.createElement('span', null, (i + 1) + '. ' + a.name),
+                    React.createElement('span', { style: { fontWeight: 500, color: 'var(--color-secondary)' } }, '¥' + a.amount.toLocaleString())
+                  )
+                )
+              : React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, 'この時間帯のデータなし')
+          ),
+
+          // 単価が高い時間帯TOP3
+          React.createElement('div', null,
+            React.createElement('div', {
+              style: { fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-warning)' } }, 'schedule'),
+              '単価が高い時間帯'
+            ),
+            recommendation.topHours.length > 0
+              ? recommendation.topHours.map((h, i) =>
+                  React.createElement('div', {
+                    key: i,
+                    style: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 'var(--font-size-sm)' },
+                  },
+                    React.createElement('span', null, (i + 1) + '. ' + h.name),
+                    React.createElement('span', { style: { fontWeight: 500, color: 'var(--color-secondary)' } }, '¥' + h.avg.toLocaleString())
+                  )
+                )
+              : React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, 'この曜日のデータなし')
+          )
+        )
+      ),
+
+      // B. エリア×時間帯クロス分析
+      areaTime.length > 0 && React.createElement(Card, { title: 'エリア×時間帯クロス分析', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement('div', { style: { overflowX: 'auto' } },
+          React.createElement('div', {
+            style: {
+              display: 'grid',
+              gridTemplateColumns: '120px repeat(6, 1fr)',
+              gap: '2px',
+              fontSize: 'var(--font-size-xs)',
+              minWidth: '500px',
+            },
+          },
+            // ヘッダー行
+            React.createElement('div', { style: { padding: '6px 4px', fontWeight: 600, color: 'var(--text-secondary)' } }, 'エリア'),
+            ..['0-3', '4-7', '8-11', '12-15', '16-19', '20-23'].map(label =>
+              React.createElement('div', { key: label, style: { padding: '6px 4px', textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' } }, label + '時')
+            ),
+
+            // データ行（上位5エリア）
+            ...areaTime.slice(0, 5).flatMap((a) => {
+              const timeSlots = [
+                { start: 0, end: 3 }, { start: 4, end: 7 }, { start: 8, end: 11 },
+                { start: 12, end: 15 }, { start: 16, end: 19 }, { start: 20, end: 23 },
+              ];
+              const slotData = timeSlots.map(slot => {
+                let count = 0, amount = 0;
+                for (let h = slot.start; h <= slot.end; h++) {
+                  count += a.hours[h].count;
+                  amount += a.hours[h].amount;
+                }
+                return { count, amount };
+              });
+              const maxCount = Math.max(...slotData.map(s => s.count), 1);
+
+              return [
+                React.createElement('div', {
+                  key: a.area + '-label',
+                  style: { padding: '8px 4px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+                  title: a.area,
+                }, a.area.length > 10 ? a.area.slice(0, 10) + '…' : a.area),
+                ...slotData.map((s, si) => {
+                  const intensity = s.count > 0 ? Math.max(0.1, s.count / maxCount) : 0;
+                  return React.createElement('div', {
+                    key: a.area + '-' + si,
+                    style: {
+                      padding: '8px 4px', textAlign: 'center', borderRadius: '4px',
+                      background: intensity > 0 ? 'rgba(26,115,232,' + (intensity * 0.5) + ')' : 'transparent',
+                      borderBottom: '1px solid rgba(255,255,255,0.06)',
+                      color: intensity > 0.5 ? '#fff' : 'var(--text-secondary)',
+                    },
+                    title: a.area + ' ' + ['0-3', '4-7', '8-11', '12-15', '16-19', '20-23'][si] + '時: ' + s.count + '件 ¥' + s.amount.toLocaleString(),
+                  }, s.count > 0 ? s.count + '件' : '-');
+                })
+              ];
+            })
+          )
+        ),
+        React.createElement('div', {
+          style: { marginTop: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' },
+        },
+          React.createElement('span', null, '色の濃さ = 件数の多さ'),
+          React.createElement('span', null, '|'),
+          React.createElement('span', null, 'セルをタップで詳細表示')
+        )
+      ),
+
+      // C. 客単価分析
+      React.createElement(Card, { title: '客単価分析', style: { marginBottom: 'var(--space-lg)' } },
+        // 曜日別
+        React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '曜日別 平均客単価'),
+          React.createElement(BarChart, {
+            data: unitPrice.byDayOfWeek, valueKey: 'avg', labelKey: 'name', color: 'var(--color-primary-light)', height: 140,
+          }),
+          React.createElement('div', {
+            style: { display: 'flex', justifyContent: 'space-around', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px' },
+          }, unitPrice.byDayOfWeek.map(d => React.createElement('span', { key: d.name }, d.name)))
+        ),
+
+        // 時間帯別
+        React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '時間帯別 平均客単価'),
+          React.createElement(BarChart, {
+            data: unitPrice.byHour, valueKey: 'avg', labelKey: 'name', color: 'var(--color-accent)', height: 140, maxBars: 24,
+          }),
+          React.createElement('div', {
+            style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px' },
+          },
+            React.createElement('span', null, '0時'),
+            React.createElement('span', null, '6時'),
+            React.createElement('span', null, '12時'),
+            React.createElement('span', null, '18時'),
+            React.createElement('span', null, '23時')
+          )
+        ),
+
+        // 用途別
+        React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '用途別 平均客単価'),
+          React.createElement(HBarChart, {
+            data: unitPrice.byPurpose.filter(p => p.count > 0), nameKey: 'name', valueKey: 'avg', color: 'var(--color-warning)',
+          })
+        ),
+
+        // 人数別
+        React.createElement('div', null,
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '人数別 平均客単価'),
+          React.createElement(HBarChart, {
+            data: unitPrice.byPassengers.filter(p => p.count > 0), nameKey: 'name', valueKey: 'avg', color: 'var(--color-secondary)',
+          })
+        )
+      ),
+
+      // D. 配車方法・用途分析
+      React.createElement(Card, { title: '配車方法・用途分析' },
+        // 配車方法別
+        React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '配車方法別'),
+          React.createElement('div', { style: { marginBottom: '12px' } },
+            React.createElement(HBarChart, {
+              data: sourceData.filter(s => s.count > 0), nameKey: 'name', valueKey: 'amount', color: 'var(--color-primary-light)',
+            })
+          ),
+          React.createElement('div', {
+            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
+          },
+            sourceData.filter(s => s.count > 0).map((s, i) =>
+              React.createElement('div', {
+                key: i,
+                style: {
+                  padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                  fontSize: 'var(--font-size-xs)', textAlign: 'center',
+                },
+              },
+                React.createElement('div', { style: { fontWeight: 600, marginBottom: '2px' } }, s.name),
+                React.createElement('div', { style: { color: 'var(--text-secondary)' } }, s.count + '件'),
+                React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, '平均¥' + s.avg.toLocaleString())
+              )
+            )
+          )
+        ),
+
+        // 用途別
+        React.createElement('div', null,
+          React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '用途別'),
+          React.createElement('div', { style: { marginBottom: '12px' } },
+            React.createElement(HBarChart, {
+              data: purposeData.filter(p => p.count > 0), nameKey: 'name', valueKey: 'amount', color: 'var(--color-accent)',
+            })
+          ),
+          React.createElement('div', {
+            style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
+          },
+            purposeData.filter(p => p.count > 0).map((p, i) =>
+              React.createElement('div', {
+                key: i,
+                style: {
+                  padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)',
+                  fontSize: 'var(--font-size-xs)', textAlign: 'center',
+                },
+              },
+                React.createElement('div', { style: { fontWeight: 600, marginBottom: '2px' } }, p.name),
+                React.createElement('div', { style: { color: 'var(--text-secondary)' } }, p.count + '件'),
+                React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, '平均¥' + p.avg.toLocaleString())
+              )
+            )
+          )
+        )
       )
     )
   );
