@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.9.7</title>
+  <title>タクシー売上サポート v0.9.8</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.9.7',
+  VERSION: '0.9.8',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -5832,14 +5832,16 @@ window.DashboardPage = () => {
   // DataServiceからリアルタイムデータを取得
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // localStorageの変更を監視して自動更新
+  // localStorageの変更・データ変更イベントを監視して自動更新
   useEffect(() => {
     const handleStorage = (e) => {
       if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
         setRefreshKey(k => k + 1);
       }
     };
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
 
     // 画面に戻った時も更新
     const handleVisibility = () => {
@@ -5849,6 +5851,7 @@ window.DashboardPage = () => {
 
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
@@ -6194,14 +6197,16 @@ window.RevenuePage = () => {
   // データは常にDataServiceから取得（単一のデータソース）
   const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
 
-  // localStorageの変更を監視して自動更新
+  // localStorageの変更・データ変更イベントを監視して自動更新
   useEffect(() => {
     const handleStorage = (e) => {
       if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
         setRefreshKey(k => k + 1);
       }
     };
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
 
     const handleVisibility = () => {
       if (!document.hidden) setRefreshKey(k => k + 1);
@@ -6210,6 +6215,7 @@ window.RevenuePage = () => {
 
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
@@ -7309,9 +7315,12 @@ window.RivalRidePage = () => {
       if (!document.hidden) setRefreshKey(k => k + 1);
     };
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       window.removeEventListener('storage', handleStorage);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 
@@ -8451,9 +8460,12 @@ window.EventsPage = () => {
       if (!document.hidden) setRefreshKey(k => k + 1);
     };
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       window.removeEventListener('storage', handleStorage);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 
@@ -9097,9 +9109,13 @@ window.AnalyticsPage = () => {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
+
     return () => {
       window.removeEventListener('storage', handleStorage);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 
@@ -10545,7 +10561,12 @@ window.DataManagePage = () => {
       }
     };
     window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
+    };
   }, []);
 
   // 編集開始
