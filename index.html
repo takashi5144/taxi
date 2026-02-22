@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.9.0</title>
+  <title>タクシー売上サポート v0.9.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -10618,7 +10618,7 @@ window.DataManagePage = () => {
     setTimeout(() => { mapPickerRef.current && mapPickerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
     const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
     const map = new google.maps.Map(mapPickerRef.current, {
-      center, zoom: 15, mapTypeId: 'roadmap', disableDefaultUI: true,
+      center, zoom: 13, mapTypeId: 'roadmap', disableDefaultUI: true,
       zoomControl: true, fullscreenControl: false, mapTypeControl: false,
     });
     mapPickerInstanceRef.current = map;
@@ -10631,7 +10631,7 @@ window.DataManagePage = () => {
         (pos) => {
           const currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           map.setCenter(currentPos);
-          map.setZoom(16);
+          map.setZoom(13);
           new google.maps.Marker({ map, position: currentPos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
         },
         () => {},
@@ -10714,7 +10714,7 @@ window.DataManagePage = () => {
     setTimeout(() => { editMapPickerRef.current && editMapPickerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
     const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
     const map = new google.maps.Map(editMapPickerRef.current, {
-      center, zoom: 15, mapTypeId: 'roadmap', disableDefaultUI: true,
+      center, zoom: 13, mapTypeId: 'roadmap', disableDefaultUI: true,
       zoomControl: true, fullscreenControl: false, mapTypeControl: false,
     });
     editMapPickerInstanceRef.current = map;
@@ -10726,7 +10726,7 @@ window.DataManagePage = () => {
         (pos) => {
           const currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           map.setCenter(currentPos);
-          map.setZoom(16);
+          map.setZoom(13);
           new google.maps.Marker({ map, position: currentPos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
         },
         () => {},
