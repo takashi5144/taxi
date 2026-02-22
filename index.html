@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.8.7</title>
+  <title>タクシー売上サポート v0.8.8</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -10496,6 +10496,10 @@ window.DataManagePage = () => {
   const mapPickerRef = React.useRef(null);
   const mapPickerInstanceRef = React.useRef(null);
   const mapPickerMarkerRef = React.useRef(null);
+  const [editMapPickerField, setEditMapPickerField] = useState(null); // 'pickup' | null
+  const editMapPickerRef = React.useRef(null);
+  const editMapPickerInstanceRef = React.useRef(null);
+  const editMapPickerMarkerRef = React.useRef(null);
   const [isListening, setIsListening] = useState(false);
   const [interimText, setInterimText] = useState('');
   const [voiceSuccess, setVoiceSuccess] = useState(false);
@@ -10555,6 +10559,7 @@ window.DataManagePage = () => {
     if (!result || !result.success) { setErrors((result && result.errors) || ['保存に失敗しました']); return; }
     setEditingId(null);
     setEditForm({});
+    setEditMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
@@ -10675,6 +10680,88 @@ window.DataManagePage = () => {
 
     return () => { mapPickerInstanceRef.current = null; mapPickerMarkerRef.current = null; };
   }, [mapPickerField]);
+
+  // 編集用マップピッカーの初期化・クリックハンドラ
+  useEffect(() => {
+    if (!editMapPickerField || !editMapPickerRef.current || !window.google || !window.google.maps) return;
+    const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
+    const map = new google.maps.Map(editMapPickerRef.current, {
+      center, zoom: 15, mapTypeId: 'roadmap', disableDefaultUI: true,
+      zoomControl: true, fullscreenControl: false, mapTypeControl: false,
+    });
+    editMapPickerInstanceRef.current = map;
+    const marker = new google.maps.Marker({ map, position: center, visible: false });
+    editMapPickerMarkerRef.current = marker;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          map.setCenter(currentPos);
+          map.setZoom(16);
+          new google.maps.Marker({ map, position: currentPos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+      );
+    }
+
+    function _extractAddress(result) {
+      const comps = result.address_components;
+      let prefecture = '', city = '', ward = '', town = '', sublocality = '', chome = '', banchi = '', route = '';
+      for (const c of comps) {
+        if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
+        if (c.types.includes('locality')) city = c.long_name;
+        if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
+        if (c.types.includes('sublocality_level_2')) town = c.long_name;
+        if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
+        if (c.types.includes('sublocality_level_4')) chome = c.long_name;
+        if (c.types.includes('premise')) banchi = c.long_name;
+        if (c.types.includes('route')) route = c.long_name;
+      }
+      const area = ward || city || prefecture;
+      const detail = [town, sublocality, chome, banchi].filter(Boolean).join('');
+      if (area && detail) return area + ' ' + detail;
+      if (area && route) return area + ' ' + route;
+      if (area) return area;
+      return result.formatted_address
+        .replace(/〒\d{3}-?\d{4}\s*/, '')
+        .replace(/、日本$/, '').replace(/^日本、\s*/, '')
+        .replace(/^日本\s*/, '');
+    }
+
+    map.addListener('click', (e) => {
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      marker.setPosition(e.latLng);
+      marker.setVisible(true);
+
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === 'OK' && results && results.length > 0) {
+          const preferred = results.find(r => r.types.includes('street_address'))
+            || results.find(r => r.types.includes('premise'))
+            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
+            || results.find(r => r.types.includes('route'))
+            || results[0];
+          const addr = _extractAddress(preferred);
+          setEditForm(f => ({ ...f, pickup: addr }));
+        } else {
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`)
+            .then(r => r.json()).then(data => {
+              const a = data.address || {};
+              const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean);
+              const addr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              setEditForm(f => ({ ...f, pickup: addr }));
+            }).catch(() => {
+              setEditForm(f => ({ ...f, pickup: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+            });
+        }
+      });
+    });
+
+    return () => { editMapPickerInstanceRef.current = null; editMapPickerMarkerRef.current = null; };
+  }, [editMapPickerField]);
 
   // 手動追加
   const handleManualAdd = useCallback(() => {
@@ -10830,7 +10917,27 @@ window.DataManagePage = () => {
         field('金額', 'amount', 'number'),
         field('日付', 'date', 'date'),
         field('天候', 'weather', 'select', weatherOptions),
-        field('乗車地', 'pickup', 'text'),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', minWidth: '56px', textAlign: 'right' } }, '乗車地'),
+          React.createElement('div', { style: { flex: 1 } },
+            React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+              React.createElement('input', { type: 'text', value: editForm.pickup || '', onChange: e => setEditForm(f => ({ ...f, pickup: e.target.value })), style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' } }),
+              React.createElement('button', {
+                onClick: () => setEditMapPickerField(editMapPickerField === 'pickup' ? null : 'pickup'),
+                style: { padding: '6px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: editMapPickerField === 'pickup' ? 'var(--color-primary)' : 'var(--bg-tertiary)', color: editMapPickerField === 'pickup' ? '#fff' : 'var(--text-secondary)', whiteSpace: 'nowrap' },
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'), '地図')
+            ),
+            editMapPickerField === 'pickup' && React.createElement('div', { style: { marginTop: '6px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '11px', color: 'var(--color-primary-light)' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'touch_app'),
+                '地図をタップして乗車地を選択'
+              ),
+              (window.google && window.google.maps)
+                ? React.createElement('div', { ref: editMapPickerRef, style: { width: '100%', height: '660px', borderRadius: '8px', border: '2px solid var(--color-primary)', overflow: 'hidden' } })
+                : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, 'Google Maps APIキーを設定してください')
+            )
+          )
+        ),
         field('乗車時刻', 'pickupTime', 'time'),
         field('降車地', 'dropoff', 'text'),
         field('降車時刻', 'dropoffTime', 'time'),
@@ -10850,7 +10957,7 @@ window.DataManagePage = () => {
         errors.join(', ')
       ),
       React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'flex-end' } },
-        React.createElement(Button, { variant: 'ghost', onClick: () => { setEditingId(null); setErrors([]); } }, 'キャンセル'),
+        React.createElement(Button, { variant: 'ghost', onClick: () => { setEditingId(null); setErrors([]); setEditMapPickerField(null); } }, 'キャンセル'),
         React.createElement(Button, { icon: 'save', onClick: saveEdit }, '保存')
       )
     );
