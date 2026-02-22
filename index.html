@@ -861,7 +861,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.9.4',
+  VERSION: '0.9.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -10570,7 +10570,7 @@ window.DataManagePage = () => {
   const mapPickerRef = React.useRef(null);
   const mapPickerInstanceRef = React.useRef(null);
   const mapPickerMarkerRef = React.useRef(null);
-  const [editMapPickerField, setEditMapPickerField] = useState(null); // 'pickup' | null
+  const [editMapPickerField, setEditMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const editMapPickerRef = React.useRef(null);
   const editMapPickerInstanceRef = React.useRef(null);
   const editMapPickerMarkerRef = React.useRef(null);
@@ -10821,16 +10821,19 @@ window.DataManagePage = () => {
             || results.find(r => r.types.includes('route'))
             || results[0];
           const addr = _extractAddress(preferred);
-          setEditForm(f => ({ ...f, pickup: addr }));
+          const targetField = editMapPickerField === 'dropoff' ? 'dropoff' : 'pickup';
+          setEditForm(f => ({ ...f, [targetField]: addr }));
         } else {
           fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`)
             .then(r => r.json()).then(data => {
               const a = data.address || {};
               const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean);
               const addr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setEditForm(f => ({ ...f, pickup: addr }));
+              const targetField = editMapPickerField === 'dropoff' ? 'dropoff' : 'pickup';
+              setEditForm(f => ({ ...f, [targetField]: addr }));
             }).catch(() => {
-              setEditForm(f => ({ ...f, pickup: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+              const targetField = editMapPickerField === 'dropoff' ? 'dropoff' : 'pickup';
+              setEditForm(f => ({ ...f, [targetField]: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
             });
         }
       });
@@ -11015,7 +11018,27 @@ window.DataManagePage = () => {
           )
         ),
         field('乗車時刻', 'pickupTime', 'time'),
-        field('降車地', 'dropoff', 'text'),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', minWidth: '56px', textAlign: 'right' } }, '降車地'),
+          React.createElement('div', { style: { flex: 1 } },
+            React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+              React.createElement('input', { type: 'text', value: editForm.dropoff || '', onChange: e => setEditForm(f => ({ ...f, dropoff: e.target.value })), style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px' } }),
+              React.createElement('button', {
+                onClick: () => setEditMapPickerField(editMapPickerField === 'dropoff' ? null : 'dropoff'),
+                style: { padding: '6px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: editMapPickerField === 'dropoff' ? 'var(--color-secondary)' : 'var(--bg-tertiary)', color: editMapPickerField === 'dropoff' ? '#fff' : 'var(--text-secondary)', whiteSpace: 'nowrap' },
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'), '地図')
+            ),
+            editMapPickerField === 'dropoff' && React.createElement('div', { style: { marginTop: '6px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '11px', color: 'var(--color-secondary)' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'touch_app'),
+                '地図をタップして降車地を選択'
+              ),
+              (window.google && window.google.maps)
+                ? React.createElement('div', { ref: editMapPickerRef, style: { width: '100%', height: '660px', borderRadius: '8px', border: '2px solid var(--color-secondary)', overflow: 'hidden' } })
+                : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, 'Google Maps APIキーを設定してください')
+            )
+          )
+        ),
         field('降車時刻', 'dropoffTime', 'time'),
         field('人数', 'passengers', 'number'),
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
