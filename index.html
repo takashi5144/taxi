@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.9.8</title>
+  <title>タクシー売上サポート v0.9.9</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -855,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.9.8',
+  VERSION: '0.9.9',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2180,7 +2180,7 @@ window.DataService = (() => {
     }
 
     entries.forEach(e => {
-      const key = toDateStr(e.timestamp);
+      const key = e.date || toDateStr(e.timestamp);
       if (result[key]) {
         result[key].amount += e.amount || 0;
         result[key].count += 1;
@@ -2199,7 +2199,8 @@ window.DataService = (() => {
     const result = days.map((name, i) => ({ name, index: i, amount: 0, count: 0, avg: 0 }));
 
     entries.forEach(e => {
-      const idx = getDayOfWeekIndex(e.timestamp);
+      const dateStr = e.date || toDateStr(e.timestamp);
+      const idx = dateStr ? new Date(dateStr + 'T00:00:00').getDay() : getDayOfWeekIndex(e.timestamp);
       result[idx].amount += e.amount || 0;
       result[idx].count += 1;
     });
@@ -2223,9 +2224,12 @@ window.DataService = (() => {
     }
 
     entries.forEach(e => {
-      const h = toHour(e.timestamp);
-      result[h].amount += e.amount || 0;
-      result[h].count += 1;
+      const time = e.dropoffTime || e.pickupTime || '';
+      const h = time ? parseInt(time.split(':')[0], 10) : toHour(e.timestamp);
+      if (h >= 0 && h < 24) {
+        result[h].amount += e.amount || 0;
+        result[h].count += 1;
+      }
     });
 
     result.forEach(d => {
@@ -9147,32 +9151,76 @@ window.AnalyticsPage = () => {
 
   const hasData = overall.rideCount > 0;
 
-  // バーチャートコンポーネント（CSS純正）
-  const BarChart = ({ data, valueKey, labelKey, color, maxBars = 30, height = 200, prefix = '¥' }) => {
+  // バーチャートコンポーネント（ツールチップ・日付ラベル付き）
+  const BarChart = ({ data, valueKey, labelKey, color, maxBars = 30, height = 200, prefix = '¥', showLabels = false, labelInterval = 5 }) => {
+    const [activeIdx, setActiveIdx] = useState(null);
     const maxVal = Math.max(...data.map(d => d[valueKey]), 1);
     const barData = data.slice(-maxBars);
 
-    return React.createElement('div', {
-      style: { display: 'flex', alignItems: 'flex-end', gap: '2px', height: `${height}px`, padding: '0 4px' },
-    },
-      barData.map((d, i) => {
-        const pct = (d[valueKey] / maxVal) * 100;
-        return React.createElement('div', {
-          key: i,
-          style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' },
-          title: `${d[labelKey]}: ${prefix}${d[valueKey].toLocaleString()}`,
+    const formatLabel = (label) => {
+      if (!label) return '';
+      // YYYY-MM-DD → M/D
+      if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+        const parts = label.split('-');
+        return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+      }
+      return label;
+    };
+
+    return React.createElement('div', { style: { position: 'relative' } },
+      // ツールチップ
+      activeIdx !== null && barData[activeIdx] && React.createElement('div', {
+        style: {
+          position: 'absolute', top: '-8px', left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.85)', color: '#fff', padding: '6px 12px',
+          borderRadius: '8px', fontSize: '13px', fontWeight: 600,
+          whiteSpace: 'nowrap', zIndex: 10, pointerEvents: 'none',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
         },
-          React.createElement('div', {
-            style: {
-              width: '100%', minHeight: '2px',
-              height: `${Math.max(pct, 1)}%`,
-              background: d[valueKey] === 0 ? 'rgba(255,255,255,0.05)' : color,
-              borderRadius: '3px 3px 0 0',
-              transition: 'height 0.3s ease',
-            },
-          })
-        );
-      })
+      }, `${formatLabel(barData[activeIdx][labelKey])}  ${prefix}${barData[activeIdx][valueKey].toLocaleString()}`),
+
+      // バー群
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'flex-end', gap: '2px', height: `${height}px`, padding: '0 4px' },
+        onMouseLeave: () => setActiveIdx(null),
+      },
+        barData.map((d, i) => {
+          const pct = (d[valueKey] / maxVal) * 100;
+          const isActive = activeIdx === i;
+          return React.createElement('div', {
+            key: i,
+            style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', cursor: 'pointer' },
+            onMouseEnter: () => setActiveIdx(i),
+            onClick: () => setActiveIdx(isActive ? null : i),
+          },
+            React.createElement('div', {
+              style: {
+                width: '100%', minHeight: '2px',
+                height: `${Math.max(pct, 1)}%`,
+                background: d[valueKey] === 0 ? 'rgba(255,255,255,0.05)' : isActive ? '#fff' : color,
+                borderRadius: '3px 3px 0 0',
+                transition: 'height 0.3s ease, background 0.15s ease',
+                opacity: activeIdx !== null && !isActive ? 0.5 : 1,
+              },
+            })
+          );
+        })
+      ),
+
+      // 日付ラベル行
+      React.createElement('div', {
+        style: { display: 'flex', gap: '2px', padding: '4px 4px 0', marginTop: '2px' },
+      },
+        barData.map((d, i) => {
+          const label = formatLabel(d[labelKey]);
+          // 表示条件: 最初、最後、またはlabelInterval毎
+          const show = i === 0 || i === barData.length - 1 || (i % labelInterval === 0);
+          return React.createElement('div', {
+            key: i,
+            style: { flex: 1, textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)', overflow: 'hidden', whiteSpace: 'nowrap' },
+          }, show ? label : '');
+        })
+      )
     );
   };
 
@@ -9309,13 +9357,7 @@ window.AnalyticsPage = () => {
     // 日別タブ
     tab === 'daily' && React.createElement(React.Fragment, null,
       React.createElement(Card, { title: '過去30日間の売上推移', style: { marginBottom: 'var(--space-lg)' } },
-        React.createElement(BarChart, { data: daily, valueKey: 'amount', labelKey: 'date', color: 'var(--color-primary-light)', height: 180 }),
-        React.createElement('div', {
-          style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '8px', padding: '0 4px' },
-        },
-          React.createElement('span', null, daily.length > 0 ? daily[0].date.slice(5) : ''),
-          React.createElement('span', null, '今日')
-        )
+        React.createElement(BarChart, { data: daily, valueKey: 'amount', labelKey: 'date', color: 'var(--color-primary-light)', height: 180, showLabels: true, labelInterval: 5 })
       ),
       monthly.length > 0 && React.createElement(Card, { title: '月別集計', style: { marginBottom: 'var(--space-lg)' } },
         monthly.map((m, i) =>
@@ -9339,10 +9381,7 @@ window.AnalyticsPage = () => {
     // 曜日別タブ
     tab === 'dayOfWeek' && React.createElement(React.Fragment, null,
       React.createElement(Card, { title: '曜日別売上合計', style: { marginBottom: 'var(--space-lg)' } },
-        React.createElement(BarChart, { data: dayOfWeek, valueKey: 'amount', labelKey: 'name', color: 'var(--color-accent)', height: 160 }),
-        React.createElement('div', {
-          style: { display: 'flex', justifyContent: 'space-around', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px' },
-        }, dayOfWeek.map(d => React.createElement('span', { key: d.name }, d.name)))
+        React.createElement(BarChart, { data: dayOfWeek, valueKey: 'amount', labelKey: 'name', color: 'var(--color-accent)', height: 160, showLabels: true, labelInterval: 1 })
       ),
       React.createElement(Card, { title: '曜日別詳細' },
         dayOfWeek.map((d, i) =>
@@ -9373,16 +9412,7 @@ window.AnalyticsPage = () => {
     // 時間帯別タブ
     tab === 'hourly' && React.createElement(React.Fragment, null,
       React.createElement(Card, { title: '時間帯別売上', subtitle: '各時間帯の合計売上額', style: { marginBottom: 'var(--space-lg)' } },
-        React.createElement(BarChart, { data: hourly, valueKey: 'amount', labelKey: 'label', color: 'var(--color-warning)', height: 160, maxBars: 24 }),
-        React.createElement('div', {
-          style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '6px', padding: '0 4px' },
-        },
-          React.createElement('span', null, '0時'),
-          React.createElement('span', null, '6時'),
-          React.createElement('span', null, '12時'),
-          React.createElement('span', null, '18時'),
-          React.createElement('span', null, '23時')
-        )
+        React.createElement(BarChart, { data: hourly, valueKey: 'amount', labelKey: 'label', color: 'var(--color-warning)', height: 160, maxBars: 24, showLabels: true, labelInterval: 3 })
       ),
       React.createElement(Card, { title: '売上上位の時間帯' },
         (() => {
