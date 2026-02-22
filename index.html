@@ -10961,7 +10961,7 @@ window.DataManagePage = () => {
         field('降車時刻', 'dropoffTime', 'time'),
         field('人数', 'passengers', 'number'),
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
-        field('目的', 'purpose', 'text'),
+        field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ']),
         field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し']),
         field('メモ', 'memo', 'text')
       ) : React.createElement(React.Fragment, null,
