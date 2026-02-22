@@ -9411,8 +9411,8 @@ window.AnalyticsPage = () => {
 
     // 時間帯別タブ
     tab === 'hourly' && React.createElement(React.Fragment, null,
-      React.createElement(Card, { title: '時間帯別売上', subtitle: '各時間帯の合計売上額', style: { marginBottom: 'var(--space-lg)' } },
-        React.createElement(BarChart, { data: hourly, valueKey: 'amount', labelKey: 'label', color: 'var(--color-warning)', height: 160, maxBars: 24, showLabels: true, labelInterval: 3 })
+      React.createElement(Card, { title: '時間帯別売上平均', subtitle: '各時間帯の平均売上額', style: { marginBottom: 'var(--space-lg)' } },
+        React.createElement(BarChart, { data: hourly, valueKey: 'avg', labelKey: 'label', color: 'var(--color-warning)', height: 160, maxBars: 24, showLabels: true, labelInterval: 3 })
       ),
       React.createElement(Card, { title: '売上上位の時間帯' },
         (() => {
