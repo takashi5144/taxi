@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.9.6</title>
+  <title>タクシー売上サポート v0.9.7</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -609,12 +609,6 @@ a:hover {
   50% { opacity: 0.4; }
 }
 
-@keyframes voicePulse {
-  0% { box-shadow: 0 0 0 0 rgba(244,67,54,0.5); }
-  70% { box-shadow: 0 0 0 10px rgba(244,67,54,0); }
-  100% { box-shadow: 0 0 0 0 rgba(244,67,54,0); }
-}
-
 /* ファイルツリー */
 .file-tree {
   font-family: 'Courier New', monospace;
@@ -861,7 +855,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.9.6',
+  VERSION: '0.9.7',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -10496,89 +10490,6 @@ window.SettingsPage = () => {
 
 })();
 
-// 音声入力テキストをパースして各フィールドに分解する
-function parseVoiceInput(text) {
-  const result = {};
-  // 全角数字→半角変換 + カンマ除去（Speech APIが「3,500円」のように返す場合に対応）
-  let remaining = text
-    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
-    .replace(/(\d),(\d)/g, '$1$2');
-
-  // 金額: 「3500円」「3500 円」
-  const amountMatch = remaining.match(/(\d+)\s*円/);
-  if (amountMatch) {
-    result.amount = amountMatch[1];
-    remaining = remaining.replace(amountMatch[0], ' ');
-  }
-
-  // 天候
-  const weatherMatch = remaining.match(/晴れ|曇り?|雨|雪/);
-  if (weatherMatch) {
-    result.weather = weatherMatch[0] === '曇' ? '曇り' : weatherMatch[0];
-    remaining = remaining.replace(weatherMatch[0], ' ');
-  }
-
-  // 人数: 「1名」「2人」「一名」
-  const passMatch = remaining.match(/(\d+)\s*[名人]/);
-  if (passMatch) {
-    result.passengers = passMatch[1];
-    remaining = remaining.replace(passMatch[0], ' ');
-  }
-
-  // 性別
-  const genderMatch = remaining.match(/男性|女性/);
-  if (genderMatch) {
-    result.gender = genderMatch[0];
-    remaining = remaining.replace(genderMatch[0], ' ');
-  }
-
-  // 配車方法（ラテン文字 + カタカナ両対応、単語境界なし）
-  const sourcePatterns = [
-    { pattern: /(?:ゴー|[Gg][Oo](?!ogle))/, value: 'Go' },
-    { pattern: /(?:ウーバー|[Uu]ber)/, value: 'Uber' },
-    { pattern: /(?:ディディ|ディーディー|[Dd][Ii][Dd][Ii])/, value: 'DIDI' },
-    { pattern: /電話/, value: '電話' },
-    { pattern: /流し|ながし/, value: '流し' },
-  ];
-  for (const sp of sourcePatterns) {
-    const m = remaining.match(sp.pattern);
-    if (m) {
-      result.source = sp.value;
-      remaining = remaining.replace(m[0], ' ');
-      break;
-    }
-  }
-
-  // 用途
-  const purposeMatch = remaining.match(/通勤|通院|買い?物|観光|出張|送迎|空港|飲食|その他/);
-  if (purposeMatch) {
-    result.purpose = purposeMatch[0].replace('買い物', '買物');
-    remaining = remaining.replace(purposeMatch[0], ' ');
-  }
-
-  // 金額フォールバック: 3桁以上の単独数字
-  if (!result.amount) {
-    const numMatch = remaining.match(/(\d{3,})/);
-    if (numMatch) {
-      result.amount = numMatch[1];
-      remaining = remaining.replace(numMatch[0], ' ');
-    }
-  }
-
-  // 場所: 「から」で分割
-  remaining = remaining.replace(/\s+/g, ' ').trim();
-  if (remaining.includes('から')) {
-    const parts = remaining.split('から');
-    const pickup = parts[0].trim();
-    const rest = parts.slice(1).join('から').trim();
-    if (pickup) result.pickup = pickup;
-    if (rest) result.dropoff = rest;
-  } else if (remaining) {
-    result.memo = remaining;
-  }
-
-  return result;
-}
 
 // ============================================================
 // FILE: src/pages/DataManage.jsx
@@ -10608,11 +10519,6 @@ window.DataManagePage = () => {
   const editMapPickerRef = React.useRef(null);
   const editMapPickerInstanceRef = React.useRef(null);
   const editMapPickerMarkerRef = React.useRef(null);
-  const [isListening, setIsListening] = useState(false);
-  const [interimText, setInterimText] = useState('');
-  const [voiceSuccess, setVoiceSuccess] = useState(false);
-  const recognitionRef = React.useRef(null);
-  const speechSupported = React.useRef(!!(window.SpeechRecognition || window.webkitSpeechRecognition));
   const { apiKey } = useAppContext();
 
   const tabs = [
@@ -10890,88 +10796,6 @@ window.DataManagePage = () => {
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
   }, [addForm, addCoords, todayDefault]);
-
-  // 音声入力トグル
-  const toggleVoiceInput = useCallback(() => {
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ja-JP';
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    // 認識済みテキストを蓄積（onresultは複数回呼ばれる可能性）
-    let accumulatedFinal = '';
-    recognition.onresult = (event) => {
-      let interimTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          accumulatedFinal += transcript;
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-      setInterimText(interimTranscript || accumulatedFinal);
-    };
-    recognition.onend = () => {
-      setIsListening(false);
-      if (accumulatedFinal) {
-        console.log('[Voice] 認識テキスト:', accumulatedFinal);
-        const parsed = parseVoiceInput(accumulatedFinal);
-        console.log('[Voice] パース結果:', JSON.stringify(parsed));
-        setAddForm(f => {
-          const updated = { ...f };
-          if (parsed.amount) updated.amount = parsed.amount;
-          if (parsed.weather) updated.weather = parsed.weather;
-          if (parsed.passengers) updated.passengers = parsed.passengers;
-          if (parsed.gender) updated.gender = parsed.gender;
-          if (parsed.source) updated.source = parsed.source;
-          if (parsed.purpose) updated.purpose = parsed.purpose;
-          if (parsed.pickup) updated.pickup = parsed.pickup;
-          if (parsed.dropoff) updated.dropoff = parsed.dropoff;
-          if (parsed.memo && !f.memo) updated.memo = parsed.memo;
-          // 日付未設定なら今日
-          if (!f.date) updated.date = new Date().toISOString().split('T')[0];
-          // 乗車時刻未設定なら現在時刻
-          if (!f.pickupTime) {
-            const now = new Date();
-            updated.pickupTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-          }
-          return updated;
-        });
-        setVoiceSuccess(true);
-        setTimeout(() => setVoiceSuccess(false), 1500);
-        setInterimText('');
-      } else {
-        setInterimText('');
-      }
-    };
-    recognition.onerror = (e) => {
-      console.warn('[Voice] エラー:', e.error);
-      setIsListening(false);
-      setInterimText('');
-    };
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-      setIsListening(true);
-      setInterimText('');
-    } catch (e) {
-      console.warn('[Voice] 開始エラー:', e);
-      setIsListening(false);
-    }
-  }, [isListening]);
-
-  // 音声認識クリーンアップ
-  useEffect(() => {
-    return () => { if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch(e) {} } };
-  }, []);
 
   // 検索フィルター
   const filteredRevenue = useMemo(() => {
@@ -11260,25 +11084,8 @@ window.DataManagePage = () => {
           },
             React.createElement('div', { style: { fontWeight: 600, fontSize: '13px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' } },
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-accent)' } }, 'add_circle'),
-              '売上を手動入力',
-              speechSupported.current && React.createElement('button', {
-                onClick: toggleVoiceInput,
-                style: {
-                  marginLeft: 'auto', padding: '4px 10px', borderRadius: '16px', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600,
-                  background: isListening ? 'rgba(244,67,54,0.9)' : voiceSuccess ? 'rgba(0,200,83,0.9)' : 'var(--bg-tertiary)',
-                  color: (isListening || voiceSuccess) ? '#fff' : 'var(--text-secondary)',
-                  animation: isListening ? 'voicePulse 1.2s infinite' : 'none',
-                  transition: 'background 0.2s, color 0.2s',
-                },
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, voiceSuccess ? 'check_circle' : 'mic'),
-                isListening ? '録音中…' : voiceSuccess ? '入力完了' : '音声'
-              )
+              '売上を手動入力'
             ),
-            isListening && interimText && React.createElement('div', {
-              style: { padding: '8px 12px', marginBottom: '8px', borderRadius: '8px', background: 'rgba(244,67,54,0.1)', border: '1px solid rgba(244,67,54,0.3)', fontSize: '13px', color: 'var(--text-primary)' },
-            }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', verticalAlign: 'middle', marginRight: '6px', color: 'rgba(244,67,54,0.8)' } }, 'hearing'), interimText),
             React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } },
               React.createElement('div', { style: { gridColumn: '1 / -1' } },
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '金額 *'),
@@ -11432,7 +11239,7 @@ window.DataManagePage = () => {
             ),
             addErrors.length > 0 && React.createElement('div', { style: { color: 'var(--color-danger)', fontSize: '12px', marginTop: '8px' } }, addErrors.join(', ')),
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' } },
-              React.createElement(Button, { variant: 'ghost', onClick: () => { if (recognitionRef.current && isListening) { recognitionRef.current.stop(); setIsListening(false); setInterimText(''); } setShowAddForm(false); setAddErrors([]); } }, 'キャンセル'),
+              React.createElement(Button, { variant: 'ghost', onClick: () => { setShowAddForm(false); setAddErrors([]); } }, 'キャンセル'),
               React.createElement(Button, { icon: 'save', onClick: handleManualAdd }, '記録を追加')
             )
           ),
