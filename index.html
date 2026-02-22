@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v0.8.8</title>
+  <title>タクシー売上サポート v0.8.9</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -9159,6 +9159,32 @@ window.AnalyticsPage = () => {
         )
       )
     ),
+
+    // 当月合計
+    (() => {
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const cm = monthly.find(m => m.month === currentMonth);
+      const amt = cm ? cm.amount : 0;
+      const cnt = cm ? cm.count : 0;
+      const taxExcl = Math.floor(amt / 1.1);
+      const tax = amt - taxExcl;
+      return React.createElement('div', {
+        style: { background: 'linear-gradient(135deg, rgba(26,115,232,0.15), rgba(255,167,38,0.10))', border: '1px solid rgba(26,115,232,0.3)', borderRadius: '12px', padding: '16px 20px', marginBottom: 'var(--space-lg)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: 'var(--color-primary-light)' } }, 'calendar_month'),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, `${now.getFullYear()}年${now.getMonth() + 1}月の売上合計`),
+            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' } }, `${cnt}回乗車`)
+          )
+        ),
+        React.createElement('div', { style: { textAlign: 'right' } },
+          React.createElement('div', { style: { fontSize: '24px', fontWeight: 800, color: 'var(--color-secondary)' } }, `¥${amt.toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' } }, `税抜¥${taxExcl.toLocaleString()}　税¥${tax.toLocaleString()}`)
+        )
+      );
+    })(),
 
     // タブ切り替え
     React.createElement('div', {
