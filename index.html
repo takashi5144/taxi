@@ -1718,6 +1718,14 @@ window.DataService = (() => {
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
       const entries = saved ? JSON.parse(saved) : [];
+      // 日付から曜日を再計算して修正
+      entries.forEach(e => {
+        if (e.date) {
+          const info = JapaneseHolidays.getDateInfo(e.date);
+          e.dayOfWeek = info.dayOfWeek;
+          e.holiday = info.holiday || '';
+        }
+      });
       return _sortByDateTimeDesc(entries, 'date', 'dropoffTime');
     } catch {
       return [];
@@ -2900,6 +2908,14 @@ window.DataService = (() => {
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES);
       const entries = saved ? JSON.parse(saved) : [];
+      // 日付から曜日を再計算して修正
+      entries.forEach(e => {
+        if (e.date) {
+          const info = JapaneseHolidays.getDateInfo(e.date);
+          e.dayOfWeek = info.dayOfWeek;
+          e.holiday = info.holiday || '';
+        }
+      });
       return _sortByDateTimeDesc(entries, 'date', 'time');
     } catch {
       return [];
