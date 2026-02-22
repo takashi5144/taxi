@@ -861,7 +861,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.9.5',
+  VERSION: '0.9.6',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1723,8 +1723,23 @@ window.DataService = (() => {
     }
   }
 
+  function _sortByDateTimeDesc(entries, dateKey, timeKey) {
+    return entries.sort((a, b) => {
+      const dateA = a[dateKey] || '';
+      const dateB = b[dateKey] || '';
+      if (dateA !== dateB) return dateB.localeCompare(dateA);
+      const timeA = a[timeKey] || '';
+      const timeB = b[timeKey] || '';
+      if (timeA !== timeB) return timeB.localeCompare(timeA);
+      const tsA = a.timestamp || '';
+      const tsB = b.timestamp || '';
+      return tsB.localeCompare(tsA);
+    });
+  }
+
   function saveEntries(entries) {
     try {
+      _sortByDateTimeDesc(entries, 'date', 'dropoffTime');
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, JSON.stringify(entries));
       return true;
     } catch (e) {
@@ -2891,6 +2906,7 @@ window.DataService = (() => {
 
   function saveRivalEntries(entries) {
     try {
+      _sortByDateTimeDesc(entries, 'date', 'time');
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES, JSON.stringify(entries));
       return true;
     } catch (e) {
@@ -11452,7 +11468,7 @@ window.DataManagePage = () => {
             '保存された交通情報がありません'
           )
         : React.createElement(Card, null,
-            Object.entries(transitData).map(([key, val]) =>
+            Object.entries(transitData).sort((a, b) => (b[1].fetchedAt || '').localeCompare(a[1].fetchedAt || '')).map(([key, val]) =>
               React.createElement('div', {
                 key,
                 style: { padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
