@@ -861,7 +861,7 @@ window.TaxiApp = window.TaxiApp || {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '0.9.3',
+  VERSION: '0.9.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6567,6 +6567,44 @@ window.RevenuePage = () => {
                 }, `精度 ${gpsInfo.dropoff.accuracy}m`),
                 React.createElement('a', { href: `https://www.google.com/maps?q=${gpsInfo.dropoff.lat},${gpsInfo.dropoff.lng}`, target: '_blank', rel: 'noopener', style: { color: 'var(--color-primary-light)', textDecoration: 'underline' } }, '地図で確認')
               )
+            ),
+            // 乗客なしボタン（降車地GPS下）
+            React.createElement('button', {
+              type: 'button',
+              onClick: () => {
+                setErrors([]);
+                const now = new Date();
+                const hh = String(now.getHours()).padStart(2, '0');
+                const mm = String(now.getMinutes()).padStart(2, '0');
+                const dropoffTime = `${hh}:${mm}`;
+                const formData = {
+                  ...form,
+                  dropoffTime,
+                  amount: '0',
+                  passengers: '0',
+                  noPassenger: true,
+                };
+                if (gpsInfo.pickup && gpsInfo.pickup.lat != null) {
+                  formData.pickupCoords = { lat: gpsInfo.pickup.lat, lng: gpsInfo.pickup.lng };
+                }
+                if (gpsInfo.dropoff && gpsInfo.dropoff.lat != null) {
+                  formData.dropoffCoords = { lat: gpsInfo.dropoff.lat, lng: gpsInfo.dropoff.lng };
+                }
+                const result = DataService.addEntry(formData);
+                if (result.success) {
+                  setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                  setGpsInfo({ pickup: null, dropoff: null });
+                  setSaved(true);
+                  setTimeout(() => setSaved(false), 2000);
+                  setRefreshKey(k => k + 1);
+                } else {
+                  setErrors(result.errors);
+                }
+              },
+              style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', width: '100%', padding: '10px', marginTop: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700, background: '#d32f2f', color: '#fff' },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'person_off'),
+              '乗客なし（待機時間を記録）'
             )
           ),
 
@@ -6866,50 +6904,11 @@ window.RevenuePage = () => {
             })
           )
         ),
-        React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: 'var(--space-sm)' } },
-          React.createElement(Button, {
-            variant: 'primary',
-            icon: 'add',
-            style: { flex: 1 },
-          }, '記録を追加'),
-          React.createElement('button', {
-            type: 'button',
-            onClick: () => {
-              setErrors([]);
-              const now = new Date();
-              const hh = String(now.getHours()).padStart(2, '0');
-              const mm = String(now.getMinutes()).padStart(2, '0');
-              const dropoffTime = `${hh}:${mm}`;
-              const formData = {
-                ...form,
-                dropoffTime,
-                amount: '0',
-                passengers: '0',
-                noPassenger: true,
-              };
-              if (gpsInfo.pickup && gpsInfo.pickup.lat != null) {
-                formData.pickupCoords = { lat: gpsInfo.pickup.lat, lng: gpsInfo.pickup.lng };
-              }
-              if (gpsInfo.dropoff && gpsInfo.dropoff.lat != null) {
-                formData.dropoffCoords = { lat: gpsInfo.dropoff.lat, lng: gpsInfo.dropoff.lng };
-              }
-              const result = DataService.addEntry(formData);
-              if (result.success) {
-                setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
-                setGpsInfo({ pickup: null, dropoff: null });
-                setSaved(true);
-                setTimeout(() => setSaved(false), 2000);
-                setRefreshKey(k => k + 1);
-              } else {
-                setErrors(result.errors);
-              }
-            },
-            style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700, background: '#d32f2f', color: '#fff', whiteSpace: 'nowrap' },
-          },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'person_off'),
-            '乗客なし'
-          )
-        )
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'add',
+          style: { marginTop: 'var(--space-sm)' },
+        }, '記録を追加')
       )
     ),
 
