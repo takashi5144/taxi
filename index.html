@@ -2315,7 +2315,7 @@ window.DataService = (() => {
   // ============================================================
   function getPurposeBreakdown() {
     const entries = getEntries();
-    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'その他', '未設定'];
+    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '未設定'];
     const result = {};
     purposes.forEach(p => { result[p] = { name: p, amount: 0, count: 0, avg: 0 }; });
 
@@ -2385,7 +2385,7 @@ window.DataService = (() => {
     const byWeather = {};
     weathers.forEach(w => { byWeather[w] = { name: w, total: 0, count: 0, avg: 0 }; });
 
-    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'その他', '未設定'];
+    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '未設定'];
     const byPurpose = {};
     purposes.forEach(p => { byPurpose[p] = { name: p, total: 0, count: 0, avg: 0 }; });
 
@@ -6911,7 +6911,7 @@ window.RevenuePage = () => {
                 { value: '送迎', icon: '🚗' },
                 { value: '空港', icon: '✈️' },
                 { value: '飲食', icon: '🍺' },
-                { value: 'その他', icon: '📝' },
+                { value: 'パチンコ', icon: '🎰' },
               ].map(p =>
                 React.createElement('button', {
                   key: p.value,
@@ -11270,7 +11270,7 @@ window.DataManagePage = () => {
                     { value: '送迎', icon: '🚗' },
                     { value: '空港', icon: '✈️' },
                     { value: '飲食', icon: '🍺' },
-                    { value: 'その他', icon: '📝' },
+                    { value: 'パチンコ', icon: '🎰' },
                   ].map(p =>
                     React.createElement('button', {
                       key: p.value,
