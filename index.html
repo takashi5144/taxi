@@ -1717,7 +1717,8 @@ window.DataService = (() => {
   function getEntries() {
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
-      return saved ? JSON.parse(saved) : [];
+      const entries = saved ? JSON.parse(saved) : [];
+      return _sortByDateTimeDesc(entries, 'date', 'dropoffTime');
     } catch {
       return [];
     }
@@ -2898,7 +2899,8 @@ window.DataService = (() => {
   function getRivalEntries() {
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES);
-      return saved ? JSON.parse(saved) : [];
+      const entries = saved ? JSON.parse(saved) : [];
+      return _sortByDateTimeDesc(entries, 'date', 'time');
     } catch {
       return [];
     }
