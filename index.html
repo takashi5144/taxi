@@ -2875,8 +2875,13 @@ window.DataService = (() => {
     if (idx === -1) return { success: false, errors: ['記録が見つかりません'] };
     if (updates.amount != null) {
       const amt = parseInt(updates.amount);
-      if (isNaN(amt) || amt < 1 || amt > 1000000) return { success: false, errors: ['金額は1〜1,000,000の範囲で入力してください'] };
-      updates.amount = amt;
+      const isNoPassenger = entries[idx].noPassenger || updates.noPassenger;
+      if (isNoPassenger) {
+        updates.amount = 0;
+      } else {
+        if (isNaN(amt) || amt < 1 || amt > 1000000) return { success: false, errors: ['金額は1〜1,000,000の範囲で入力してください'] };
+        updates.amount = amt;
+      }
     }
     entries[idx] = { ...entries[idx], ...updates };
     saveEntries(entries);
@@ -10561,10 +10566,15 @@ window.DataManagePage = () => {
       }
     };
     window.addEventListener('storage', handleStorage);
+    const handleVisibility = () => {
+      if (!document.hidden) setRefreshKey(k => k + 1);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
     const handleDataChanged = () => setRefreshKey(k => k + 1);
     window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       window.removeEventListener('storage', handleStorage);
+      document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
