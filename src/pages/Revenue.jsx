@@ -35,6 +35,10 @@ window.RevenuePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
+  const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
+  const mapPickerRef = useRef(null);
+  const mapPickerInstanceRef = useRef(null);
+  const mapPickerMarkerRef = useRef(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
 
@@ -227,6 +231,97 @@ window.RevenuePage = () => {
     return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
   }
 
+  // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
+  useEffect(() => {
+    if (!mapPickerField || !mapPickerRef.current || !window.google || !window.google.maps) return;
+    setTimeout(() => { mapPickerRef.current && mapPickerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+    const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
+    const map = new google.maps.Map(mapPickerRef.current, {
+      center, zoom: 13, mapTypeId: 'roadmap', disableDefaultUI: true,
+      zoomControl: true, fullscreenControl: false, mapTypeControl: false,
+    });
+    mapPickerInstanceRef.current = map;
+    const marker = new google.maps.Marker({ map, position: center, visible: false });
+    mapPickerMarkerRef.current = marker;
+
+    // GPS現在地を取得してマップの中心に設定
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          map.setCenter(currentPos);
+          map.setZoom(13);
+          new google.maps.Marker({ map, position: currentPos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
+      );
+    }
+
+    // 住所コンポーネントから日本語住所を抽出
+    function _extractAddress(result) {
+      const comps = result.address_components;
+      let prefecture = '', city = '', ward = '', town = '', sublocality = '', chome = '', banchi = '', route = '';
+      for (const c of comps) {
+        if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
+        if (c.types.includes('locality')) city = c.long_name;
+        if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
+        if (c.types.includes('sublocality_level_2')) town = c.long_name;
+        if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
+        if (c.types.includes('sublocality_level_4')) chome = c.long_name;
+        if (c.types.includes('premise')) banchi = c.long_name;
+        if (c.types.includes('route')) route = c.long_name;
+      }
+      const area = ward || city || prefecture;
+      const detail = [town, sublocality, chome, banchi].filter(Boolean).join('');
+      if (area && detail) return area + ' ' + detail;
+      if (area && route) return area + ' ' + route;
+      if (area) return area;
+      return result.formatted_address
+        .replace(/〒\d{3}-?\d{4}\s*/, '')
+        .replace(/、日本$/, '').replace(/^日本、\s*/, '')
+        .replace(/^日本\s*/, '');
+    }
+
+    map.addListener('click', (e) => {
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      marker.setPosition(e.latLng);
+      marker.setVisible(true);
+
+      const timeField = mapPickerField === 'pickup' ? 'pickupTime' : 'dropoffTime';
+      // 逆ジオコーディング
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === 'OK' && results && results.length > 0) {
+          const preferred = results.find(r => r.types.includes('street_address'))
+            || results.find(r => r.types.includes('premise'))
+            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
+            || results.find(r => r.types.includes('route'))
+            || results[0];
+          const addr = _extractAddress(preferred);
+          setForm(f => ({ ...f, [mapPickerField]: addr, [timeField]: getNowTime() }));
+          setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: addr, accuracy: null } }));
+        } else {
+          // Nominatimフォールバック
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`)
+            .then(r => r.json()).then(data => {
+              const a = data.address || {};
+              const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean);
+              const addr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              setForm(f => ({ ...f, [mapPickerField]: addr, [timeField]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: addr, accuracy: null } }));
+            }).catch(() => {
+              setForm(f => ({ ...f, [mapPickerField]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: null, accuracy: null } }));
+            });
+        }
+      });
+    });
+
+    return () => { mapPickerInstanceRef.current = null; mapPickerMarkerRef.current = null; };
+  }, [mapPickerField]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setErrors([]);
@@ -240,6 +335,7 @@ window.RevenuePage = () => {
 
     setForm({ date: todayDefault, weather: form.weather, source: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '' });
     setGpsInfo({ pickup: null, dropoff: null });
+    setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
@@ -360,6 +456,22 @@ window.RevenuePage = () => {
                   style: { fontSize: '16px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.pickup ? 'sync' : 'my_location'),
                 gpsLoading.pickup ? '取得中' : 'GPS'
+              ),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                  color: mapPickerField === 'pickup' ? '#fff' : '#fff', cursor: 'pointer',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: mapPickerField === 'pickup' ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
+                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                },
+                title: '地図から場所を選択',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'),
+                '地図'
               )
             ),
             // GPS取得結果の住所・座標表示
@@ -384,6 +496,16 @@ window.RevenuePage = () => {
                 }, `精度 ${gpsInfo.pickup.accuracy}m`),
                 React.createElement('a', { href: `https://www.google.com/maps?q=${gpsInfo.pickup.lat},${gpsInfo.pickup.lng}`, target: '_blank', rel: 'noopener', style: { color: 'var(--color-primary-light)', textDecoration: 'underline' } }, '地図で確認')
               )
+            ),
+            // 乗車地マップピッカー
+            mapPickerField === 'pickup' && React.createElement('div', { style: { marginTop: '6px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '11px', color: 'rgba(156,39,176,0.9)' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'touch_app'),
+                '地図をタップして乗車地を選択'
+              ),
+              (window.google && window.google.maps)
+                ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '300px', borderRadius: '8px', border: '2px solid rgba(156,39,176,0.5)', overflow: 'hidden' } })
+                : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '設定画面でGoogle Maps APIキーを入力してください')
             )
           ),
 
@@ -441,6 +563,22 @@ window.RevenuePage = () => {
                   style: { fontSize: '16px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.dropoff ? 'sync' : 'my_location'),
                 gpsLoading.dropoff ? '取得中' : 'GPS'
+              ),
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                  color: mapPickerField === 'dropoff' ? '#fff' : '#fff', cursor: 'pointer',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: mapPickerField === 'dropoff' ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
+                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                },
+                title: '地図から場所を選択',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'),
+                '地図'
               )
             ),
             // GPS取得結果の住所・座標表示
@@ -465,6 +603,16 @@ window.RevenuePage = () => {
                 }, `精度 ${gpsInfo.dropoff.accuracy}m`),
                 React.createElement('a', { href: `https://www.google.com/maps?q=${gpsInfo.dropoff.lat},${gpsInfo.dropoff.lng}`, target: '_blank', rel: 'noopener', style: { color: 'var(--color-primary-light)', textDecoration: 'underline' } }, '地図で確認')
               )
+            ),
+            // 降車地マップピッカー
+            mapPickerField === 'dropoff' && React.createElement('div', { style: { marginTop: '6px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '11px', color: 'rgba(156,39,176,0.9)' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'touch_app'),
+                '地図をタップして降車地を選択'
+              ),
+              (window.google && window.google.maps)
+                ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '300px', borderRadius: '8px', border: '2px solid rgba(156,39,176,0.5)', overflow: 'hidden' } })
+                : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '設定画面でGoogle Maps APIキーを入力してください')
             )
           ),
 
