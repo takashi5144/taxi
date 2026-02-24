@@ -3958,22 +3958,25 @@ window.DemandNotificationService = (() => {
         tag: 'event-alert-' + a.name,
       });
     });
-    // 交通到着10分前通知
-    const schedule = DataService.getDailyDemandSchedule();
-    if (schedule.available && schedule.transitArrivals) {
-      const nowMin = now.getHours() * 60 + now.getMinutes();
-      schedule.transitArrivals.forEach(arr => {
-        if (!arr.arrivalTime) return;
-        const p = arr.arrivalTime.split(':');
-        const arrMin = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
-        const diff = arrMin - nowMin;
-        if (diff > 0 && diff <= 10) {
-          NotificationService.send('交通到着まもなく', {
-            body: `${arr.type || ''} ${arr.line || ''}が${arr.arrivalTime}に到着 → 駅前で需要増`,
-            tag: 'transit-arrival-' + arr.arrivalTime,
-          });
-        }
-      });
+    // 交通到着10分前通知（偶数日のみ — 奇数日は駅前待ち不可）
+    const isEvenDay = now.getDate() % 2 === 0;
+    if (isEvenDay) {
+      const schedule = DataService.getDailyDemandSchedule();
+      if (schedule.available && schedule.transitArrivals) {
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        schedule.transitArrivals.forEach(arr => {
+          if (!arr.arrivalTime) return;
+          const p = arr.arrivalTime.split(':');
+          const arrMin = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+          const diff = arrMin - nowMin;
+          if (diff > 0 && diff <= 10) {
+            NotificationService.send('交通到着まもなく', {
+              body: `${arr.type || ''} ${arr.line || ''}が${arr.arrivalTime}に到着 → 駅前で需要増`,
+              tag: 'transit-arrival-' + arr.arrivalTime,
+            });
+          }
+        });
+      }
     }
   }
 
@@ -4323,8 +4326,16 @@ ${areaStr}
     const dow = ['日','月','火','水','木','金','土'][today.getDay()];
     const dateStr = `${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日(${dow})`;
 
+    const dayOfMonth = today.getDate();
+    const isEvenDay = dayOfMonth % 2 === 0;
+    const stationRule = isEvenDay
+      ? `本日は${dayOfMonth}日（偶数日）のため旭川駅前でタクシー待ち営業が可能です。駅前待機を積極的に組み込んでください。`
+      : `本日は${dayOfMonth}日（奇数日）のため旭川駅前でのタクシー待ち営業はできません。駅前待機は除外し、病院・商業施設周辺での流し営業を中心にプランを作成してください。`;
+
     const prompt = `あなたは北海道${area}のタクシー需要予測AIです。
 本日は${dateStr}です。
+
+【重要ルール】${stationRule}
 
 以下のJSON形式で、本日の交通需要予測データを返してください。
 JSONのみを返し、他のテキストは不要です。
@@ -7118,7 +7129,14 @@ window.DashboardPage = () => {
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#7c3aed' } }, 'route'),
-          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '本日の営業プラン')
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '本日の営業プラン'),
+          React.createElement('span', {
+            style: {
+              fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+              background: new Date().getDate() % 2 === 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+              color: new Date().getDate() % 2 === 0 ? '#22c55e' : '#ef4444',
+            },
+          }, new Date().getDate() % 2 === 0 ? '駅前待機OK' : '駅前待機不可')
         ),
         React.createElement('button', {
           onClick: handleFetchDemandPlan,
