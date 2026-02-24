@@ -833,8 +833,8 @@ a:hover {
 <body>
   <div id="root"></div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" integrity="sha384-MhvFknC0AhqKZXwSCyPeIirpE1IhTafmLXTvTCai5pxjAqFcqEAAqKH/2lXrFVPn"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" integrity="sha384-VQePqH/QE94Buf4g/4MI5NrqDYjdqT7JW6KzhieQUlw6w7U7VD59fPqCAunpXEu6"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
 
   <script type="text/javascript">
 
@@ -9408,7 +9408,7 @@ window.TransitInfoPage = () => {
     if (categoryKey === 'trouble' && result.success && result.text) {
       NotificationService.sendTroubleAlert(result.text);
     }
-  }, [geminiApiKey, region, categories, saveToStorage]);
+  }, [geminiApiKey, region, categories, saveToStorage, handleFetchDemandPlan]);
 
   // 全カテゴリ一括取得
   const handleFetchAll = useCallback(async () => {
