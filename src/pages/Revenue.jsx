@@ -41,8 +41,49 @@ window.RevenuePage = () => {
   const mapPickerMarkerRef = useRef(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
+  const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
 
   const { apiKey } = useAppContext();
+
+  // 始業シフト状態をlocalStorageから復元
+  useEffect(() => {
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const activeShift = shifts.find(s => !s.endTime);
+    if (activeShift) {
+      setShiftInfo({ active: true, startTime: activeShift.startTime });
+    }
+  }, []);
+
+  // 始業ボタン処理
+  const handleShiftStart = useCallback(() => {
+    const now = new Date();
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const activeShift = shifts.find(s => !s.endTime);
+
+    if (activeShift) {
+      if (!confirm('現在のシフトを終了して新しいシフトを開始しますか？')) return;
+      // 前回シフトの終業時間 = 直前の売上記録の時刻
+      const allEntries = DataService.getEntries();
+      if (allEntries.length > 0) {
+        const lastEntry = allEntries[0];
+        activeShift.endTime = lastEntry.dropoffTime
+          ? `${lastEntry.date || lastEntry.timestamp.split('T')[0]}T${lastEntry.dropoffTime}`
+          : lastEntry.timestamp;
+      } else {
+        activeShift.endTime = now.toISOString();
+      }
+    }
+
+    const newShift = {
+      id: Date.now().toString(),
+      startTime: now.toISOString(),
+      endTime: null,
+    };
+    shifts.push(newShift);
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+    setShiftInfo({ active: true, startTime: now.toISOString() });
+    AppLogger.info(`始業記録: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+  }, []);
 
   // ページ読み込み時に天気を自動取得
   useEffect(() => {
@@ -689,6 +730,50 @@ window.RevenuePage = () => {
                 )
               );
             })()
+          ),
+
+          // 始業ボタン
+          React.createElement('div', { className: 'form-group', style: { gridColumn: '1 / -1' } },
+            React.createElement('button', {
+              type: 'button',
+              onClick: handleShiftStart,
+              style: {
+                width: '100%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                padding: '14px 16px', borderRadius: '10px',
+                fontSize: '15px', fontWeight: '700',
+                cursor: 'pointer',
+                border: shiftInfo.active ? '2px solid var(--color-accent)' : '2px solid var(--color-warning)',
+                background: shiftInfo.active ? 'rgba(0,200,83,0.12)' : 'rgba(255,152,0,0.15)',
+                color: shiftInfo.active ? 'var(--color-accent)' : 'var(--color-warning)',
+                transition: 'all 0.2s ease',
+              },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px' } },
+                shiftInfo.active ? 'work' : 'play_arrow'),
+              shiftInfo.active
+                ? `始業中 ${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}〜`
+                : '始業'
+            ),
+            shiftInfo.active && React.createElement('div', {
+              style: {
+                marginTop: '8px', padding: '8px 12px', borderRadius: '8px',
+                background: 'rgba(0,200,83,0.06)', border: '1px solid rgba(0,200,83,0.15)',
+                fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: 'var(--color-accent)' } }, 'schedule'),
+              `${new Date(shiftInfo.startTime).toLocaleDateString('ja-JP')} ${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} から勤務中`,
+              (() => {
+                const elapsed = Date.now() - new Date(shiftInfo.startTime).getTime();
+                const hours = Math.floor(elapsed / 3600000);
+                const mins = Math.floor((elapsed % 3600000) / 60000);
+                return React.createElement('span', {
+                  style: { fontWeight: '600', color: 'var(--color-accent)', padding: '1px 8px', borderRadius: '4px', background: 'rgba(0,200,83,0.12)' },
+                }, `${hours}時間${mins}分`);
+              })()
+            )
           ),
 
           // 天候（自動取得 + 手動変更可）

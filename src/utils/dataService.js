@@ -915,18 +915,57 @@ window.DataService = (() => {
     });
   }
 
+  // ヒートマップデータ（半径2kmオーバーラップ方式）
+  // 各乗車地点から半径2km圏内に仮想ポイントを配置し、
+  // 複数の乗車地点の2km圏が重なるエリアほど高密度になる
   function getHeatmapData() {
     const entries = getEntries();
     const rival = getRivalEntries();
-    const points = [];
+    const origins = [];
+
     entries.forEach(e => {
-      if (e.pickupCoords) points.push({ lat: e.pickupCoords.lat, lng: e.pickupCoords.lng, weight: 1 });
-      if (e.dropoffCoords) points.push({ lat: e.dropoffCoords.lat, lng: e.dropoffCoords.lng, weight: 0.5 });
+      if (e.pickupCoords && e.pickupCoords.lat && e.pickupCoords.lng) {
+        origins.push({ lat: e.pickupCoords.lat, lng: e.pickupCoords.lng });
+      }
     });
+
     rival.forEach(e => {
-      if (e.locationCoords) points.push({ lat: e.locationCoords.lat, lng: e.locationCoords.lng, weight: 0.7 });
+      if (e.locationCoords && e.locationCoords.lat && e.locationCoords.lng) {
+        origins.push({ lat: e.locationCoords.lat, lng: e.locationCoords.lng });
+      }
     });
-    return points;
+
+    if (origins.length === 0) return [];
+
+    const CELL_SIZE = 0.002; // 約200m間隔
+    const RADIUS_DEG = 0.018; // 半径2km ≒ 約0.018度
+    const RADIUS_KM = 2.0;
+    const grid = {};
+
+    origins.forEach(origin => {
+      const latSteps = Math.ceil(RADIUS_DEG / CELL_SIZE);
+      for (let di = -latSteps; di <= latSteps; di++) {
+        for (let dj = -latSteps; dj <= latSteps; dj++) {
+          const cellLat = origin.lat + di * CELL_SIZE;
+          const cellLng = origin.lng + dj * CELL_SIZE;
+          const dlat = cellLat - origin.lat;
+          const dlng = (cellLng - origin.lng) * Math.cos(origin.lat * Math.PI / 180);
+          const distKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111.32;
+          if (distKm > RADIUS_KM) continue;
+
+          const key = `${(Math.round(cellLat / CELL_SIZE) * CELL_SIZE).toFixed(4)},${(Math.round(cellLng / CELL_SIZE) * CELL_SIZE).toFixed(4)}`;
+          if (!grid[key]) {
+            grid[key] = { lat: Math.round(cellLat / CELL_SIZE) * CELL_SIZE, lng: Math.round(cellLng / CELL_SIZE) * CELL_SIZE, count: 0 };
+          }
+          const falloff = Math.exp(-(distKm * distKm) / (2 * 0.8 * 0.8));
+          grid[key].count += falloff;
+        }
+      }
+    });
+
+    return Object.values(grid).map(g => ({
+      lat: g.lat, lng: g.lng, weight: g.count,
+    }));
   }
 
   function getRivalHourlyBreakdown() {
