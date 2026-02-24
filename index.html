@@ -9329,27 +9329,6 @@ window.TransitInfoPage = () => {
     { key: 'flight',  icon: 'flight',           label: '飛行機',         color: '156,39,176',  fetchFn: GeminiService.fetchFlightInfo },
   ], []);
 
-  // 需要予測プラン関連
-  const [demandLoading, setDemandLoading] = useState(false);
-  const demandLoadingRef = useRef(false);
-  const demandSchedule = useMemo(() => DataService.getDailyDemandSchedule(), [data]);
-
-  const handleFetchDemandPlan = useCallback(async () => {
-    if (!geminiApiKey || demandLoadingRef.current) return;
-    demandLoadingRef.current = true;
-    setDemandLoading(true);
-    const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, region);
-    if (result.success && result.data) {
-      const today = new Date().toISOString().slice(0, 10);
-      AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
-      window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'demand-plan' } }));
-      // トリガーrerender
-      setData(prev => ({ ...prev }));
-    }
-    demandLoadingRef.current = false;
-    setDemandLoading(false);
-  }, [geminiApiKey, region]);
-
   // localStorageから保存済みデータを読み込み
   const loadSaved = () => {
     const saved = AppStorage.get(STORAGE_KEY, {});
@@ -9364,6 +9343,26 @@ window.TransitInfoPage = () => {
 
   const [data, setData] = useState(loadSaved);
   const [activeTab, setActiveTab] = useState('demand');
+
+  // 需要予測プラン関連（data/setData宣言後に配置）
+  const [demandLoading, setDemandLoading] = useState(false);
+  const demandLoadingRef = useRef(false);
+  const demandSchedule = useMemo(() => DataService.getDailyDemandSchedule(), [data]);
+
+  const handleFetchDemandPlan = useCallback(async () => {
+    if (!geminiApiKey || demandLoadingRef.current) return;
+    demandLoadingRef.current = true;
+    setDemandLoading(true);
+    const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, region);
+    if (result.success && result.data) {
+      const today = new Date().toISOString().slice(0, 10);
+      AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'demand-plan' } }));
+      setData(prev => ({ ...prev }));
+    }
+    demandLoadingRef.current = false;
+    setDemandLoading(false);
+  }, [geminiApiKey, region]);
 
   // データをlocalStorageに保存 + ファイル保存
   const saveToStorage = useCallback((newData) => {
