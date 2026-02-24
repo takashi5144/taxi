@@ -1,6 +1,6 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
 // アプリはindex.html単体で動作するため、キャッシュ対象は最小限に絞る
-const CACHE_NAME = 'taxi-support-v1.0.2';
+const CACHE_NAME = 'taxi-support-v1.0.4';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -11,8 +11,8 @@ const STATIC_ASSETS = [
 
 // CDNリソース（ネットワーク優先、キャッシュフォールバック）
 const CDN_ASSETS = [
-  'https://unpkg.com/react@18/umd/react.production.min.js',
-  'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+  'https://unpkg.com/react@18.3.1/umd/react.production.min.js',
+  'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js',
   'https://unpkg.com/@babel/standalone/babel.min.js',
 ];
 
