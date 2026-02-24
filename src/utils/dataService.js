@@ -539,6 +539,119 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 用途×曜日×日種別（平日/休日/大型連休）クロス分析
+  // ============================================================
+  function getPurposeDayAnalysis() {
+    const entries = getEntries();
+    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'];
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+    function classifyDayType(dateStr) {
+      const info = JapaneseHolidays.getDateInfo(dateStr);
+      const dayIdx = new Date(dateStr + 'T00:00:00').getDay();
+      const isOff = info.isHoliday || dayIdx === 0 || dayIdx === 6;
+      if (!isOff) return 'weekday';
+      let streak = 1;
+      for (let d = 1; d <= 5; d++) {
+        const prev = new Date(dateStr + 'T00:00:00');
+        prev.setDate(prev.getDate() - d);
+        const ps = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prev.getDate()).padStart(2,'0')}`;
+        const pi = JapaneseHolidays.getDateInfo(ps);
+        const pd = prev.getDay();
+        if (pi.isHoliday || pd === 0 || pd === 6) streak++; else break;
+      }
+      for (let d = 1; d <= 5; d++) {
+        const next = new Date(dateStr + 'T00:00:00');
+        next.setDate(next.getDate() + d);
+        const ns = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
+        const ni = JapaneseHolidays.getDateInfo(ns);
+        const nd = next.getDay();
+        if (ni.isHoliday || nd === 0 || nd === 6) streak++; else break;
+      }
+      return streak >= 3 ? 'longHoliday' : 'holiday';
+    }
+
+    const matrix = {};
+    purposes.forEach(p => {
+      matrix[p] = {};
+      dayNames.forEach(d => { matrix[p][d] = { count: 0, amount: 0 }; });
+    });
+
+    const typeMatrix = {};
+    purposes.forEach(p => {
+      typeMatrix[p] = { weekday: { count: 0, amount: 0 }, holiday: { count: 0, amount: 0 }, longHoliday: { count: 0, amount: 0 } };
+    });
+
+    const dateDayTypeMap = {};
+
+    entries.forEach(e => {
+      const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : null;
+      if (!p) return;
+      const dateStr = e.date || '';
+      if (!dateStr) return;
+
+      const dow = e.dayOfWeek || JapaneseHolidays.getDayOfWeek(dateStr);
+      if (dow && matrix[p][dow]) {
+        matrix[p][dow].count += 1;
+        matrix[p][dow].amount += e.amount || 0;
+      }
+
+      if (!dateDayTypeMap[dateStr]) {
+        dateDayTypeMap[dateStr] = classifyDayType(dateStr);
+      }
+      const dayType = dateDayTypeMap[dateStr];
+      typeMatrix[p][dayType].count += 1;
+      typeMatrix[p][dayType].amount += e.amount || 0;
+    });
+
+    const dayTypeCounts = { weekday: 0, holiday: 0, longHoliday: 0 };
+    const allDates = new Set();
+    entries.forEach(e => { if (e.date) allDates.add(e.date); });
+    allDates.forEach(d => {
+      if (!dateDayTypeMap[d]) dateDayTypeMap[d] = classifyDayType(d);
+      dayTypeCounts[dateDayTypeMap[d]]++;
+    });
+
+    const monthPurpose = {};
+    entries.forEach(e => {
+      const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : null;
+      if (!p || !e.date) return;
+      const month = e.date.substring(0, 7);
+      if (!monthPurpose[month]) {
+        monthPurpose[month] = {};
+        purposes.forEach(pp => { monthPurpose[month][pp] = 0; });
+      }
+      monthPurpose[month][p]++;
+    });
+
+    const predictions = [];
+    const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      const futureDate = new Date(today);
+      futureDate.setDate(futureDate.getDate() + i);
+      const ds = `${futureDate.getFullYear()}-${String(futureDate.getMonth()+1).padStart(2,'0')}-${String(futureDate.getDate()).padStart(2,'0')}`;
+      const dow = dayNames[futureDate.getDay()];
+      const dayType = classifyDayType(ds);
+      const info = JapaneseHolidays.getDateInfo(ds);
+
+      const scores = purposes.map(p => {
+        const dowData = matrix[p][dow] || { count: 0 };
+        const typeData = typeMatrix[p][dayType] || { count: 0 };
+        return { purpose: p, score: dowData.count * 0.6 + typeData.count * 0.4, dowCount: dowData.count, typeCount: typeData.count };
+      }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
+
+      if (scores.length > 0) {
+        predictions.push({
+          date: ds, dayOfWeek: dow, dayType, holiday: info.holiday || null,
+          topPurposes: scores.slice(0, 3),
+        });
+      }
+    }
+
+    return { matrix, typeMatrix, dayTypeCounts, monthPurpose, predictions, purposes, dayNames };
+  }
+
+  // ============================================================
   // 週別集計
   // ============================================================
   function getWeeklyBreakdown(weeks = 12) {
@@ -1040,6 +1153,7 @@ window.DataService = (() => {
     getDayOfWeekBreakdown,
     getHourlyBreakdown,
     getAreaBreakdown,
+    getPurposeDayAnalysis,
     getWeeklyBreakdown,
     getMonthlyBreakdown,
     getWeatherBreakdown,

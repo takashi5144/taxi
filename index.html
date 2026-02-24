@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.0.1</title>
+  <title>タクシー売上サポート v1.0.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -861,7 +861,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.0.1',
+  VERSION: '1.0.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2340,6 +2340,146 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 用途×曜日×日種別（平日/休日/大型連休）クロス分析
+  // ============================================================
+  function getPurposeDayAnalysis() {
+    const entries = getEntries();
+    const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'];
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+    // 大型連休判定（3日以上連続する祝日/休日をlong holidayとする）
+    function classifyDayType(dateStr) {
+      const info = JapaneseHolidays.getDateInfo(dateStr);
+      const dayIdx = new Date(dateStr + 'T00:00:00').getDay();
+      // 祝日または土日
+      const isOff = info.isHoliday || dayIdx === 0 || dayIdx === 6;
+      if (!isOff) return 'weekday';
+      // 大型連休判定: 前後に連続する休日を数える
+      let streak = 1;
+      for (let d = 1; d <= 5; d++) {
+        const prev = new Date(dateStr + 'T00:00:00');
+        prev.setDate(prev.getDate() - d);
+        const ps = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prev.getDate()).padStart(2,'0')}`;
+        const pi = JapaneseHolidays.getDateInfo(ps);
+        const pd = prev.getDay();
+        if (pi.isHoliday || pd === 0 || pd === 6) streak++; else break;
+      }
+      for (let d = 1; d <= 5; d++) {
+        const next = new Date(dateStr + 'T00:00:00');
+        next.setDate(next.getDate() + d);
+        const ns = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
+        const ni = JapaneseHolidays.getDateInfo(ns);
+        const nd = next.getDay();
+        if (ni.isHoliday || nd === 0 || nd === 6) streak++; else break;
+      }
+      return streak >= 3 ? 'longHoliday' : 'holiday';
+    }
+
+    // 用途×曜日マトリクス
+    const matrix = {};
+    purposes.forEach(p => {
+      matrix[p] = {};
+      dayNames.forEach(d => { matrix[p][d] = { count: 0, amount: 0 }; });
+    });
+
+    // 用途×日種別マトリクス
+    const typeMatrix = {};
+    purposes.forEach(p => {
+      typeMatrix[p] = { weekday: { count: 0, amount: 0 }, holiday: { count: 0, amount: 0 }, longHoliday: { count: 0, amount: 0 } };
+    });
+
+    // 日別集計（日種別ごとの日数カウント用）
+    const dateSet = new Set();
+    const dateDayTypeMap = {};
+
+    entries.forEach(e => {
+      const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : null;
+      if (!p) return;
+      const dateStr = e.date || '';
+      if (!dateStr) return;
+
+      const dow = e.dayOfWeek || JapaneseHolidays.getDayOfWeek(dateStr);
+      if (dow && matrix[p][dow]) {
+        matrix[p][dow].count += 1;
+        matrix[p][dow].amount += e.amount || 0;
+      }
+
+      if (!dateDayTypeMap[dateStr]) {
+        dateDayTypeMap[dateStr] = classifyDayType(dateStr);
+      }
+      const dayType = dateDayTypeMap[dateStr];
+      typeMatrix[p][dayType].count += 1;
+      typeMatrix[p][dayType].amount += e.amount || 0;
+
+      dateSet.add(dateStr);
+    });
+
+    // 日種別ごとの日数
+    const dayTypeCounts = { weekday: 0, holiday: 0, longHoliday: 0 };
+    const allDates = new Set();
+    entries.forEach(e => { if (e.date) allDates.add(e.date); });
+    allDates.forEach(d => {
+      if (!dateDayTypeMap[d]) dateDayTypeMap[d] = classifyDayType(d);
+      dayTypeCounts[dateDayTypeMap[d]]++;
+    });
+
+    // 月別・用途別トレンド
+    const monthPurpose = {};
+    entries.forEach(e => {
+      const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : null;
+      if (!p || !e.date) return;
+      const month = e.date.substring(0, 7); // YYYY-MM
+      if (!monthPurpose[month]) {
+        monthPurpose[month] = {};
+        purposes.forEach(pp => { monthPurpose[month][pp] = 0; });
+      }
+      monthPurpose[month][p]++;
+    });
+
+    // 予測生成: 今後30日間で各日にどの用途が増えそうか
+    const predictions = [];
+    const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      const futureDate = new Date(today);
+      futureDate.setDate(futureDate.getDate() + i);
+      const ds = `${futureDate.getFullYear()}-${String(futureDate.getMonth()+1).padStart(2,'0')}-${String(futureDate.getDate()).padStart(2,'0')}`;
+      const dow = dayNames[futureDate.getDay()];
+      const dayType = classifyDayType(ds);
+      const info = JapaneseHolidays.getDateInfo(ds);
+
+      // 各用途のスコアを計算（曜日パターン + 日種別パターン）
+      const scores = purposes.map(p => {
+        const dowData = matrix[p][dow] || { count: 0 };
+        const typeData = typeMatrix[p][dayType] || { count: 0 };
+        // 曜日スコアと日種別スコアの加重平均
+        const dowScore = dowData.count;
+        const typeScore = typeData.count;
+        return { purpose: p, score: dowScore * 0.6 + typeScore * 0.4, dowCount: dowData.count, typeCount: typeData.count };
+      }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
+
+      if (scores.length > 0) {
+        predictions.push({
+          date: ds,
+          dayOfWeek: dow,
+          dayType,
+          holiday: info.holiday || null,
+          topPurposes: scores.slice(0, 3),
+        });
+      }
+    }
+
+    return {
+      matrix,        // 用途×曜日
+      typeMatrix,    // 用途×日種別
+      dayTypeCounts, // 日種別ごとの日数
+      monthPurpose,  // 月別×用途
+      predictions,   // 今後30日の予測
+      purposes,
+      dayNames,
+    };
+  }
+
+  // ============================================================
   // エリア×時間帯クロス集計
   // ============================================================
   function getAreaTimeBreakdown() {
@@ -3232,6 +3372,7 @@ window.DataService = (() => {
     getWeatherBreakdown,
     getSourceBreakdown,
     getPurposeBreakdown,
+    getPurposeDayAnalysis,
     getAreaTimeBreakdown,
     getUnitPriceAnalysis,
     getBusinessRecommendation,
@@ -9487,6 +9628,7 @@ window.AnalyticsPage = () => {
   const unitPrice = useMemo(() => DataService.getUnitPriceAnalysis(), [refreshKey]);
   const recommendation = useMemo(() => DataService.getBusinessRecommendation(), [refreshKey]);
   const sourceAreaPrice = useMemo(() => DataService.getSourceAreaPriceBreakdown(), [refreshKey]);
+  const purposeDay = useMemo(() => DataService.getPurposeDayAnalysis(), [refreshKey]);
 
   const hasData = overall.rideCount > 0;
 
@@ -9614,6 +9756,7 @@ window.AnalyticsPage = () => {
     { id: 'hourly', label: '時間帯別', icon: 'schedule' },
     { id: 'area', label: 'エリア別', icon: 'place' },
     { id: 'weather', label: '天候別', icon: 'cloud' },
+    { id: 'purposeDay', label: '用途別', icon: 'category' },
     { id: 'rival', label: '他社分析', icon: 'local_taxi' },
     { id: 'forecast', label: '業務予測', icon: 'tips_and_updates' },
   ];
@@ -9928,6 +10071,242 @@ window.AnalyticsPage = () => {
       // 天候別
       rivalTotal > 0 && React.createElement(Card, { title: '天候別 他社乗車件数' },
         React.createElement(HBarChart, { data: rivalWeather.filter(w => w.count > 0), nameKey: 'name', valueKey: 'count', color: 'var(--color-primary-light)', prefix: '' })
+      )
+    ),
+
+    // 用途別分析タブ
+    tab === 'purposeDay' && React.createElement(React.Fragment, null,
+
+      // A. 用途×曜日ヒートマップ
+      React.createElement(Card, {
+        title: '用途×曜日 乗車パターン',
+        subtitle: '各曜日にどの用途が多いか',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        React.createElement('div', { style: { overflowX: 'auto' } },
+          React.createElement('table', {
+            style: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-sm)' },
+          },
+            React.createElement('thead', null,
+              React.createElement('tr', null,
+                React.createElement('th', { style: { padding: '8px 6px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 500, borderBottom: '1px solid rgba(255,255,255,0.1)' } }, '用途'),
+                ...purposeDay.dayNames.map(d =>
+                  React.createElement('th', {
+                    key: d,
+                    style: { padding: '8px 4px', textAlign: 'center', color: (d === '日' ? '#ef4444' : d === '土' ? '#3b82f6' : 'var(--text-secondary)'), fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.1)', minWidth: '36px' },
+                  }, d)
+                )
+              )
+            ),
+            React.createElement('tbody', null,
+              (() => {
+                const allCounts = purposeDay.purposes.flatMap(p => purposeDay.dayNames.map(d => purposeDay.matrix[p][d].count));
+                const maxCount = Math.max(...allCounts, 1);
+                return purposeDay.purposes.map(p => {
+                  const rowTotal = purposeDay.dayNames.reduce((s, d) => s + purposeDay.matrix[p][d].count, 0);
+                  if (rowTotal === 0) return null;
+                  return React.createElement('tr', { key: p },
+                    React.createElement('td', {
+                      style: { padding: '6px', fontWeight: 500, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                    }, p),
+                    ...purposeDay.dayNames.map(d => {
+                      const c = purposeDay.matrix[p][d].count;
+                      const intensity = c / maxCount;
+                      return React.createElement('td', {
+                        key: d,
+                        style: {
+                          padding: '6px 4px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                          background: c > 0 ? `rgba(26,115,232,${0.1 + intensity * 0.6})` : 'transparent',
+                          color: c > 0 ? '#fff' : 'var(--text-muted)',
+                          fontWeight: c > 0 ? 600 : 400, borderRadius: '4px',
+                        },
+                        title: `${p} ${d}曜: ${c}件 ¥${purposeDay.matrix[p][d].amount.toLocaleString()}`,
+                      }, c > 0 ? c : '-');
+                    })
+                  );
+                });
+              })()
+            )
+          )
+        )
+      ),
+
+      // B. 日種別（平日/休日/大型連休）分析
+      React.createElement(Card, {
+        title: '日種別×用途 分析',
+        subtitle: '平日・休日・大型連休での乗車傾向',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' },
+        },
+          React.createElement('span', null, `平日: ${purposeDay.dayTypeCounts.weekday}日分`),
+          React.createElement('span', null, `休日: ${purposeDay.dayTypeCounts.holiday}日分`),
+          React.createElement('span', null, `大型連休: ${purposeDay.dayTypeCounts.longHoliday}日分`)
+        ),
+        React.createElement('div', { style: { display: 'grid', gap: 'var(--space-md)' } },
+          [
+            { key: 'weekday', label: '平日', color: 'rgba(26,115,232,0.7)', icon: 'work' },
+            { key: 'holiday', label: '休日', color: 'rgba(76,175,80,0.7)', icon: 'weekend' },
+            { key: 'longHoliday', label: '大型連休', color: 'rgba(255,152,0,0.7)', icon: 'celebration' },
+          ].map(dt => {
+            const sorted = purposeDay.purposes
+              .map(p => ({ name: p, count: purposeDay.typeMatrix[p][dt.key].count, amount: purposeDay.typeMatrix[p][dt.key].amount }))
+              .filter(x => x.count > 0)
+              .sort((a, b) => b.count - a.count);
+            if (sorted.length === 0) return null;
+            const totalCount = sorted.reduce((s, x) => s + x.count, 0);
+            return React.createElement('div', { key: dt.key },
+              React.createElement('div', {
+                style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' },
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: dt.color } }, dt.icon),
+                React.createElement('span', { style: { fontWeight: 600 } }, dt.label),
+                React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, `(${totalCount}件)`)
+              ),
+              // 積み上げバー
+              React.createElement('div', {
+                style: { display: 'flex', height: '24px', borderRadius: '6px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)', marginBottom: '6px' },
+              },
+                ...sorted.slice(0, 5).map((s, i) => {
+                  const pct = (s.count / totalCount) * 100;
+                  const colors = ['rgba(26,115,232,0.8)', 'rgba(76,175,80,0.8)', 'rgba(255,193,7,0.8)', 'rgba(244,67,54,0.8)', 'rgba(156,39,176,0.8)'];
+                  return React.createElement('div', {
+                    key: s.name,
+                    style: {
+                      width: pct + '%', background: colors[i % colors.length],
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '10px', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap',
+                    },
+                    title: `${s.name}: ${s.count}件 (${Math.round(pct)}%) ¥${s.amount.toLocaleString()}`,
+                  }, pct >= 12 ? s.name : '');
+                })
+              ),
+              // ラベル行
+              React.createElement('div', {
+                style: { display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)' },
+              },
+                ...sorted.slice(0, 5).map((s, i) => {
+                  const colors = ['#1a73e8', '#4caf50', '#ffc107', '#f44336', '#9c27b0'];
+                  return React.createElement('span', {
+                    key: s.name,
+                    style: { display: 'flex', alignItems: 'center', gap: '4px' },
+                  },
+                    React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: colors[i % colors.length], display: 'inline-block' } }),
+                    `${s.name} ${s.count}件`
+                  );
+                })
+              )
+            );
+          })
+        )
+      ),
+
+      // C. 今後30日の用途予測
+      React.createElement(Card, {
+        title: '今後30日間の用途予測',
+        subtitle: '過去データから予測される乗車用途',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        purposeDay.predictions.length === 0
+          ? React.createElement('div', { style: { textAlign: 'center', color: 'var(--text-muted)', padding: 'var(--space-lg)' } }, 'データが不足しています')
+          : React.createElement('div', { style: { display: 'grid', gap: '4px' } },
+              purposeDay.predictions.map(pred => {
+                const dayTypeLabel = pred.dayType === 'weekday' ? '平日' : pred.dayType === 'holiday' ? '休日' : '大型連休';
+                const dayTypeColor = pred.dayType === 'weekday' ? 'rgba(26,115,232,0.15)' : pred.dayType === 'holiday' ? 'rgba(76,175,80,0.15)' : 'rgba(255,152,0,0.15)';
+                const dowColor = pred.dayOfWeek === '日' ? '#ef4444' : pred.dayOfWeek === '土' ? '#3b82f6' : 'var(--text-primary)';
+                // 日付をM/D形式に
+                const parts = pred.date.split('-');
+                const dateLabel = `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+                return React.createElement('div', {
+                  key: pred.date,
+                  style: {
+                    display: 'grid', gridTemplateColumns: '60px 30px 60px 1fr', gap: '8px', alignItems: 'center',
+                    padding: '8px 10px', borderRadius: '6px', background: dayTypeColor,
+                  },
+                },
+                  React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 600 } }, dateLabel),
+                  React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', fontWeight: 600, color: dowColor } }, `(${pred.dayOfWeek})`),
+                  React.createElement('span', {
+                    style: { fontSize: '10px', padding: '2px 6px', borderRadius: '10px', textAlign: 'center',
+                      background: pred.dayType === 'weekday' ? 'rgba(26,115,232,0.3)' : pred.dayType === 'holiday' ? 'rgba(76,175,80,0.3)' : 'rgba(255,152,0,0.3)',
+                      color: '#fff', fontWeight: 500 },
+                  }, dayTypeLabel),
+                  React.createElement('div', {
+                    style: { display: 'flex', gap: '6px', flexWrap: 'wrap' },
+                  },
+                    ...pred.topPurposes.map((tp, i) =>
+                      React.createElement('span', {
+                        key: tp.purpose,
+                        style: {
+                          fontSize: '11px', padding: '2px 8px', borderRadius: '12px',
+                          background: i === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)',
+                          color: i === 0 ? '#fff' : 'var(--text-secondary)',
+                          fontWeight: i === 0 ? 600 : 400,
+                        },
+                        title: `曜日実績: ${tp.dowCount}件 / 日種別実績: ${tp.typeCount}件`,
+                      }, tp.purpose)
+                    ),
+                    pred.holiday && React.createElement('span', {
+                      style: { fontSize: '10px', color: '#ef4444', fontWeight: 500 },
+                    }, pred.holiday)
+                  )
+                );
+              })
+            )
+      ),
+
+      // D. 月別トレンド
+      Object.keys(purposeDay.monthPurpose).length > 0 && React.createElement(Card, {
+        title: '月別 用途トレンド',
+        subtitle: '月ごとの用途別乗車件数推移',
+        style: { marginBottom: 'var(--space-lg)' },
+      },
+        React.createElement('div', { style: { overflowX: 'auto' } },
+          React.createElement('table', {
+            style: { width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' },
+          },
+            React.createElement('thead', null,
+              React.createElement('tr', null,
+                React.createElement('th', { style: { padding: '6px', textAlign: 'left', color: 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,0.1)' } }, '月'),
+                ...purposeDay.purposes.filter(p => {
+                  return Object.values(purposeDay.monthPurpose).some(mp => mp[p] > 0);
+                }).map(p =>
+                  React.createElement('th', { key: p, style: { padding: '6px 4px', textAlign: 'center', color: 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,0.1)', minWidth: '40px' } }, p)
+                )
+              )
+            ),
+            React.createElement('tbody', null,
+              ...Object.entries(purposeDay.monthPurpose)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([month, data]) => {
+                  const activePurposes = purposeDay.purposes.filter(p => Object.values(purposeDay.monthPurpose).some(mp => mp[p] > 0));
+                  const maxInRow = Math.max(...activePurposes.map(p => data[p] || 0), 1);
+                  // YYYY-MM → YYYY年M月
+                  const [y, m] = month.split('-');
+                  const monthLabel = `${y}年${parseInt(m)}月`;
+                  return React.createElement('tr', { key: month },
+                    React.createElement('td', {
+                      style: { padding: '6px', fontWeight: 500, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                    }, monthLabel),
+                    ...activePurposes.map(p => {
+                      const cnt = data[p] || 0;
+                      const allMonthMax = Math.max(...Object.values(purposeDay.monthPurpose).map(mp => mp[p] || 0), 1);
+                      const intensity = cnt / allMonthMax;
+                      return React.createElement('td', {
+                        key: p,
+                        style: {
+                          padding: '6px 4px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                          background: cnt > 0 ? `rgba(76,175,80,${0.1 + intensity * 0.5})` : 'transparent',
+                          color: cnt > 0 ? '#fff' : 'var(--text-muted)', fontWeight: cnt > 0 ? 600 : 400, borderRadius: '3px',
+                        },
+                      }, cnt > 0 ? cnt : '-');
+                    })
+                  );
+                })
+            )
+          )
+        )
       )
     ),
 

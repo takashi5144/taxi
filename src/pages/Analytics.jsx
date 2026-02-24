@@ -32,6 +32,7 @@ window.AnalyticsPage = () => {
   const areas = useMemo(() => DataService.getAreaBreakdown(), [refreshKey]);
   const overall = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
   const monthly = useMemo(() => DataService.getMonthlyBreakdown(), [refreshKey]);
+  const purposeDay = useMemo(() => DataService.getPurposeDayAnalysis(), [refreshKey]);
 
   const hasData = overall.rideCount > 0;
 
@@ -114,6 +115,7 @@ window.AnalyticsPage = () => {
     { id: 'dayOfWeek', label: '曜日別', icon: 'date_range' },
     { id: 'hourly', label: '時間帯別', icon: 'schedule' },
     { id: 'area', label: 'エリア別', icon: 'place' },
+    { id: 'purposeDay', label: '用途別', icon: 'category' },
   ];
 
   return React.createElement('div', null,
