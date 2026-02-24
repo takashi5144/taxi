@@ -8,8 +8,8 @@
 window.RevenuePage = () => {
   const { useState, useEffect, useCallback, useRef } = React;
 
-  // 本日の日付をデフォルト値に
-  const todayDefault = new Date().toISOString().split('T')[0];
+  // 本日の日付をデフォルト値に（ローカル時間で取得）
+  const todayDefault = getLocalDateString();
 
   // 現在時刻をHH:MM形式で取得
   const getNowTime = () => {
@@ -398,7 +398,7 @@ window.RevenuePage = () => {
   };
 
   // 本日の日付文字列
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
@@ -1088,7 +1088,7 @@ window.RevenuePage = () => {
             ),
             React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px' } },
               (() => {
-                const eDate = entry.date || new Date(entry.timestamp).toISOString().split('T')[0];
+                const eDate = entry.date || getLocalDateString(new Date(entry.timestamp));
                 const info = entry.dayOfWeek ? { dayOfWeek: entry.dayOfWeek, holiday: entry.holiday, isSunday: entry.dayOfWeek === '日', isSaturday: entry.dayOfWeek === '土', isHoliday: !!entry.holiday } : JapaneseHolidays.getDateInfo(eDate);
                 const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
                 return React.createElement(React.Fragment, null,

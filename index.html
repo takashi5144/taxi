@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.0.0</title>
+  <title>タクシー売上サポート v1.0.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -853,9 +853,15 @@ window.TaxiApp = window.TaxiApp || {
   utils: {},       // ユーティリティ
 };
 
+// ローカル時間でYYYY-MM-DD形式の日付文字列を取得（UTC誤差回避）
+window.getLocalDateString = (date) => {
+  const d = date || new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.0.0',
+  VERSION: '1.0.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1323,11 +1329,11 @@ window.JapaneseHolidays = (() => {
       if (d.getDay() === 0) { // 日曜日
         let next = new Date(d);
         next.setDate(next.getDate() + 1);
-        let nextStr = next.toISOString().split('T')[0];
+        let nextStr = getLocalDateString(next);
         // 翌日も祝日なら更に翌日へ
         while (holidays.has(nextStr)) {
           next.setDate(next.getDate() + 1);
-          nextStr = next.toISOString().split('T')[0];
+          nextStr = getLocalDateString(next);
         }
         holidays.set(nextStr, '振替休日');
       }
@@ -1342,7 +1348,7 @@ window.JapaneseHolidays = (() => {
       if (diff === 2) {
         const between = new Date(curr);
         between.setDate(between.getDate() + 1);
-        const betweenStr = between.toISOString().split('T')[0];
+        const betweenStr = getLocalDateString(between);
         if (!holidays.has(betweenStr) && between.getDay() !== 0) {
           holidays.set(betweenStr, '国民の休日');
         }
@@ -1839,7 +1845,7 @@ window.DataService = (() => {
   // ダウンロード方式でJSON保存（フォールバック）
   function _downloadBackup(entries) {
     try {
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = getLocalDateString();
       const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -1860,7 +1866,7 @@ window.DataService = (() => {
 
   function _downloadRivalBackup(entries) {
     try {
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = getLocalDateString();
       const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -1885,7 +1891,7 @@ window.DataService = (() => {
     if (!_dirHandle) return;
     const entries = getEntries();
     if (entries.length === 0) return;
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = getLocalDateString();
     await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
   }
 
@@ -1895,7 +1901,7 @@ window.DataService = (() => {
     if (!_dirHandle) return;
     const entries = getRivalEntries();
     if (entries.length === 0) return;
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = getLocalDateString();
     await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
   }
 
@@ -1905,7 +1911,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return;
     if (_dirHandle) {
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = getLocalDateString();
       const ok = await _saveToSubFolder('売上記録', `売上記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
       if (ok) return;
     }
@@ -1917,7 +1923,7 @@ window.DataService = (() => {
     const entries = getRivalEntries();
     if (entries.length === 0) return;
     if (_dirHandle) {
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = getLocalDateString();
       const ok = await _saveToSubFolder('他社乗車', `他社乗車記録_${dateStr}.json`, entries, APP_CONSTANTS.VERSION);
       if (ok) return;
     }
@@ -2821,7 +2827,7 @@ window.DataService = (() => {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = getLocalDateString();
     link.href = url;
     link.download = `taxi_revenue_${dateStr}.csv`;
     document.body.appendChild(link);
@@ -2871,7 +2877,7 @@ window.DataService = (() => {
     if (!validation.valid) return { success: false, errors: validation.errors };
 
     const entries = getEntries();
-    const entryDate = form.date || new Date().toISOString().split('T')[0];
+    const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -2985,7 +2991,7 @@ window.DataService = (() => {
       return { success: false, errors: ['乗車場所を入力してください'] };
     }
     const entries = getRivalEntries();
-    const entryDate = form.date || new Date().toISOString().split('T')[0];
+    const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -3114,7 +3120,7 @@ window.DataService = (() => {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = getLocalDateString();
     link.href = url;
     link.download = `rival_rides_${dateStr}.csv`;
     document.body.appendChild(link);
@@ -3152,7 +3158,7 @@ window.DataService = (() => {
       return { success: false, errors: ['イベント名を入力してください'] };
     }
     const entries = getEvents();
-    const entryDate = form.date || new Date().toISOString().split('T')[0];
+    const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     const entry = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -6225,7 +6231,7 @@ window.RevenuePage = () => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
   // 本日の日付をデフォルト値に
-  const todayDefault = new Date().toISOString().split('T')[0];
+  const todayDefault = getLocalDateString();
 
   // 現在時刻をHH:MM形式で取得
   const getNowTime = () => {
@@ -6352,7 +6358,17 @@ window.RevenuePage = () => {
     window.addEventListener('taxi-data-changed', handleDataChanged);
 
     const handleVisibility = () => {
-      if (!document.hidden) setRefreshKey(k => k + 1);
+      if (!document.hidden) {
+        setRefreshKey(k => k + 1);
+        // 日付が変わっていたらフォームの日付を自動更新
+        const currentDate = getLocalDateString();
+        setForm(prev => {
+          if (prev.date !== currentDate) {
+            return { ...prev, date: currentDate };
+          }
+          return prev;
+        });
+      }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
@@ -6602,7 +6618,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setMapPickerField(null);
     setSaved(true);
@@ -6626,7 +6642,7 @@ window.RevenuePage = () => {
   };
 
   // 本日の日付文字列
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
@@ -6913,7 +6929,7 @@ window.RevenuePage = () => {
                 }
                 const result = DataService.addEntry(formData);
                 if (result.success) {
-                  setForm({ date: todayDefault, weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
                   setGpsInfo({ pickup: null, dropoff: null });
                   setMapPickerField(null);
                   setSaved(true);
@@ -7379,7 +7395,7 @@ window.RevenuePage = () => {
             ),
             React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px' } },
               (() => {
-                const eDate = entry.date || new Date(entry.timestamp).toISOString().split('T')[0];
+                const eDate = entry.date || getLocalDateString(new Date(entry.timestamp));
                 const info = entry.dayOfWeek ? { dayOfWeek: entry.dayOfWeek, holiday: entry.holiday, isSunday: entry.dayOfWeek === '日', isSaturday: entry.dayOfWeek === '土', isHoliday: !!entry.holiday } : JapaneseHolidays.getDateInfo(eDate);
                 const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
                 return React.createElement(React.Fragment, null,
@@ -7443,7 +7459,7 @@ window.RevenuePage = () => {
 window.RivalRidePage = () => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  const todayDefault = new Date().toISOString().split('T')[0];
+  const todayDefault = getLocalDateString();
 
   const getNowTime = () => {
     const now = new Date();
@@ -7547,7 +7563,7 @@ window.RivalRidePage = () => {
     const entryData = { date: cur.date, time: getNowTime(), weather: cur.weather, location, locationCoords: coords, memo: cur.memo };
     const result = DataService.addRivalEntry(entryData);
     if (result.success) {
-      setForm({ date: todayDefault, time: getNowTime(), weather: cur.weather, location: '', locationCoords: null, memo: '' });
+      setForm({ date: getLocalDateString(), time: getNowTime(), weather: cur.weather, location: '', locationCoords: null, memo: '' });
       setGpsInfo(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -7664,7 +7680,7 @@ window.RivalRidePage = () => {
       setErrors(result.errors);
       return;
     }
-    setForm({ date: todayDefault, time: getNowTime(), weather: form.weather, location: '', locationCoords: null, memo: '' });
+    setForm({ date: getLocalDateString(), time: getNowTime(), weather: form.weather, location: '', locationCoords: null, memo: '' });
     setGpsInfo(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -8731,7 +8747,7 @@ window.TransitInfoPage = () => {
 window.EventsPage = () => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  const todayDefault = new Date().toISOString().split('T')[0];
+  const todayDefault = getLocalDateString();
 
   const getNowTime = () => {
     const now = new Date();
@@ -8892,7 +8908,7 @@ window.EventsPage = () => {
       return;
     }
     setForm({
-      name: '', date: todayDefault, startTime: '', endTime: '',
+      name: '', date: getLocalDateString(), startTime: '', endTime: '',
       location: '', locationCoords: null, scale: '', impact: '', memo: '',
     });
     setGpsInfo(null);
@@ -10881,7 +10897,7 @@ window.DataManagePage = () => {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const todayDefault = new Date().toISOString().split('T')[0];
+  const todayDefault = getLocalDateString();
   const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [addErrors, setAddErrors] = useState([]);
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
@@ -11172,7 +11188,7 @@ window.DataManagePage = () => {
     const formWithCoords = { ...addForm, pickupCoords: addCoords.pickupCoords, dropoffCoords: addCoords.dropoffCoords };
     const result = DataService.addEntry(formWithCoords);
     if (!result.success) { setAddErrors(result.errors); return; }
-    setAddForm({ date: todayDefault, weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setAddCoords({ pickupCoords: null, dropoffCoords: null });
     setMapPickerField(null);
     setShowAddForm(false);
@@ -11308,7 +11324,7 @@ window.DataManagePage = () => {
   const revenueRow = (entry) => {
     const isEditing = editingId === entry.id;
     const isConfirm = confirmDelete === entry.id;
-    const eDate = entry.date || new Date(entry.timestamp).toISOString().split('T')[0];
+    const eDate = entry.date || getLocalDateString(new Date(entry.timestamp));
     const info = entry.dayOfWeek ? { dayOfWeek: entry.dayOfWeek, holiday: entry.holiday, isSunday: entry.dayOfWeek === '日', isSaturday: entry.dayOfWeek === '土', isHoliday: !!entry.holiday } : JapaneseHolidays.getDateInfo(eDate);
     const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
 
@@ -11535,7 +11551,7 @@ window.DataManagePage = () => {
                       };
                       const result = DataService.addEntry(formData);
                       if (result.success) {
-                        setAddForm({ date: todayDefault, weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                        setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
                         setAddCoords({ pickupCoords: null, dropoffCoords: null });
                         setMapPickerField(null);
                         setShowAddForm(false);
