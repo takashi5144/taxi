@@ -3687,19 +3687,94 @@ window.DataService = (() => {
     return null;
   }
 
-  // 当日の需要プランを取得（localStorageからロード + イベントデータとマージ）
+  // 旭川駅前バスターミナル到着便の構造化データ（実時刻表ベース）
+  function getBusArrivalsData() {
+    const now = new Date();
+    const isWeekend = [0, 6].includes(now.getDay());
+    function addMin(hhmm, min) {
+      const [h, m] = hhmm.split(':').map(Number);
+      const t = h * 60 + m + min;
+      return String(Math.floor(t / 60)).padStart(2,'0') + ':' + String(t % 60).padStart(2,'0');
+    }
+
+    const arrivals = [];
+
+    // 高速あさひかわ号（札幌→旭川 冬ダイヤ2時間25分）
+    const sapporoDep = [
+      '07:00','08:00','08:30','09:00','09:50','10:30','11:00','11:30',
+      '12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30',
+      '16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:40','20:20','20:50','21:30',
+    ];
+    const sappWeekend = ['13:45','19:20'];
+    let allSap = [...sapporoDep];
+    if (isWeekend) allSap = allSap.concat(sappWeekend);
+    allSap.forEach(dep => {
+      arrivals.push({ type: '高速バス', line: '高速あさひかわ号', arrivalTime: addMin(dep, 145), origin: '札幌', demandDelay: 5, peakWeight: 0.8 });
+    });
+
+    // 特急オホーツク号（紋別→旭川）
+    arrivals.push({ type: '都市間バス', line: '特急オホーツク号', arrivalTime: '09:45', origin: '紋別', demandDelay: 5, peakWeight: 0.6 });
+    arrivals.push({ type: '都市間バス', line: '特急オホーツク号', arrivalTime: '14:45', origin: '紋別', demandDelay: 5, peakWeight: 0.6 });
+
+    // ノースライナー号（帯広→旭川）
+    ['12:00','13:30','15:10','19:55','21:10'].forEach(t => {
+      arrivals.push({ type: '都市間バス', line: 'ノースライナー号', arrivalTime: t, origin: '帯広', demandDelay: 5, peakWeight: 0.7 });
+    });
+
+    // サンライズ号（北見→旭川）
+    arrivals.push({ type: '都市間バス', line: 'サンライズ号', arrivalTime: '15:15', origin: '北見', demandDelay: 5, peakWeight: 0.6 });
+    arrivals.push({ type: '都市間バス', line: 'サンライズ号', arrivalTime: '20:30', origin: '北見', demandDelay: 5, peakWeight: 0.6 });
+
+    // 名寄線（名寄→旭川）
+    ['09:07','11:59','13:14','14:49','17:34','20:09'].forEach(t => {
+      arrivals.push({ type: '路線バス', line: '名寄線', arrivalTime: t, origin: '名寄', demandDelay: 3, peakWeight: 0.4 });
+    });
+
+    // 特急天北号（鬼志別→旭川）
+    arrivals.push({ type: '都市間バス', line: '特急天北号', arrivalTime: '11:10', origin: '鬼志別', demandDelay: 5, peakWeight: 0.5 });
+
+    // 旭川空港連絡バス（空港→旭川駅）
+    ['09:19','10:09','13:49','14:49','15:09','16:39','19:49','19:59'].forEach(t => {
+      arrivals.push({ type: '空港バス', line: '空港連絡バス', arrivalTime: t, origin: '旭川空港', demandDelay: 3, peakWeight: 0.9 });
+    });
+
+    // 旭山動物園線（動物園→旭川駅）
+    ['11:40','12:10','13:10','14:10','15:40','16:10'].forEach(t => {
+      arrivals.push({ type: '路線バス', line: '旭山動物園線', arrivalTime: t, origin: '旭山動物園', demandDelay: 3, peakWeight: 0.5 });
+    });
+
+    // 時刻順ソート
+    arrivals.sort((a, b) => a.arrivalTime.localeCompare(b.arrivalTime));
+    return arrivals;
+  }
+
+  // 当日の需要プランを取得（バス実データ + Geminiプラン + イベントデータをマージ）
   function getDailyDemandSchedule() {
     const stored = AppStorage.get(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, null);
     const today = new Date().toISOString().slice(0, 10);
 
-    if (!stored || stored.date !== today || !stored.data) {
-      return { available: false, date: today, transitArrivals: [], hospitalWindows: [], demandWindows: [], dailyPlan: [] };
-    }
+    // バス到着データは常に利用可能（ハードコード）
+    const busArrivals = getBusArrivalsData();
 
-    const data = stored.data;
+    // Geminiデータがなくてもバスデータだけで「available」にする
+    const hasGemini = stored && stored.date === today && stored.data;
+    const geminiData = hasGemini ? stored.data : {};
+
+    // transitArrivals: バス実データ + Gemini（JR特急等）をマージ、重複排除
+    const geminiArrivals = geminiData.transitArrivals || [];
+    const mergedArrivals = [...busArrivals];
+    geminiArrivals.forEach(ga => {
+      // バスデータと同時刻・同路線名の重複を排除
+      const isDup = mergedArrivals.some(ba =>
+        ba.arrivalTime === ga.arrivalTime && ba.line === ga.line
+      );
+      if (!isDup) mergedArrivals.push(ga);
+    });
+    mergedArrivals.sort((a, b) => (a.arrivalTime || '').localeCompare(b.arrivalTime || ''));
+
     // イベントアラートをマージ
     const eventAlerts = getUpcomingEventAlerts();
-    const mergedPlan = [...(data.dailyPlan || [])];
+    const mergedPlan = [...(geminiData.dailyPlan || [])];
 
     eventAlerts.forEach(evt => {
       mergedPlan.push({
@@ -3718,12 +3793,13 @@ window.DataService = (() => {
     mergedPlan.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
     return {
-      available: true,
+      available: true,  // バスデータは常にあるのでtrue
       date: today,
-      transitArrivals: data.transitArrivals || [],
-      hospitalWindows: data.hospitalWindows || [],
-      demandWindows: data.demandWindows || [],
+      transitArrivals: mergedArrivals,
+      hospitalWindows: geminiData.hospitalWindows || [],
+      demandWindows: geminiData.demandWindows || [],
       dailyPlan: mergedPlan,
+      hasGeminiPlan: hasGemini,
     };
   }
 
@@ -3912,6 +3988,7 @@ window.DataService = (() => {
     // 交通需要連動
     getDailyDemandSchedule,
     getTransitHeatmapData,
+    getBusArrivalsData,
   };
 })();
 
