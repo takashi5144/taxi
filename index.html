@@ -5807,13 +5807,13 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         const calcRadius = () => {
           const z = map.getZoom() || 13;
           const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
-          return Math.max(5, Math.round(200 / metersPerPx));
+          return Math.max(10, Math.round(350 / metersPerPx));
         };
         heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
-          data: heatData, map: map, radius: calcRadius(), opacity: 0.75,
+          data: heatData, map: map, radius: calcRadius(), opacity: 0.85, dissipating: true, maxIntensity: 8,
           gradient: [
-            'rgba(0,0,0,0)', 'rgba(0,128,255,0.3)', 'rgba(0,200,83,0.5)',
-            'rgba(255,235,59,0.7)', 'rgba(255,152,0,0.85)', 'rgba(255,87,34,0.9)', 'rgba(229,57,53,1)',
+            'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
+            'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
           ],
         });
         const zoomListener = map.addListener('zoom_changed', () => {
@@ -5834,33 +5834,37 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       const calcRadius = () => {
         const z = map.getZoom() || 13;
         const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
-        return Math.max(5, Math.round(200 / metersPerPx));
+        return Math.max(10, Math.round(350 / metersPerPx));
       };
 
-      // timeAwareモードは暖色系グラデーション、allモードは従来の寒色→暖色
-      const gradient = heatmapMode === 'timeAware' ? [
-        'rgba(0,0,0,0)',
-        'rgba(33,150,243,0.3)',
-        'rgba(0,200,83,0.5)',
-        'rgba(255,235,59,0.7)',
-        'rgba(255,152,0,0.85)',
-        'rgba(244,67,54,0.9)',
-        'rgba(183,28,28,1)',
-      ] : [
-        'rgba(0,0,0,0)',
-        'rgba(0,128,255,0.3)',
-        'rgba(0,200,83,0.5)',
-        'rgba(255,235,59,0.7)',
-        'rgba(255,152,0,0.85)',
-        'rgba(255,87,34,0.9)',
-        'rgba(229,57,53,1)',
-      ];
+      // モード別グラデーション（より多い色ステップで滑らかに）
+      const gradients = {
+        timeAware: [
+          'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
+          'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
+        ],
+        all: [
+          'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
+          'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
+        ],
+        transit: [
+          'rgba(0,0,0,0)', 'rgba(200,50,150,0.12)', 'rgba(236,72,153,0.3)', 'rgba(255,100,180,0.5)',
+          'rgba(255,140,200,0.65)', 'rgba(255,180,220,0.78)', 'rgba(255,100,150,0.88)', 'rgba(220,40,100,0.95)', 'rgba(180,20,60,1)',
+        ],
+        combined: [
+          'rgba(0,0,0,0)', 'rgba(80,40,180,0.12)', 'rgba(124,58,237,0.3)', 'rgba(140,80,255,0.5)',
+          'rgba(180,120,255,0.65)', 'rgba(220,180,255,0.75)', 'rgba(255,150,100,0.85)', 'rgba(255,80,40,0.93)', 'rgba(200,30,30,1)',
+        ],
+      };
+      const gradient = gradients[heatmapMode] || gradients.all;
 
       heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
         data: heatData,
         map: map,
         radius: calcRadius(),
-        opacity: 0.75,
+        opacity: 0.85,
+        dissipating: true,
+        maxIntensity: 8,
         gradient: gradient,
       });
 
@@ -6107,16 +6111,20 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           } else {
             const z = map.getZoom() || 13;
             const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
-            const radius = Math.max(5, Math.round(200 / metersPerPx));
-            heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
-              data: heatData, map: map, radius: radius, opacity: 0.75,
-              gradient: heatmapMode === 'timeAware' ? [
-                'rgba(0,0,0,0)', 'rgba(33,150,243,0.3)', 'rgba(0,200,83,0.5)',
-                'rgba(255,235,59,0.7)', 'rgba(255,152,0,0.85)', 'rgba(244,67,54,0.9)', 'rgba(183,28,28,1)',
-              ] : [
-                'rgba(0,0,0,0)', 'rgba(0,128,255,0.3)', 'rgba(0,200,83,0.5)',
-                'rgba(255,235,59,0.7)', 'rgba(255,152,0,0.85)', 'rgba(255,87,34,0.9)', 'rgba(229,57,53,1)',
+            const radius = Math.max(10, Math.round(350 / metersPerPx));
+            const grads = {
+              timeAware: [
+                'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
+                'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
               ],
+              all: [
+                'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
+                'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
+              ],
+            };
+            heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
+              data: heatData, map: map, radius: radius, opacity: 0.85, dissipating: true, maxIntensity: 8,
+              gradient: grads[heatmapMode] || grads.all,
             });
           }
         } else if (heatmapLayerRef.current) {
@@ -6397,27 +6405,33 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           `ヒートマップ ${showHeatmap ? 'ON' : 'OFF'}`
         ),
 
-        // ヒートマップモード切替（ヒートマップON時のみ）4モードサイクル
-        showHeatmap && React.createElement('button', {
-          onClick: () => setHeatmapMode(prev => {
-            const cycle = ['timeAware', 'all', 'transit', 'combined'];
-            const idx = cycle.indexOf(prev);
-            return cycle[(idx + 1) % cycle.length];
-          }),
+        // ヒートマップモード切替タブ（ヒートマップON時のみ）
+        showHeatmap && React.createElement('div', {
           style: {
-            display: 'flex', alignItems: 'center', gap: '6px',
-            padding: '8px 14px', borderRadius: '8px',
-            fontSize: '12px', fontWeight: '700',
-            color: '#fff', cursor: 'pointer',
-            border: 'none',
-            background: heatmapMode === 'timeAware' ? '#2196F3' : heatmapMode === 'all' ? '#78909C' : heatmapMode === 'transit' ? '#ec4899' : '#7c3aed',
-            transition: 'all 0.2s ease',
+            display: 'flex', gap: '3px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '3px',
           },
         },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } },
-            heatmapMode === 'timeAware' ? 'schedule' : heatmapMode === 'all' ? 'public' : heatmapMode === 'transit' ? 'directions_transit' : 'merge_type'
-          ),
-          heatmapMode === 'timeAware' ? '時間帯優先' : heatmapMode === 'all' ? '全データ' : heatmapMode === 'transit' ? '交通需要' : '統合'
+          ...[
+            { id: 'timeAware', label: '時間帯', icon: 'schedule', color: '#2196F3' },
+            { id: 'all', label: '全件', icon: 'public', color: '#78909C' },
+            { id: 'transit', label: '交通', icon: 'directions_transit', color: '#ec4899' },
+            { id: 'combined', label: '統合', icon: 'merge_type', color: '#7c3aed' },
+          ].map(m => React.createElement('button', {
+            key: m.id,
+            onClick: () => setHeatmapMode(m.id),
+            style: {
+              display: 'flex', alignItems: 'center', gap: '3px',
+              padding: '5px 8px', borderRadius: '6px',
+              fontSize: '11px', fontWeight: heatmapMode === m.id ? 700 : 500,
+              color: heatmapMode === m.id ? '#fff' : 'rgba(255,255,255,0.6)',
+              cursor: 'pointer', border: 'none',
+              background: heatmapMode === m.id ? m.color : 'transparent',
+              transition: 'all 0.2s ease',
+            },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, m.icon),
+            m.label
+          ))
         ),
 
         // AI需要予測トグル
@@ -6504,49 +6518,73 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       ),
 
       // ヒートマップ情報パネル
-      showHeatmap && heatmapStats && React.createElement('div', {
-        style: {
-          marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
-          background: heatmapMode === 'timeAware' ? 'rgba(33,150,243,0.08)' : heatmapMode === 'transit' ? 'rgba(236,72,153,0.08)' : heatmapMode === 'combined' ? 'rgba(124,58,237,0.08)' : 'rgba(255,152,0,0.08)',
-          border: heatmapMode === 'timeAware' ? '1px solid rgba(33,150,243,0.25)' : heatmapMode === 'transit' ? '1px solid rgba(236,72,153,0.25)' : heatmapMode === 'combined' ? '1px solid rgba(124,58,237,0.25)' : '1px solid rgba(255,152,0,0.25)',
+      showHeatmap && heatmapStats && (() => {
+        const modeColor = { timeAware: '#2196F3', all: '#FF9800', transit: '#ec4899', combined: '#7c3aed' }[heatmapMode] || '#FF9800';
+        const modeDesc = {
+          timeAware: '現在時間帯(±2h)・曜日・鮮度で重み付け',
+          all: '全期間の乗車データを均等表示',
+          transit: 'バス・JR到着 + 病院ピークの需要分布',
+          combined: '乗車実績 + 交通需要の統合',
+        }[heatmapMode];
+        return React.createElement('div', {
+          style: {
+            marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
+            background: `${modeColor}10`, border: `1px solid ${modeColor}40`,
+          },
         },
-      },
-        React.createElement('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: heatmapMode === 'timeAware' ? '#2196F3' : heatmapMode === 'transit' ? '#ec4899' : heatmapMode === 'combined' ? '#7c3aed' : '#FF9800' } }, 'info'),
-          React.createElement('span', { style: { color: 'var(--text-secondary)' } },
-            heatmapMode === 'timeAware'
-              ? '現在の時間帯(±2h)・曜日を重視 — 直近データほど高weight'
-              : heatmapMode === 'transit'
-              ? 'JR特急・バス到着＋病院外来ピークの需要分布'
-              : heatmapMode === 'combined'
-              ? '乗車実績 + 交通需要の統合ヒートマップ'
-              : '全期間の乗車データを均等表示'
+          // 説明行
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginBottom: '6px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '15px', color: modeColor } }, 'info'),
+            React.createElement('span', { style: { color: 'var(--text-secondary)', flex: 1 } }, modeDesc),
+            heatmapMode !== 'transit' && React.createElement('span', {
+              style: { fontWeight: 700, color: 'var(--text-primary)', fontSize: '12px', whiteSpace: 'nowrap' },
+            }, `${heatmapStats.totalRides}件`),
+            heatmapMode === 'transit' && React.createElement('span', {
+              style: { fontWeight: 700, color: modeColor, fontSize: '12px', whiteSpace: 'nowrap' },
+            }, `${heatmapStats.timeFiltered}pt`)
           ),
-          (heatmapMode !== 'transit') && React.createElement('span', { style: { marginLeft: 'auto', fontWeight: 700, color: 'var(--text-primary)' } },
-            `${heatmapStats.totalRides}件の乗車データ`
+          // 凡例バー
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-muted)' },
+          },
+            React.createElement('span', null, '低'),
+            React.createElement('div', {
+              style: {
+                flex: 1, height: 6, borderRadius: 3,
+                background: heatmapMode === 'transit'
+                  ? 'linear-gradient(to right, rgba(200,50,150,0.2), #ec4899, #b4143c)'
+                  : heatmapMode === 'combined'
+                  ? 'linear-gradient(to right, rgba(124,58,237,0.2), #7c3aed, #c83028)'
+                  : 'linear-gradient(to right, rgba(0,100,255,0.3), #00d278, #ffdc1e, #ffa000, #dc1e1e)',
+              },
+            }),
+            React.createElement('span', null, '高')
           ),
-          heatmapMode === 'transit' && React.createElement('span', { style: { marginLeft: 'auto', fontWeight: 700, color: '#ec4899' } },
-            `${heatmapStats.timeFiltered}件の需要ポイント`
+          // 時間帯一致バッジ
+          heatmapMode === 'timeAware' && heatmapStats.timeFiltered > 0 && React.createElement('div', {
+            style: { marginTop: '5px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' },
+          },
+            React.createElement('span', {
+              style: { padding: '1px 8px', borderRadius: '10px', background: `${modeColor}30`, fontWeight: 600, color: modeColor },
+            }, `${heatmapStats.timeFiltered}件が時間帯一致`)
           ),
-          heatmapMode === 'timeAware' && heatmapStats.timeFiltered > 0 && React.createElement('span', {
-            style: { padding: '2px 8px', borderRadius: '10px', background: 'rgba(33,150,243,0.2)', fontSize: '11px', fontWeight: 600 },
-          }, `${heatmapStats.timeFiltered}件が時間帯一致`)
-        ),
-        heatmapMode !== 'transit' && heatmapStats.totalRides < 10 && React.createElement('div', {
-          style: { marginTop: '6px', fontSize: '11px', color: '#FF9800', display: 'flex', alignItems: 'center', gap: '4px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'tips_and_updates'),
-          'データが増えるほどヒートマップの精度が向上します。乗車記録を続けましょう！'
-        ),
-        heatmapMode === 'transit' && heatmapStats.timeFiltered === 0 && React.createElement('div', {
-          style: { marginTop: '6px', fontSize: '11px', color: '#ec4899', display: 'flex', alignItems: 'center', gap: '4px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'tips_and_updates'),
-          'ダッシュボードで「営業プラン取得」を実行すると交通需要が表示されます'
-        )
-      ),
+          // ヒント
+          heatmapMode !== 'transit' && heatmapStats.totalRides < 10 && React.createElement('div', {
+            style: { marginTop: '5px', fontSize: '11px', color: '#FF9800', display: 'flex', alignItems: 'center', gap: '4px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'tips_and_updates'),
+            'データが増えるほど精度が向上します'
+          ),
+          heatmapMode === 'transit' && heatmapStats.timeFiltered === 0 && React.createElement('div', {
+            style: { marginTop: '5px', fontSize: '11px', color: '#ec4899', display: 'flex', alignItems: 'center', gap: '4px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'tips_and_updates'),
+            '「営業プラン取得」で交通需要が表示されます'
+          )
+        );
+      })(),
 
       // 時間帯シミュレーション スライダー
       (showAiHeatmap || showPricePredict) && React.createElement('div', {
