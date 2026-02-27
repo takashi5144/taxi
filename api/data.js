@@ -1,4 +1,4 @@
-import { put, list, del } from '@vercel/blob';
+import { put, list, del, head } from '@vercel/blob';
 import crypto from 'crypto';
 
 // タイミング攻撃耐性のあるシークレット比較
@@ -77,10 +77,10 @@ export default async function handler(req, res) {
         const result = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
         const latest = result.blobs.find(b => b.pathname.endsWith('latest.json'));
         if (!latest) return res.json({ entries: [] });
-        // downloadUrl（認証付きURL）を優先、なければ url + トークンヘッダー
-        const blobUrl = latest.downloadUrl || latest.url;
-        const fetchOpts = latest.downloadUrl ? {} : { headers: { 'x-vercel-blob-rw-token': blobToken } };
-        const blobRes = await fetch(blobUrl, fetchOpts);
+        // head() で認証付き downloadUrl を取得
+        const blobMeta = await head(latest.url, { token: blobToken });
+        const blobUrl = blobMeta.downloadUrl;
+        const blobRes = await fetch(blobUrl);
         if (!blobRes.ok) {
           console.error('[API] Blob fetch failed:', blobRes.status, blobRes.statusText, blobUrl);
           return res.status(502).json({ error: `Blobデータ取得失敗 (${blobRes.status})` });
