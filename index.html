@@ -988,6 +988,33 @@ window.APP_CONSTANTS = {
         { name: '市立旭川病院', lat: 43.7710, lng: 142.3650, peakMorning: null, peakAfternoon: '13:00-15:00' },
         { name: '旭川厚生病院', lat: 43.7650, lng: 142.3490, peakMorning: null, peakAfternoon: '13:00-15:00' },
       ],
+      hotels: [
+        // 駅遠方（タクシー需要: 非常に高い）
+        { name: 'アートホテル旭川', lat: 43.7730, lng: 142.3604, rooms: 265, distKm: 1.2, demandLevel: 'very_high' },
+        { name: 'OMO7旭川', lat: 43.7703, lng: 142.3646, rooms: 237, distKm: 1.0, demandLevel: 'very_high' },
+        { name: '旭川トーヨーホテル', lat: 43.7723, lng: 142.3621, rooms: 128, distKm: 1.2, demandLevel: 'very_high' },
+        // 中距離（タクシー需要: 高い）
+        { name: 'ドーミーイン旭川', lat: 43.7708, lng: 142.3594, rooms: 172, distKm: 0.9, demandLevel: 'high' },
+        { name: 'ホテルクレッセント旭川', lat: 43.7698, lng: 142.3624, rooms: 159, distKm: 0.9, demandLevel: 'high' },
+        { name: 'プレミアホテルCABIN旭川', lat: 43.7658, lng: 142.3586, rooms: 355, distKm: 0.4, demandLevel: 'high' },
+        { name: 'ホテルアマネク旭川', lat: 43.7655, lng: 142.3599, rooms: 221, distKm: 0.35, demandLevel: 'high' },
+        // 駅近（大型 → ボリューム需要）
+        { name: 'ルートインGrand旭川駅前', lat: 43.7633, lng: 142.3588, rooms: 342, distKm: 0.2, demandLevel: 'medium' },
+        { name: 'JRイン旭川', lat: 43.7639, lng: 142.3568, rooms: 198, distKm: 0.0, demandLevel: 'medium' },
+        { name: '東横INN旭川駅東口', lat: 43.7625, lng: 142.3637, rooms: 185, distKm: 0.4, demandLevel: 'medium' },
+        { name: 'ルートイン旭川駅前一条通', lat: 43.7663, lng: 142.3569, rooms: 187, distKm: 0.5, demandLevel: 'medium' },
+        { name: 'ワイズホテル旭川駅前', lat: 43.7612, lng: 142.3585, rooms: 160, distKm: 0.2, demandLevel: 'medium' },
+        { name: '東横INN旭川駅前一条通', lat: 43.7649, lng: 142.3612, rooms: 143, distKm: 0.4, demandLevel: 'medium' },
+        { name: 'WBFグランデ旭川', lat: 43.7630, lng: 142.3622, rooms: 120, distKm: 0.3, demandLevel: 'low' },
+        { name: 'コートホテル旭川', lat: 43.7649, lng: 142.3612, rooms: 114, distKm: 0.2, demandLevel: 'low' },
+      ],
+      // ホテル需要ピーク時間帯（全ホテル共通）
+      hotelPeakWindows: {
+        checkout: { start: '09:30', end: '11:00', label: 'チェックアウト', weight: 1.0 },
+        checkin:  { start: '15:00', end: '17:00', label: 'チェックイン', weight: 0.8 },
+        evening:  { start: '18:00', end: '20:00', label: '夕食・外出', weight: 0.6 },
+        night:    { start: '22:00', end: '24:00', label: '帰館', weight: 0.5 },
+      },
     },
   },
 
@@ -3679,7 +3706,23 @@ window.DataService = (() => {
         return { lat: h.lat, lng: h.lng };
       }
     }
-    // 部分一致でフォールバック
+    // ホテル名での座標解決
+    for (const hotel of (locs.hotels || [])) {
+      if (name.includes(hotel.name) || hotel.name.includes(locationName)) {
+        return { lat: hotel.lat, lng: hotel.lng };
+      }
+    }
+    // ホテル部分一致フォールバック
+    if (name.includes('アートホテル')) return { lat: locs.hotels[0].lat, lng: locs.hotels[0].lng };
+    if (name.includes('omo7') || name.includes('omo')) return { lat: locs.hotels[1].lat, lng: locs.hotels[1].lng };
+    if (name.includes('トーヨー')) return { lat: locs.hotels[2].lat, lng: locs.hotels[2].lng };
+    if (name.includes('ドーミーイン')) return { lat: locs.hotels[3].lat, lng: locs.hotels[3].lng };
+    if (name.includes('クレッセント')) return { lat: locs.hotels[4].lat, lng: locs.hotels[4].lng };
+    if (name.includes('cabin') || name.includes('プレミアホテル')) return { lat: locs.hotels[5].lat, lng: locs.hotels[5].lng };
+    if (name.includes('アマネク')) return { lat: locs.hotels[6].lat, lng: locs.hotels[6].lng };
+    if (name.includes('ルートイングランド') || name.includes('ルートインgrand')) return { lat: locs.hotels[7].lat, lng: locs.hotels[7].lng };
+    if (name.includes('jrイン')) return { lat: locs.hotels[8].lat, lng: locs.hotels[8].lng };
+    // 部分一致でフォールバック（病院）
     if (name.includes('医大') || name.includes('医科大')) return { lat: locs.hospitals[0].lat, lng: locs.hospitals[0].lng };
     if (name.includes('赤十字')) return { lat: locs.hospitals[1].lat, lng: locs.hospitals[1].lng };
     if (name.includes('市立')) return { lat: locs.hospitals[2].lat, lng: locs.hospitals[2].lng };
@@ -3789,6 +3832,57 @@ window.DataService = (() => {
       });
     });
 
+    // ホテルピーク時間帯をdailyPlanに自動挿入
+    const hotelLocs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const hotelPeaks = hotelLocs.hotelPeakWindows || {};
+    const hotels = hotelLocs.hotels || [];
+    const veryHighHotels = hotels.filter(h => h.demandLevel === 'very_high').map(h => h.name);
+    const highHotels = hotels.filter(h => h.demandLevel === 'high').map(h => h.name);
+
+    // 各ピーク時間帯をプランに追加（重複回避）
+    Object.entries(hotelPeaks).forEach(([key, win]) => {
+      const isDup = mergedPlan.some(p =>
+        p.startTime === win.start && p.location && p.location.includes('ホテル')
+      );
+      if (isDup) return;
+      const topHotels = key === 'checkout' || key === 'checkin'
+        ? veryHighHotels.slice(0, 2).join('・')
+        : highHotels.slice(0, 2).join('・');
+      mergedPlan.push({
+        startTime: win.start,
+        endTime: win.end,
+        location: `${topHotels}周辺`,
+        action: `ホテル${win.label} → 周辺で需要増`,
+        demandLevel: key === 'checkout' ? 'high' : 'medium',
+        source: 'hotel',
+      });
+    });
+
+    // ホテルの現在のピーク状態を算出
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    function _timeToMin(hhmm) { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; }
+    const hotelWindows = [];
+    Object.entries(hotelPeaks).forEach(([key, win]) => {
+      const startMin = _timeToMin(win.start);
+      const endMin = _timeToMin(win.end);
+      const isActive = currentMinutes >= startMin - 15 && currentMinutes <= endMin + 15;
+      const isCurrent = currentMinutes >= startMin && currentMinutes <= endMin;
+      if (isActive) {
+        const activeHotels = hotels
+          .filter(h => h.demandLevel === 'very_high' || h.demandLevel === 'high')
+          .map(h => ({ name: h.name, rooms: h.rooms, distKm: h.distKm, demandLevel: h.demandLevel }));
+        hotelWindows.push({
+          key: key,
+          label: win.label,
+          start: win.start,
+          end: win.end,
+          isCurrent: isCurrent,
+          hotels: activeHotels,
+        });
+      }
+    });
+
     // 時間順ソート
     mergedPlan.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
@@ -3798,9 +3892,59 @@ window.DataService = (() => {
       transitArrivals: mergedArrivals,
       hospitalWindows: geminiData.hospitalWindows || [],
       demandWindows: geminiData.demandWindows || [],
+      hotelWindows: hotelWindows,
       dailyPlan: mergedPlan,
       hasGeminiPlan: hasGemini,
     };
+  }
+
+  // ホテル需要データを算出（時間帯×客室数×駅距離からウェイト計算）
+  function getHotelDemandData() {
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const hotels = locs.hotels || [];
+    const peaks = locs.hotelPeakWindows || {};
+    if (hotels.length === 0) return [];
+
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const origins = [];
+
+    function timeToMin(hhmm) {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    const maxRooms = 355; // プレミアホテルCABIN旭川を基準に正規化
+
+    hotels.forEach(hotel => {
+      Object.values(peaks).forEach(window => {
+        const startMin = timeToMin(window.start);
+        const endMin = timeToMin(window.end);
+
+        // ウィンドウ内 → フルweight、ウィンドウ外30分以内 → 線形減衰
+        let timeWeight = 0;
+        if (currentMinutes >= startMin && currentMinutes <= endMin) {
+          timeWeight = 1.0;
+        } else if (currentMinutes >= startMin - 30 && currentMinutes < startMin) {
+          timeWeight = (currentMinutes - (startMin - 30)) / 30;
+        } else if (currentMinutes > endMin && currentMinutes <= endMin + 30) {
+          timeWeight = 1.0 - (currentMinutes - endMin) / 30;
+        }
+        if (timeWeight <= 0) return;
+
+        // 駅距離ファクター: 遠いほどタクシー需要が高い
+        const distanceFactor = hotel.distKm >= 0.8 ? 1.0 : hotel.distKm >= 0.4 ? 0.6 : 0.3;
+        // 客室数ファクター: 多いほど需要ボリュームが大きい
+        const roomFactor = hotel.rooms / maxRooms;
+
+        const weight = window.weight * timeWeight * distanceFactor * roomFactor;
+        if (weight > 0.01) {
+          origins.push({ lat: hotel.lat, lng: hotel.lng, weight: weight });
+        }
+      });
+    });
+
+    return origins;
   }
 
   // 交通到着データ + 病院ピークからヒートマップポイントを生成
@@ -3867,6 +4011,10 @@ window.DataService = (() => {
       const levelWeight = dw.level === 'high' ? 1.0 : dw.level === 'medium' ? 0.7 : 0.4;
       origins.push({ lat: coords.lat, lng: coords.lng, weight: levelWeight });
     });
+
+    // ホテル需要ポイントをマージ（静的データのためAPIキー不要）
+    const hotelOrigins = getHotelDemandData();
+    hotelOrigins.forEach(hp => origins.push(hp));
 
     if (origins.length === 0) return [];
 
@@ -3988,6 +4136,7 @@ window.DataService = (() => {
     // 交通需要連動
     getDailyDemandSchedule,
     getTransitHeatmapData,
+    getHotelDemandData,
     getBusArrivalsData,
   };
 })();
@@ -4620,6 +4769,33 @@ JSONのみを返し、他のテキストは不要です。
     return result;
   }
 
+  // レシート画像から金額を読み取る（Vision API）
+  async function analyzeReceiptImage(apiKey, base64Image, mimeType) {
+    const url = `${API_URL}?key=${apiKey}`;
+    const body = {
+      contents: [{
+        parts: [
+          { text: 'このレシート画像から合計金額（税込）を読み取ってください。数値のみを返してください（単位や記号は不要）。合計金額が見つからない場合は「0」を返してください。' },
+          { inlineData: { mimeType, data: base64Image } }
+        ]
+      }]
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Gemini API エラー (${res.status}): ${errText}`);
+    }
+    const parsed = _parseGeminiResponse(await res.text());
+    if (!parsed.success) throw new Error(parsed.error);
+    const text = parsed.data.candidates[0]?.content?.parts?.[0]?.text || '';
+    const match = text.replace(/[,，\s]/g, '').match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+  }
+
   return {
     callGemini,
     searchTransitInfo,
@@ -4631,6 +4807,7 @@ JSONのみを返し、他のテキストは不要です。
     fetchTroubleInfo,
     fetchDailyDemandPlan,
     testConnection,
+    analyzeReceiptImage,
   };
 })();
 })();
@@ -7494,6 +7671,50 @@ window.DashboardPage = () => {
         );
       })(),
 
+      // ホテル需要セクション（APIキー不要・静的データ）
+      dailySchedule.available && (dailySchedule.hotelWindows || []).length > 0 && React.createElement('div', {
+        style: { padding: '8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', marginTop: '8px' },
+      },
+        React.createElement('div', {
+          style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'hotel'),
+          'ホテル需要'
+        ),
+        (dailySchedule.hotelWindows || []).map((hw, i) => {
+          const levelColors = { very_high: '#ef4444', high: '#f59e0b', medium: '#3b82f6', low: '#6b7280' };
+          return React.createElement('div', { key: i, style: { marginBottom: '6px' } },
+            React.createElement('div', {
+              style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' },
+            },
+              React.createElement('span', {
+                style: {
+                  fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                  background: hw.isCurrent ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                  color: hw.isCurrent ? '#ef4444' : '#f59e0b',
+                },
+              }, hw.isCurrent ? 'NOW' : 'SOON'),
+              React.createElement('span', { style: { fontSize: '12px', fontWeight: 600 } },
+                `${hw.start}〜${hw.end} ${hw.label}`
+              )
+            ),
+            React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } },
+              hw.hotels.slice(0, 5).map((h, j) =>
+                React.createElement('span', {
+                  key: j,
+                  style: {
+                    fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
+                    background: `${levelColors[h.demandLevel] || '#6b7280'}18`,
+                    color: levelColors[h.demandLevel] || '#6b7280',
+                    fontWeight: 600, whiteSpace: 'nowrap',
+                  },
+                }, `${h.name}(${h.rooms}室)`)
+              )
+            )
+          );
+        })
+      ),
+
       // ローディング中
       geminiApiKey && demandPlanLoading && !dailySchedule.available && React.createElement('div', {
         style: { textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' },
@@ -7696,8 +7917,9 @@ window.RevenuePage = () => {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
+  const [receiptLoading, setReceiptLoading] = useState(false);
 
-  const { apiKey } = useAppContext();
+  const { apiKey, geminiApiKey } = useAppContext();
 
   // 始業シフト状態をlocalStorageから復元
   useEffect(() => {
@@ -8034,6 +8256,38 @@ window.RevenuePage = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
+  };
+
+  const handleReceiptCapture = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setReceiptLoading(true);
+      setErrors([]);
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+          reader.readAsDataURL(file);
+        });
+        const amount = await GeminiService.analyzeReceiptImage(geminiApiKey, base64, file.type);
+        if (amount > 0) {
+          setForm(prev => ({ ...prev, amount: String(amount) }));
+        } else {
+          setErrors(['レシートから金額を読み取れませんでした。手動で入力してください。']);
+        }
+      } catch (err) {
+        setErrors([`レシート読み取りエラー: ${err.message}`]);
+      } finally {
+        setReceiptLoading(false);
+      }
+    };
+    input.click();
   };
 
   const handleDelete = useCallback((id) => {
@@ -8551,16 +8805,36 @@ window.RevenuePage = () => {
           // 金額
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '金額 (税込・円) *'),
-            React.createElement('input', {
-              className: 'form-input',
-              type: 'number',
-              min: '1',
-              max: '1000000',
-              placeholder: '3500',
-              value: form.amount,
-              onChange: (e) => { setForm({ ...form, amount: e.target.value }); setErrors([]); },
-              required: true,
-            }),
+            React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'number',
+                min: '1',
+                max: '1000000',
+                placeholder: '3500',
+                value: form.amount,
+                onChange: (e) => { setForm({ ...form, amount: e.target.value }); setErrors([]); },
+                required: true,
+                style: { flex: 1 },
+              }),
+              geminiApiKey && React.createElement('button', {
+                type: 'button',
+                onClick: handleReceiptCapture,
+                disabled: receiptLoading,
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)',
+                  background: receiptLoading ? 'var(--bg-secondary)' : 'var(--bg-card)',
+                  color: 'var(--text-primary)', cursor: receiptLoading ? 'wait' : 'pointer',
+                  fontSize: '14px', whiteSpace: 'nowrap', minWidth: '44px',
+                },
+                title: 'レシート撮影で金額を読み取る',
+              },
+                receiptLoading
+                  ? React.createElement('span', { className: 'material-icons', style: { fontSize: '20px', animation: 'spin 1s linear infinite' } }, 'sync')
+                  : React.createElement('span', { className: 'material-icons', style: { fontSize: '20px' } }, 'photo_camera')
+              )
+            ),
             // 税内訳表示
             form.amount && parseInt(form.amount) > 0 && (() => {
               const taxIncluded = parseInt(form.amount);
