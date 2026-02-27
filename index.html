@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.3.2',
+  VERSION: '1.3.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -9488,8 +9488,18 @@ window.RevenuePage = () => {
               style: { fontSize: '10px', color: 'var(--color-error)', fontWeight: 600, marginTop: '2px' }
             }, '未収'),
             entry.discountAmount > 0 && React.createElement('div', {
-              style: { fontSize: '10px', color: '#a78bfa', fontWeight: 600, marginTop: '2px' }
-            }, `割引 -¥${entry.discountAmount.toLocaleString()}${entry.discountType === 'disability' ? ' (障害者)' : entry.discountType === 'coupon' ? ' (クーポン)' : entry.discountType === 'ticket' ? ' (チケット)' : ''}`)
+              style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
+            },
+              React.createElement('div', { style: { color: '#a78bfa', fontWeight: 600 } },
+                entry.discountType === 'disability' ? '障害者割引' : entry.discountType === 'coupon' ? 'クーポン' : entry.discountType === 'ticket' ? 'タクシーチケット' : '割引'
+              ),
+              React.createElement('div', { style: { color: 'var(--text-muted)', marginTop: '1px' } },
+                `割引前: ¥${(entry.amount + entry.discountAmount).toLocaleString()}`
+              ),
+              React.createElement('div', { style: { color: '#a78bfa' } },
+                `割引額: -¥${entry.discountAmount.toLocaleString()}`
+              )
+            )
           ),
           React.createElement('button', {
             onClick: () => handleDelete(entry.id),
