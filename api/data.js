@@ -77,9 +77,10 @@ export default async function handler(req, res) {
         const result = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
         const latest = result.blobs.find(b => b.pathname.endsWith('latest.json'));
         if (!latest) return res.json({ entries: [] });
-        // downloadUrl があればそちらを使用（認証付きURL）、なければ url にフォールバック
+        // downloadUrl（認証付きURL）を優先、なければ url + トークンヘッダー
         const blobUrl = latest.downloadUrl || latest.url;
-        const blobRes = await fetch(blobUrl);
+        const fetchOpts = latest.downloadUrl ? {} : { headers: { 'x-vercel-blob-rw-token': blobToken } };
+        const blobRes = await fetch(blobUrl, fetchOpts);
         if (!blobRes.ok) {
           console.error('[API] Blob fetch failed:', blobRes.status, blobRes.statusText, blobUrl);
           return res.status(502).json({ error: `Blobデータ取得失敗 (${blobRes.status})` });
