@@ -11394,9 +11394,9 @@ window.AnalyticsPage = () => {
 
   const sourceData = useMemo(() => tab === 'area' ? DataService.getSourceBreakdown() : [], [refreshKey, tab]);
   const purposeData = useMemo(() => tab === 'area' ? DataService.getPurposeBreakdown() : [], [refreshKey, tab]);
-  const areaTime = useMemo(() => tab === 'area' ? DataService.getAreaTimeBreakdown() : [], [refreshKey, tab]);
-  const unitPrice = useMemo(() => tab === 'area' ? DataService.getUnitPriceAnalysis() : null, [refreshKey, tab]);
-  const recommendation = useMemo(() => tab === 'area' ? DataService.getBusinessRecommendation() : null, [refreshKey, tab]);
+  const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown() : [], [refreshKey, tab]);
+  const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis() : null, [refreshKey, tab]);
+  const recommendation = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getBusinessRecommendation() : null, [refreshKey, tab]);
   const sourceAreaPrice = useMemo(() => tab === 'area' ? DataService.getSourceAreaPriceBreakdown() : [], [refreshKey, tab]);
   const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis() : null, [refreshKey, tab]);
 
