@@ -8269,36 +8269,51 @@ window.RevenuePage = () => {
     setRefreshKey(k => k + 1);
   };
 
-  const handleReceiptCapture = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.capture = 'environment';
-    input.onchange = async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      setReceiptLoading(true);
-      setErrors([]);
-      try {
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
-          reader.readAsDataURL(file);
-        });
-        const amount = await GeminiService.analyzeReceiptImage(geminiApiKey, base64, file.type);
-        if (amount > 0) {
-          setForm(prev => ({ ...prev, amount: String(amount) }));
-        } else {
-          setErrors(['レシートから金額を読み取れませんでした。手動で入力してください。']);
-        }
-      } catch (err) {
-        setErrors([`レシート読み取りエラー: ${err.message}`]);
-      } finally {
-        setReceiptLoading(false);
+  const handleReceiptCapture = async () => {
+    setReceiptLoading(true);
+    setErrors([]);
+    let stream = null;
+    try {
+      // 背面カメラを無音で起動
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.setAttribute('playsinline', '');
+      video.muted = true;
+      await video.play();
+      // カメラ安定のため少し待つ
+      await new Promise(r => setTimeout(r, 500));
+      // canvasで即時キャプチャ
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      // ストリーム停止
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      // base64に変換
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const base64 = dataUrl.split(',')[1];
+      // Gemini APIで金額読み取り
+      const amount = await GeminiService.analyzeReceiptImage(geminiApiKey, base64, 'image/jpeg');
+      if (amount > 0) {
+        setForm(prev => ({ ...prev, amount: String(amount) }));
+      } else {
+        setErrors(['レシートから金額を読み取れませんでした。手動で入力してください。']);
       }
-    };
-    input.click();
+    } catch (err) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setErrors(['カメラの使用が許可されていません。ブラウザの設定を確認してください。']);
+      } else {
+        setErrors([`レシート読み取りエラー: ${err.message}`]);
+      }
+    } finally {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      setReceiptLoading(false);
+    }
   };
 
   const handleDelete = useCallback((id) => {
@@ -8850,8 +8865,8 @@ window.RevenuePage = () => {
                 title: 'レシート撮影で金額を読み取る',
               },
                 receiptLoading
-                  ? React.createElement('span', { className: 'material-icons', style: { fontSize: '20px', animation: 'spin 1s linear infinite' } }, 'sync')
-                  : React.createElement('span', { className: 'material-icons', style: { fontSize: '20px' } }, 'photo_camera')
+                  ? React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', animation: 'spin 1s linear infinite' } }, 'sync')
+                  : React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'camera_alt')
               )
             ),
             // 税内訳表示
