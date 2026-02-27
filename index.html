@@ -11986,7 +11986,7 @@ window.AnalyticsPage = () => {
     tab === 'forecast' && React.createElement(React.Fragment, null,
 
       // A. 今日のおすすめカード
-      React.createElement(Card, {
+      recommendation && React.createElement(Card, {
         style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-lg)' },
       },
         React.createElement('div', {
@@ -12139,7 +12139,7 @@ window.AnalyticsPage = () => {
       ),
 
       // C. 客単価分析
-      React.createElement(Card, { title: '客単価分析', style: { marginBottom: 'var(--space-lg)' } },
+      unitPrice && React.createElement(Card, { title: '客単価分析', style: { marginBottom: 'var(--space-lg)' } },
         // 曜日別
         React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
           React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '曜日別 平均客単価'),
@@ -12186,7 +12186,7 @@ window.AnalyticsPage = () => {
       ),
 
       // D. 配車方法・用途分析
-      React.createElement(Card, { title: '配車方法・用途分析' },
+      sourceData.length > 0 && React.createElement(Card, { title: '配車方法・用途分析' },
         // 配車方法別
         React.createElement('div', { style: { marginBottom: 'var(--space-lg)' } },
           React.createElement('h4', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } }, '配車方法別'),
@@ -12243,7 +12243,7 @@ window.AnalyticsPage = () => {
       ),
 
       // E. 配車方法×エリア×単価ランク クロス分析
-      sourceAreaPrice.matrixData.length > 0 && React.createElement(Card, {
+      sourceAreaPrice && sourceAreaPrice.matrixData && sourceAreaPrice.matrixData.length > 0 && React.createElement(Card, {
         title: '配車方法×エリア×単価 クロス分析',
         style: { marginBottom: 'var(--space-lg)' },
       },
@@ -12329,7 +12329,7 @@ window.AnalyticsPage = () => {
       ),
 
       // 配車方法別 単価ランク構成
-      sourceAreaPrice.sourceTierList.some(s => s.totalCount > 0) && React.createElement(Card, {
+      sourceAreaPrice && sourceAreaPrice.sourceTierList && sourceAreaPrice.sourceTierList.some(s => s.totalCount > 0) && React.createElement(Card, {
         title: '配車方法別 単価ランク構成',
         style: { marginBottom: 'var(--space-lg)' },
       },
@@ -12376,7 +12376,7 @@ window.AnalyticsPage = () => {
       ),
 
       // エリア別 単価ランク構成
-      sourceAreaPrice.areaTierList.length > 0 && React.createElement(Card, {
+      sourceAreaPrice && sourceAreaPrice.areaTierList && sourceAreaPrice.areaTierList.length > 0 && React.createElement(Card, {
         title: 'エリア別 単価ランク構成',
         style: { marginBottom: 'var(--space-lg)' },
       },
