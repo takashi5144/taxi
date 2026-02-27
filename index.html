@@ -11392,12 +11392,12 @@ window.AnalyticsPage = () => {
   const rivalWeather = useMemo(() => tab === 'rival' ? DataService.getRivalWeatherBreakdown() : [], [refreshKey, tab]);
   const rivalTotal = useMemo(() => tab === 'rival' ? DataService.getRivalEntries().length : 0, [refreshKey, tab]);
 
-  const sourceData = useMemo(() => tab === 'area' ? DataService.getSourceBreakdown() : [], [refreshKey, tab]);
-  const purposeData = useMemo(() => tab === 'area' ? DataService.getPurposeBreakdown() : [], [refreshKey, tab]);
+  const sourceData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceBreakdown() : [], [refreshKey, tab]);
+  const purposeData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getPurposeBreakdown() : [], [refreshKey, tab]);
   const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown() : [], [refreshKey, tab]);
   const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis() : null, [refreshKey, tab]);
-  const recommendation = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getBusinessRecommendation() : null, [refreshKey, tab]);
-  const sourceAreaPrice = useMemo(() => tab === 'area' ? DataService.getSourceAreaPriceBreakdown() : [], [refreshKey, tab]);
+  const recommendation = useMemo(() => DataService.getBusinessRecommendation(), [refreshKey]);
+  const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown() : null, [refreshKey, tab]);
   const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis() : null, [refreshKey, tab]);
 
   const hasData = overall.rideCount > 0;
