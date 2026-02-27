@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.2.0',
+  VERSION: '1.3.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3061,7 +3061,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -3070,6 +3070,9 @@ window.DataService = (() => {
       const dateTime = new Date(e.timestamp).toLocaleString('ja-JP');
       const weather = (e.weather || '').replace(/,/g, '、');
       const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : '現金';
+      const discountAmount = e.discountAmount || 0;
+      const discountTypeMap = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
+      const discountType = discountTypeMap[e.discountType] || (e.discountType || '');
       const pickup = (e.pickup || '').replace(/,/g, '、');
       const pickupTime = e.pickupTime || '';
       const dropoff = (e.dropoff || '').replace(/,/g, '、');
@@ -3079,7 +3082,7 @@ window.DataService = (() => {
       const purpose = (e.purpose || '').replace(/,/g, '、');
       const source = e.source || '';
       const memo = (e.memo || '').replace(/,/g, '、');
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -3168,6 +3171,8 @@ window.DataService = (() => {
       dropoffCoords: form.dropoffCoords || null,
       noPassenger: form.noPassenger || false,
       paymentMethod: form.paymentMethod || 'cash',
+      discountAmount: form.discountAmount ? parseInt(form.discountAmount) : 0,
+      discountType: form.discountType || '',
       timestamp: new Date().toISOString(),
     };
 
@@ -3175,7 +3180,8 @@ window.DataService = (() => {
     saveEntries(entries);
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
     const paymentStr = entry.paymentMethod === 'uncollected' ? ' [未収]' : '';
-    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
+    const discountStr = entry.discountAmount > 0 ? ` [割引¥${entry.discountAmount}]` : '';
+    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
     // 自動ファイル保存
     autoSaveToFile();
     _syncToCloud('revenue', entries);
@@ -8070,7 +8076,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -8415,7 +8421,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setMapPickerField(null);
     setSaved(true);
@@ -8493,6 +8499,7 @@ window.RevenuePage = () => {
   const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
   const todayCash = todayCashEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayDiscount = todayEntries.reduce((sum, e) => sum + (e.discountAmount || 0), 0);
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
 
   // GPS取得ボタンのスタイル
@@ -8575,6 +8582,18 @@ window.RevenuePage = () => {
           React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
             `消費税: ¥${(todayUncollected - Math.floor(todayUncollected / 1.1)).toLocaleString()}`
           )
+        )
+      ),
+
+      // 割引合計（割引がある場合のみ表示）
+      todayDiscount > 0 && React.createElement('div', {
+        style: { display: 'flex', justifyContent: 'center', gap: '12px', padding: '6px 0', borderTop: '1px solid var(--border-color)', fontSize: 'var(--font-size-xs)' },
+      },
+        React.createElement('span', { style: { color: '#a78bfa', fontWeight: 600 } },
+          `割引合計: -¥${todayDiscount.toLocaleString()}`
+        ),
+        React.createElement('span', { style: { color: 'var(--text-muted)' } },
+          `実収入: ¥${(todayTotal - todayDiscount).toLocaleString()}`
         )
       ),
 
@@ -8841,7 +8860,7 @@ window.RevenuePage = () => {
                 }
                 const result = DataService.addEntry(formData);
                 if (result.success) {
-                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
                   setGpsInfo({ pickup: null, dropoff: null });
                   setMapPickerField(null);
                   setSaved(true);
@@ -9133,6 +9152,61 @@ window.RevenuePage = () => {
             )
           ),
 
+          // 割引
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '割引'),
+            React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' } },
+              ...['disability', 'coupon', 'ticket'].map(dtype => {
+                const selected = form.discountType === dtype;
+                const labels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                const icons = { disability: 'accessible', coupon: 'local_offer', ticket: 'confirmation_number' };
+                return React.createElement('button', {
+                  key: dtype,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, discountType: selected ? '' : dtype, discountAmount: selected ? '' : form.discountAmount }),
+                  style: {
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                    padding: '8px 6px', borderRadius: '8px', fontSize: '12px', fontWeight: selected ? 700 : 400,
+                    cursor: 'pointer', minWidth: '90px',
+                    border: selected ? '2px solid #a78bfa' : '1px solid rgba(255,255,255,0.15)',
+                    background: selected ? 'rgba(167,139,250,0.15)' : 'rgba(255,255,255,0.05)',
+                    color: selected ? '#a78bfa' : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, icons[dtype]),
+                  labels[dtype]
+                );
+              })
+            ),
+            form.discountType && React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'number',
+                min: '0',
+                max: '1000000',
+                placeholder: '割引金額',
+                value: form.discountAmount,
+                onChange: (e) => setForm({ ...form, discountAmount: e.target.value }),
+                style: { flex: 1 },
+              }),
+              React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円')
+            ),
+            form.discountType && form.discountAmount && parseInt(form.discountAmount) > 0 && parseInt(form.amount) > 0 && React.createElement('div', {
+              style: {
+                marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
+                background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.15)',
+                fontSize: '12px', color: 'var(--text-secondary)',
+                display: 'flex', gap: '12px',
+              },
+            },
+              React.createElement('span', null, `割引後: ¥${(parseInt(form.amount) - parseInt(form.discountAmount)).toLocaleString()}`),
+              React.createElement('span', { style: { color: '#a78bfa' } },
+                `割引率: ${Math.round((parseInt(form.discountAmount) / parseInt(form.amount)) * 100)}%`
+              )
+            )
+          ),
+
           // お客様人数
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, 'お客様人数'),
@@ -9392,7 +9466,10 @@ window.RevenuePage = () => {
             !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`),
             entry.paymentMethod === 'uncollected' && React.createElement('div', {
               style: { fontSize: '10px', color: 'var(--color-error)', fontWeight: 600, marginTop: '2px' }
-            }, '未収')
+            }, '未収'),
+            entry.discountAmount > 0 && React.createElement('div', {
+              style: { fontSize: '10px', color: '#a78bfa', fontWeight: 600, marginTop: '2px' }
+            }, `割引 -¥${entry.discountAmount.toLocaleString()}${entry.discountType === 'disability' ? ' (障害者)' : entry.discountType === 'coupon' ? ' (クーポン)' : entry.discountType === 'ticket' ? ' (チケット)' : ''}`)
           ),
           React.createElement('button', {
             onClick: () => handleDelete(entry.id),
