@@ -984,6 +984,7 @@ window.APP_CONSTANTS = {
     SHIFTS: 'taxi_app_shifts',
     DAILY_DEMAND_PLAN: 'taxi_app_daily_demand_plan',
     WORK_STATUS: 'taxi_app_work_status',
+    HOTEL_PRICES: 'taxi_app_hotel_prices',
   },
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -4059,6 +4060,74 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // ホテル価格蓄積・分析
+  // ============================================================
+  function getHotelPriceHistory() {
+    const raw = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.HOTEL_PRICES);
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  function saveHotelPrices(pricesArray) {
+    // pricesArray: [{ name, price, estimated, fetchedAt }]
+    const history = getHotelPriceHistory();
+    const now = new Date().toISOString();
+    const record = { fetchedAt: now, prices: pricesArray };
+    history.push(record);
+    // 最大90日分（1日2回想定で180レコード）
+    const maxRecords = 180;
+    const trimmed = history.length > maxRecords ? history.slice(-maxRecords) : history;
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.HOTEL_PRICES, JSON.stringify(trimmed));
+    return trimmed;
+  }
+
+  function analyzeHotelPrices() {
+    const history = getHotelPriceHistory();
+    if (history.length === 0) return { hotels: [], hasData: false, recordCount: 0 };
+
+    // ホテル名ごとに価格履歴を集約
+    const byHotel = {};
+    history.forEach(record => {
+      (record.prices || []).forEach(p => {
+        if (!byHotel[p.name]) byHotel[p.name] = [];
+        byHotel[p.name].push({ price: p.price, date: record.fetchedAt, estimated: p.estimated });
+      });
+    });
+
+    const results = Object.entries(byHotel).map(([name, entries]) => {
+      const prices = entries.map(e => e.price).filter(p => p > 0);
+      if (prices.length === 0) return { name, avg: 0, min: 0, max: 0, latest: 0, trend: 'stable', occupancyEstimate: 'unknown', priceCount: 0 };
+
+      const avg = Math.round(prices.reduce((s, p) => s + p, 0) / prices.length);
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const latest = prices[prices.length - 1];
+
+      // 最新価格と平均の比較でトレンド判定
+      const ratio = latest / avg;
+      let trend = 'stable';
+      if (ratio >= 1.15) trend = 'high';      // 15%以上高い → 高い
+      else if (ratio >= 1.05) trend = 'rising'; // 5%以上高い → やや高い
+      else if (ratio <= 0.85) trend = 'low';    // 15%以上安い → 安い
+      else if (ratio <= 0.95) trend = 'falling'; // 5%以上安い → やや安い
+
+      // 稼働率推定（価格高騰=高稼働率）
+      let occupancyEstimate = 'normal';
+      if (ratio >= 1.2) occupancyEstimate = 'very_high';
+      else if (ratio >= 1.1) occupancyEstimate = 'high';
+      else if (ratio <= 0.9) occupancyEstimate = 'low';
+
+      return { name, avg, min, max, latest, trend, occupancyEstimate, priceCount: prices.length, ratio };
+    });
+
+    return {
+      hotels: results.sort((a, b) => (b.ratio || 0) - (a.ratio || 0)),
+      hasData: true,
+      recordCount: history.length,
+      latestFetch: history[history.length - 1]?.fetchedAt || null,
+    };
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -4149,6 +4218,11 @@ window.DataService = (() => {
     getTransitHeatmapData,
     getHotelDemandData,
     getBusArrivalsData,
+
+    // ホテル価格
+    getHotelPriceHistory,
+    saveHotelPrices,
+    analyzeHotelPrices,
   };
 })();
 
@@ -4807,6 +4881,47 @@ JSONのみを返し、他のテキストは不要です。
     return match ? parseInt(match[0], 10) : 0;
   }
 
+  // ホテル価格一括取得
+  async function fetchHotelPrices(apiKey, hotels) {
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+    const hotelList = hotels.map((h, i) => `${i + 1}. ${h.name}`).join('\n');
+
+    const prompt = `あなたは北海道旭川市のホテル価格調査アシスタントです。
+今日は${dateStr}です。
+
+以下の旭川市内ホテルについて、本日のスタンダードシングル（またはダブル）1泊の標準的な宿泊料金（税込）を調査してください。
+
+${hotelList}
+
+以下のJSON配列のみを返してください。他のテキストは不要です。
+各ホテルの料金が不明な場合は、同クラスのホテルの相場から推定し、estimatedをtrueにしてください。
+
+[
+  { "name": "ホテル名", "price": 8000, "estimated": false },
+  ...
+]
+
+注意:
+- priceは数値（円単位、税込）
+- 繁忙期や週末は通常より高くなる場合があります
+- 料金が分からない場合でも必ず推定値を返してください`;
+
+    const result = await callGemini(apiKey, prompt);
+    if (!result.success) return result;
+
+    try {
+      const jsonText = result.text.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
+      const prices = JSON.parse(jsonText);
+      if (!Array.isArray(prices)) return { success: false, error: '応答形式が不正です' };
+      AppLogger.info(`Gemini: ホテル価格${prices.length}件取得`);
+      return { success: true, prices };
+    } catch (e) {
+      AppLogger.error('ホテル価格パースエラー', e.message);
+      return { success: false, error: '価格データの解析に失敗しました' };
+    }
+  }
+
   return {
     callGemini,
     searchTransitInfo,
@@ -4819,6 +4934,7 @@ JSONのみを返し、他のテキストは不要です。
     fetchDailyDemandPlan,
     testConnection,
     analyzeReceiptImage,
+    fetchHotelPrices,
   };
 })();
 })();
@@ -8373,8 +8489,10 @@ window.RevenuePage = () => {
   const today = getLocalDateString();
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayCash = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash').reduce((sum, e) => sum + e.amount, 0);
-  const todayUncollected = todayEntries.filter(e => e.paymentMethod === 'uncollected').reduce((sum, e) => sum + e.amount, 0);
+  const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash');
+  const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
+  const todayCash = todayCashEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
 
   // GPS取得ボタンのスタイル
@@ -8399,25 +8517,83 @@ window.RevenuePage = () => {
     ),
 
     // 本日の合計
-    React.createElement(Card, { style: { marginBottom: 'var(--space-lg)', textAlign: 'center' } },
-      React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, '本日の売上合計（税込）'),
-      React.createElement('div', {
-        style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '8px 0' },
-      }, `¥${todayTotal.toLocaleString()}`),
-      React.createElement('div', {
-        style: { display: 'flex', justifyContent: 'center', gap: '16px', margin: '4px 0 4px', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' },
-      },
-        React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
-        React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
+    React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
+      // 合計金額セクション
+      React.createElement('div', { style: { textAlign: 'center', paddingBottom: 'var(--space-sm)', marginBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-color)' } },
+        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: 4 } }, '本日の売上合計'),
+        React.createElement('div', {
+          style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '4px 0' },
+        }, `¥${todayTotal.toLocaleString()}`),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'center', gap: '16px', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' },
+        },
+          React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
+          React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
+        )
       ),
+
+      // 現金・未収 内訳
       React.createElement('div', {
-        style: { display: 'flex', justifyContent: 'center', gap: '16px', margin: '4px 0 8px', fontSize: 'var(--font-size-xs)' },
+        style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)' },
       },
-        React.createElement('span', { style: { color: 'var(--color-accent)' } }, `現金: ¥${todayCash.toLocaleString()}`),
-        React.createElement('span', { style: { color: 'var(--color-error)' } }, `未収: ¥${todayUncollected.toLocaleString()}`)
+        // 現金
+        React.createElement('div', {
+          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(26,115,232,0.08)', border: '1px solid rgba(26,115,232,0.2)' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)', fontWeight: 600, marginBottom: 6 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'payments'),
+            '現金'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-accent)' } },
+            `¥${todayCash.toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+            `税抜: ¥${Math.floor(todayCash / 1.1).toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+            `消費税: ¥${(todayCash - Math.floor(todayCash / 1.1)).toLocaleString()}`
+          )
+        ),
+        // 未収
+        React.createElement('div', {
+          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-error)', fontWeight: 600, marginBottom: 6 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'pending'),
+            '未収'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-error)' } },
+            `¥${todayUncollected.toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+            `税抜: ¥${Math.floor(todayUncollected / 1.1).toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+            `消費税: ¥${(todayUncollected - Math.floor(todayUncollected / 1.1)).toLocaleString()}`
+          )
+        )
       ),
-      React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' } },
-        `本日 ${todayEntries.length} 件 / 全 ${entries.length} 件（累計 ¥${allTotal.toLocaleString()}）`
+
+      // 件数内訳
+      React.createElement('div', {
+        style: { display: 'flex', justifyContent: 'center', gap: '12px', padding: '8px 0', borderTop: '1px solid var(--border-color)', fontSize: 'var(--font-size-xs)' },
+      },
+        React.createElement('span', { style: { color: 'var(--text-secondary)', fontWeight: 600 } },
+          `本日: ${todayEntries.length}件`
+        ),
+        React.createElement('span', { style: { color: 'var(--color-accent)' } },
+          `現金: ${todayCashEntries.length}件`
+        ),
+        React.createElement('span', { style: { color: 'var(--color-error)' } },
+          `未収: ${todayUncollectedEntries.length}件`
+        ),
+        React.createElement('span', { style: { color: 'var(--text-muted)' } },
+          `全${entries.length}件 累計¥${allTotal.toLocaleString()}`
+        )
       )
     ),
 
@@ -11064,9 +11240,13 @@ window.CalendarPage = () => {
 
 // ホテル混雑状況コンポーネント
 window.HotelStatusPage = () => {
-  const { useState, useMemo, useEffect } = React;
+  const { useState, useMemo, useEffect, useCallback } = React;
   const createElement = React.createElement;
+  const { geminiApiKey } = useAppContext();
   const [now, setNow] = useState(new Date());
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [priceError, setPriceError] = useState('');
+  const [priceAnalysis, setPriceAnalysis] = useState(() => DataService.analyzeHotelPrices());
 
   // 1分ごとに自動更新
   useEffect(() => {
@@ -11094,7 +11274,6 @@ window.HotelStatusPage = () => {
       const isCurrent = currentMinutes >= startMin && currentMinutes <= endMin;
       const isSoon = !isCurrent && currentMinutes >= startMin - 30 && currentMinutes < startMin;
       const isPast = currentMinutes > endMin + 15;
-      // 進捗率
       let progress = 0;
       if (isCurrent) progress = Math.min(1, (currentMinutes - startMin) / (endMin - startMin));
       return { key, ...win, isCurrent, isSoon, isPast, progress };
@@ -11124,11 +11303,38 @@ window.HotelStatusPage = () => {
           }
         }
       });
-      // 需要スコアを0-100に正規化
       const score = Math.min(100, Math.round(totalWeight * 100));
       return { ...hotel, score, activeWindow };
     }).sort((a, b) => b.score - a.score);
   }, [currentMinutes]);
+
+  // 価格分析データとホテル需要をマージ
+  const hotelWithPrices = useMemo(() => {
+    if (!priceAnalysis.hasData) return hotelStatus;
+    const priceMap = {};
+    priceAnalysis.hotels.forEach(p => { priceMap[p.name] = p; });
+    return hotelStatus.map(h => ({
+      ...h,
+      priceInfo: priceMap[h.name] || null,
+    }));
+  }, [hotelStatus, priceAnalysis]);
+
+  // 一括取得ハンドラー
+  const handleFetchPrices = useCallback(async () => {
+    if (!geminiApiKey) { setPriceError('Gemini APIキーを設定してください'); return; }
+    setPriceLoading(true);
+    setPriceError('');
+    try {
+      const result = await GeminiService.fetchHotelPrices(geminiApiKey, hotels);
+      if (!result.success) { setPriceError(result.error); return; }
+      DataService.saveHotelPrices(result.prices);
+      setPriceAnalysis(DataService.analyzeHotelPrices());
+    } catch (e) {
+      setPriceError(`取得エラー: ${e.message}`);
+    } finally {
+      setPriceLoading(false);
+    }
+  }, [geminiApiKey, hotels]);
 
   const levelConfig = {
     very_high: { label: '非常に高い', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
@@ -11137,8 +11343,28 @@ window.HotelStatusPage = () => {
     low: { label: '低い', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
   };
 
+  const trendConfig = {
+    high: { icon: 'trending_up', label: '高騰', color: '#ef4444' },
+    rising: { icon: 'trending_up', label: 'やや高い', color: '#f59e0b' },
+    stable: { icon: 'trending_flat', label: '通常', color: '#3b82f6' },
+    falling: { icon: 'trending_down', label: 'やや安い', color: '#22c55e' },
+    low: { icon: 'trending_down', label: '安い', color: '#22c55e' },
+  };
+
+  const occupancyConfig = {
+    very_high: { label: '非常に高い', color: '#ef4444' },
+    high: { label: '高い', color: '#f59e0b' },
+    normal: { label: '通常', color: '#3b82f6' },
+    low: { label: '低い', color: '#22c55e' },
+    unknown: { label: '不明', color: '#6b7280' },
+  };
+
   const activeWindows = windowStatus.filter(w => w.isCurrent || w.isSoon);
   const activeHotels = hotelStatus.filter(h => h.score > 0);
+
+  // 高稼働ホテル数
+  const highOccupancyCount = priceAnalysis.hasData
+    ? priceAnalysis.hotels.filter(h => h.occupancyEstimate === 'high' || h.occupancyEstimate === 'very_high').length : 0;
 
   return createElement('div', null,
     createElement('h1', { className: 'page-title' },
@@ -11162,6 +11388,88 @@ window.HotelStatusPage = () => {
       )
     ),
 
+    // ホテル価格取得カード
+    createElement('div', {
+      className: 'card',
+      style: { padding: 'var(--space-md)', marginBottom: 'var(--space-md)' },
+    },
+      createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-sm)' },
+      },
+        createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 'var(--space-xs)', fontWeight: 700 } },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 18, color: '#a78bfa' } }, 'payments'),
+          '料金情報'
+        ),
+        createElement('button', {
+          className: `btn btn--primary`,
+          onClick: handleFetchPrices,
+          disabled: priceLoading || !geminiApiKey,
+          style: { padding: '6px 14px', fontSize: 'var(--font-size-xs)', display: 'flex', alignItems: 'center', gap: 4 },
+        },
+          priceLoading && createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: 14, animation: 'spin 1s linear infinite' },
+          }, 'sync'),
+          priceLoading ? '取得中...' : '一括取得'
+        )
+      ),
+      priceError && createElement('div', {
+        style: { fontSize: 'var(--font-size-xs)', color: '#ef4444', marginBottom: 'var(--space-xs)', padding: '4px 8px', background: 'rgba(239,68,68,0.1)', borderRadius: 4 },
+      }, priceError),
+      !geminiApiKey && createElement('div', {
+        style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', padding: '4px 0' },
+      }, 'Gemini APIキーを設定画面で入力してください'),
+      priceAnalysis.hasData && createElement('div', {
+        style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', gap: 12, flexWrap: 'wrap' },
+      },
+        createElement('span', null, `蓄積: ${priceAnalysis.recordCount}回`),
+        createElement('span', null, `最終: ${priceAnalysis.latestFetch ? new Date(priceAnalysis.latestFetch).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}`),
+        highOccupancyCount > 0 && createElement('span', { style: { color: '#ef4444', fontWeight: 600 } }, `高稼働: ${highOccupancyCount}件`)
+      )
+    ),
+
+    // 稼働率分析サマリー（価格データあり時のみ表示）
+    priceAnalysis.hasData && priceAnalysis.recordCount >= 2 && createElement('div', {
+      className: 'card',
+      style: { padding: 'var(--space-md)', marginBottom: 'var(--space-md)', borderLeft: '3px solid #a78bfa' },
+    },
+      createElement('div', {
+        style: { fontWeight: 700, marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-xs)' },
+      },
+        createElement('span', { className: 'material-icons-round', style: { fontSize: 18, color: '#a78bfa' } }, 'analytics'),
+        '稼働率分析'
+      ),
+      createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: 8 } },
+        '料金変動から推定した稼働率（料金高騰 = 高稼働 = タクシー需要増）'
+      ),
+      ...priceAnalysis.hotels.filter(h => h.occupancyEstimate !== 'normal' && h.occupancyEstimate !== 'unknown').slice(0, 5).map(h => {
+        const oc = occupancyConfig[h.occupancyEstimate] || occupancyConfig.unknown;
+        const tc = trendConfig[h.trend] || trendConfig.stable;
+        return createElement('div', {
+          key: h.name,
+          style: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color)' },
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 16, color: tc.color } }, tc.icon),
+          createElement('div', { style: { flex: 1, minWidth: 0 } },
+            createElement('div', {
+              style: { fontSize: 'var(--font-size-sm)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+            }, h.name),
+            createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
+              `${h.latest ? h.latest.toLocaleString() + '円' : '-'} (平均: ${h.avg ? h.avg.toLocaleString() + '円' : '-'})`
+            )
+          ),
+          createElement('div', { style: { textAlign: 'right' } },
+            createElement('div', { style: { fontSize: 'var(--font-size-xs)', fontWeight: 700, color: oc.color } }, `稼働: ${oc.label}`),
+            createElement('div', { style: { fontSize: 10, color: tc.color } }, tc.label)
+          )
+        );
+      }),
+      priceAnalysis.hotels.filter(h => h.occupancyEstimate !== 'normal' && h.occupancyEstimate !== 'unknown').length === 0 &&
+        createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', padding: '8px 0' } },
+          '全ホテルが通常稼働率です。料金データが蓄積されると変動が表示されます。'
+        )
+    ),
+
     // ピーク時間帯タイムライン
     createElement('div', {
       className: 'card',
@@ -11181,7 +11489,6 @@ window.HotelStatusPage = () => {
             borderBottom: '1px solid var(--border-color)', opacity: w.isPast ? 0.4 : 1,
           },
         },
-          // ステータスバッジ
           createElement('div', {
             style: {
               minWidth: 52, textAlign: 'center', fontSize: 10, fontWeight: 700, padding: '3px 6px', borderRadius: 4,
@@ -11189,12 +11496,10 @@ window.HotelStatusPage = () => {
               color: w.isCurrent ? '#ef4444' : w.isSoon ? '#f59e0b' : w.isPast ? '#6b7280' : '#3b82f6',
             },
           }, w.isCurrent ? 'NOW' : w.isSoon ? 'SOON' : w.isPast ? '終了' : '待機'),
-          // 時間とラベル
           createElement('div', { style: { flex: 1 } },
             createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, w.label),
             createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, `${w.start} 〜 ${w.end}`)
           ),
-          // 進捗バー（isCurrent時のみ）
           w.isCurrent && createElement('div', {
             style: { width: 60, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' },
           },
@@ -11206,7 +11511,7 @@ window.HotelStatusPage = () => {
       )
     ),
 
-    // ホテル一覧
+    // ホテル一覧（価格情報付き）
     createElement('div', {
       className: 'card',
       style: { padding: 'var(--space-md)' },
@@ -11222,9 +11527,11 @@ window.HotelStatusPage = () => {
           `タクシー需要あり: ${activeHotels.length}件`
         )
       ),
-      ...hotelStatus.map(h => {
+      ...hotelWithPrices.map(h => {
         const lc = levelConfig[h.demandLevel] || levelConfig.low;
         const barWidth = Math.max(2, h.score);
+        const pi = h.priceInfo;
+        const tc = pi ? (trendConfig[pi.trend] || trendConfig.stable) : null;
         return createElement('div', {
           key: h.name,
           style: {
@@ -11247,12 +11554,16 @@ window.HotelStatusPage = () => {
               style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
             }, h.name),
             createElement('div', {
-              style: { display: 'flex', gap: 8, fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 2 },
+              style: { display: 'flex', gap: 8, fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 2, flexWrap: 'wrap' },
             },
               createElement('span', null, `${h.rooms}室`),
               createElement('span', null, `駅${h.distKm}km`),
               createElement('span', { style: { color: lc.color } }, lc.label),
-              h.activeWindow && createElement('span', { style: { color: '#ef4444', fontWeight: 600 } }, h.activeWindow)
+              h.activeWindow && createElement('span', { style: { color: '#ef4444', fontWeight: 600 } }, h.activeWindow),
+              pi && pi.latest > 0 && createElement('span', { style: { color: tc.color, fontWeight: 600 } },
+                `${pi.latest.toLocaleString()}円`,
+                pi.trend !== 'stable' ? ` ${tc.label}` : ''
+              )
             )
           ),
           // スコアバー
