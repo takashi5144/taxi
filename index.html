@@ -425,6 +425,11 @@ a:hover {
   color: var(--color-secondary);
 }
 
+/* InfoPage内の子ページタイトルを非表示 */
+.info-page-content .page-title {
+  display: none;
+}
+
 /* 地図コンテナ */
 .map-container {
   width: 100%;
@@ -919,6 +924,8 @@ window.APP_CONSTANTS = {
     TRANSIT_INFO: 'transit-info',
     EVENTS: 'events',
     ANALYTICS: 'analytics',
+    CALENDAR: 'calendar',
+    INFO: 'info',
     DATA_MANAGE: 'data-manage',
     SETTINGS: 'settings',
     DEV_TOOLS: 'dev',
@@ -934,14 +941,14 @@ window.APP_CONSTANTS = {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
+    { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'data-manage', label: 'データ管理', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ],
 
   // 情報ナビゲーション項目
   INFO_NAV_ITEMS: [
-    { id: 'transit-info', label: '公共交通機関情報', icon: 'directions_transit' },
-    { id: 'events', label: 'イベント', icon: 'event' },
+    { id: 'info', label: '情報', icon: 'info' },
   ],
 
   // ボトムナビ項目
@@ -949,7 +956,7 @@ window.APP_CONSTANTS = {
     { id: 'dashboard', label: 'ホーム', icon: 'home' },
     { id: 'map', label: '地図', icon: 'map' },
     { id: 'revenue', label: '売上', icon: 'receipt_long' },
-    { id: 'rival-ride', label: '他社', icon: 'local_taxi' },
+    { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'settings', label: '設定', icon: 'more_horiz' },
   ],
@@ -976,6 +983,7 @@ window.APP_CONSTANTS = {
     NOTIFICATION_ENABLED: 'taxi_app_notification_enabled',
     SHIFTS: 'taxi_app_shifts',
     DAILY_DEMAND_PLAN: 'taxi_app_daily_demand_plan',
+    WORK_STATUS: 'taxi_app_work_status',
   },
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -3052,7 +3060,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -3060,6 +3068,7 @@ window.DataService = (() => {
       const holiday = e.holiday || dateInfo.holiday || '';
       const dateTime = new Date(e.timestamp).toLocaleString('ja-JP');
       const weather = (e.weather || '').replace(/,/g, '、');
+      const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : '現金';
       const pickup = (e.pickup || '').replace(/,/g, '、');
       const pickupTime = e.pickupTime || '';
       const dropoff = (e.dropoff || '').replace(/,/g, '、');
@@ -3069,7 +3078,7 @@ window.DataService = (() => {
       const purpose = (e.purpose || '').replace(/,/g, '、');
       const source = e.source || '';
       const memo = (e.memo || '').replace(/,/g, '、');
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -3157,13 +3166,15 @@ window.DataService = (() => {
       pickupCoords: form.pickupCoords || null,
       dropoffCoords: form.dropoffCoords || null,
       noPassenger: form.noPassenger || false,
+      paymentMethod: form.paymentMethod || 'cash',
       timestamp: new Date().toISOString(),
     };
 
     entries.unshift(entry);
     saveEntries(entries);
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
-    AppLogger.info(`売上記録追加: ¥${entry.amount} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
+    const paymentStr = entry.paymentMethod === 'uncollected' ? ' [未収]' : '';
+    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
     // 自動ファイル保存
     autoSaveToFile();
     _syncToCloud('revenue', entries);
@@ -7905,7 +7916,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -8250,7 +8261,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setMapPickerField(null);
     setSaved(true);
@@ -8309,6 +8320,8 @@ window.RevenuePage = () => {
   const today = getLocalDateString();
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayCash = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash').reduce((sum, e) => sum + e.amount, 0);
+  const todayUncollected = todayEntries.filter(e => e.paymentMethod === 'uncollected').reduce((sum, e) => sum + e.amount, 0);
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
 
   // GPS取得ボタンのスタイル
@@ -8339,10 +8352,16 @@ window.RevenuePage = () => {
         style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '8px 0' },
       }, `¥${todayTotal.toLocaleString()}`),
       React.createElement('div', {
-        style: { display: 'flex', justifyContent: 'center', gap: '16px', margin: '4px 0 8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' },
+        style: { display: 'flex', justifyContent: 'center', gap: '16px', margin: '4px 0 4px', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' },
       },
         React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
         React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
+      ),
+      React.createElement('div', {
+        style: { display: 'flex', justifyContent: 'center', gap: '16px', margin: '4px 0 8px', fontSize: 'var(--font-size-xs)' },
+      },
+        React.createElement('span', { style: { color: 'var(--color-accent)' } }, `現金: ¥${todayCash.toLocaleString()}`),
+        React.createElement('span', { style: { color: 'var(--color-error)' } }, `未収: ¥${todayUncollected.toLocaleString()}`)
       ),
       React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' } },
         `本日 ${todayEntries.length} 件 / 全 ${entries.length} 件（累計 ¥${allTotal.toLocaleString()}）`
@@ -8593,7 +8612,7 @@ window.RevenuePage = () => {
                 }
                 const result = DataService.addEntry(formData);
                 if (result.success) {
-                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
                   setGpsInfo({ pickup: null, dropoff: null });
                   setMapPickerField(null);
                   setSaved(true);
@@ -8855,6 +8874,36 @@ window.RevenuePage = () => {
             })()
           ),
 
+          // 支払い方法
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '支払い方法'),
+            React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+              ...['cash', 'uncollected'].map(method => {
+                const selected = form.paymentMethod === method;
+                const label = method === 'cash' ? '現金' : '未収';
+                const icon = method === 'cash' ? 'payments' : 'pending';
+                const activeColor = method === 'cash' ? 'var(--color-accent)' : 'var(--color-error)';
+                return React.createElement('button', {
+                  key: method,
+                  type: 'button',
+                  onClick: () => setForm({ ...form, paymentMethod: method }),
+                  style: {
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                    padding: '10px 12px', borderRadius: '8px', fontSize: '14px', fontWeight: selected ? 700 : 400,
+                    cursor: 'pointer',
+                    border: selected ? `2px solid ${activeColor}` : '1px solid rgba(255,255,255,0.15)',
+                    background: selected ? (method === 'cash' ? 'rgba(0,200,83,0.15)' : 'rgba(229,57,53,0.15)') : 'rgba(255,255,255,0.05)',
+                    color: selected ? activeColor : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  },
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, icon),
+                  label
+                );
+              })
+            )
+          ),
+
           // お客様人数
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, 'お客様人数'),
@@ -9111,7 +9160,10 @@ window.RevenuePage = () => {
             entry.noPassenger
               ? React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f', fontSize: 'var(--font-size-lg)' } }, '¥0（待機）')
               : React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: 'var(--font-size-lg)' } }, `¥${entry.amount.toLocaleString()}`),
-            !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
+            !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`),
+            entry.paymentMethod === 'uncollected' && React.createElement('div', {
+              style: { fontSize: '10px', color: 'var(--color-error)', fontWeight: 600, marginTop: '2px' }
+            }, '未収')
           ),
           React.createElement('button', {
             onClick: () => handleDelete(entry.id),
@@ -10554,6 +10606,453 @@ window.TransitInfoPage = () => {
                 }, activeCat ? (activeCat.label + 'の情報を取得') : '取得')
               )
             ))
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/Calendar.jsx
+// ============================================================
+(function() {
+// Calendar.jsx - カレンダーページ
+// 日別売上表示と勤務/休日マーキング機能
+
+window.CalendarPage = () => {
+  const { useState, useEffect, useCallback, useMemo } = React;
+  const createElement = React.createElement;
+
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [workStatus, setWorkStatus] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS) || '{}');
+    } catch { return {}; }
+  });
+  const [selectedDate, setSelectedDate] = useState(null);
+
+  // 勤務状態をlocalStorageに保存
+  const saveWorkStatus = useCallback((newStatus) => {
+    setWorkStatus(newStatus);
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS, JSON.stringify(newStatus));
+  }, []);
+
+  // 売上データを日別に集計
+  const dailyRevenue = useMemo(() => {
+    const entries = DataService.getEntries();
+    const map = {};
+    entries.forEach(e => {
+      if (!e.date) return;
+      if (!map[e.date]) map[e.date] = { total: 0, count: 0 };
+      map[e.date].total += (e.amount || 0);
+      map[e.date].count += 1;
+    });
+    return map;
+  }, [currentMonth]);
+
+  // シフトデータ
+  const shifts = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    } catch { return []; }
+  }, [currentMonth]);
+
+  // カレンダーグリッド生成
+  const calendarDays = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = firstDay.getDay(); // 0=日
+    const daysInMonth = lastDay.getDate();
+
+    const days = [];
+    // 前月の空セル
+    for (let i = 0; i < startDow; i++) days.push(null);
+    // 当月の日
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const info = JapaneseHolidays.getDateInfo(dateStr);
+      const rev = dailyRevenue[dateStr];
+      days.push({
+        day: d,
+        dateStr,
+        dayOfWeek: info.dayOfWeek,
+        holiday: info.holiday,
+        isHoliday: info.isHoliday,
+        isSunday: info.isSunday,
+        isSaturday: info.isSaturday,
+        revenue: rev ? rev.total : 0,
+        count: rev ? rev.count : 0,
+        status: workStatus[dateStr] || null,
+      });
+    }
+    return days;
+  }, [currentMonth, dailyRevenue, workStatus]);
+
+  // 今日の日付文字列
+  const todayStr = useMemo(() => getLocalDateString(), []);
+
+  // 月間サマリー
+  const monthlySummary = useMemo(() => {
+    let workDays = 0, offDays = 0, totalRevenue = 0, workDayRevenue = 0;
+    calendarDays.forEach(d => {
+      if (!d) return;
+      if (d.status === 'work') {
+        workDays++;
+        workDayRevenue += d.revenue;
+      }
+      if (d.status === 'off') offDays++;
+      totalRevenue += d.revenue;
+    });
+    return {
+      workDays,
+      offDays,
+      totalRevenue,
+      avgDaily: workDays > 0 ? Math.round(workDayRevenue / workDays) : 0,
+    };
+  }, [calendarDays]);
+
+  // 選択日の詳細
+  const selectedDayData = useMemo(() => {
+    if (!selectedDate) return null;
+    const day = calendarDays.find(d => d && d.dateStr === selectedDate);
+    if (!day) return null;
+
+    // シフト情報
+    const dayShifts = shifts.filter(s => {
+      if (!s.startTime) return false;
+      const sDate = s.startTime.split('T')[0];
+      return sDate === selectedDate;
+    });
+
+    return { ...day, shifts: dayShifts };
+  }, [selectedDate, calendarDays, shifts]);
+
+  // 月切替
+  const goMonth = useCallback((delta) => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+    setSelectedDate(null);
+  }, []);
+
+  const goToday = useCallback(() => {
+    const now = new Date();
+    setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+    setSelectedDate(todayStr);
+  }, [todayStr]);
+
+  // 勤務/休日切替
+  const toggleWorkStatus = useCallback((dateStr, status) => {
+    const newStatus = { ...workStatus };
+    if (newStatus[dateStr] === status) {
+      delete newStatus[dateStr];
+    } else {
+      newStatus[dateStr] = status;
+    }
+    saveWorkStatus(newStatus);
+  }, [workStatus, saveWorkStatus]);
+
+  // 金額短縮表示
+  const shortAmount = (n) => {
+    if (n === 0) return '';
+    if (n >= 10000) return `${Math.floor(n / 10000)}万`;
+    if (n >= 1000) return `${Math.floor(n / 1000)}千`;
+    return `${n}`;
+  };
+
+  const yearMonth = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
+  const dowLabels = ['日', '月', '火', '水', '木', '金', '土'];
+
+  return createElement('div', null,
+    // ページタイトル
+    createElement('h1', { className: 'page-title' },
+      createElement('span', { className: 'material-icons-round' }, 'calendar_month'),
+      'カレンダー'
+    ),
+
+    // 月ナビゲーション
+    createElement('div', {
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-md)', gap: 'var(--space-sm)' }
+    },
+      createElement('button', {
+        className: 'btn btn--secondary',
+        onClick: () => goMonth(-1),
+        style: { minWidth: 40, padding: '6px 10px' }
+      }, createElement('span', { className: 'material-icons-round', style: { fontSize: 20 } }, 'chevron_left')),
+      createElement('span', {
+        style: { fontWeight: 700, fontSize: 'var(--font-size-lg)' }
+      }, yearMonth),
+      createElement('button', {
+        className: 'btn btn--secondary',
+        onClick: () => goMonth(1),
+        style: { minWidth: 40, padding: '6px 10px' }
+      }, createElement('span', { className: 'material-icons-round', style: { fontSize: 20 } }, 'chevron_right')),
+      createElement('button', {
+        className: 'btn btn--secondary',
+        onClick: goToday,
+        style: { padding: '6px 12px', fontSize: 'var(--font-size-sm)' }
+      }, '今月')
+    ),
+
+    // カレンダーグリッド
+    createElement('div', {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(7, 1fr)',
+        gap: 1,
+        background: 'var(--border-color)',
+        borderRadius: 'var(--border-radius)',
+        overflow: 'hidden',
+        marginBottom: 'var(--space-lg)',
+      }
+    },
+      // 曜日ヘッダー
+      ...dowLabels.map((dow, i) =>
+        createElement('div', {
+          key: 'h' + i,
+          style: {
+            background: 'var(--bg-card)',
+            padding: '6px 2px',
+            textAlign: 'center',
+            fontWeight: 700,
+            fontSize: 'var(--font-size-sm)',
+            color: i === 0 ? 'var(--color-error)' : i === 6 ? 'var(--color-info)' : 'var(--text-primary)',
+          }
+        }, dow)
+      ),
+      // 日セル
+      ...calendarDays.map((d, i) => {
+        if (!d) {
+          return createElement('div', {
+            key: 'e' + i,
+            style: { background: 'var(--bg-card)', padding: 4 }
+          });
+        }
+        const isToday = d.dateStr === todayStr;
+        const isSelected = d.dateStr === selectedDate;
+        return createElement('div', {
+          key: d.dateStr,
+          onClick: () => setSelectedDate(d.dateStr === selectedDate ? null : d.dateStr),
+          style: {
+            background: isSelected ? 'rgba(33,150,243,0.15)' : isToday ? 'rgba(0,200,83,0.08)' : 'var(--bg-card)',
+            padding: '4px 2px',
+            minHeight: 54,
+            cursor: 'pointer',
+            position: 'relative',
+            borderLeft: isToday ? '3px solid var(--color-accent)' : 'none',
+          }
+        },
+          // 日付
+          createElement('div', {
+            style: {
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: isToday ? 700 : 400,
+              color: d.isHoliday || d.isSunday ? 'var(--color-error)' : d.isSaturday ? 'var(--color-info)' : 'var(--text-primary)',
+              marginBottom: 1,
+              textAlign: 'center',
+            }
+          }, d.day),
+          // 売上金額
+          d.revenue > 0 && createElement('div', {
+            style: {
+              fontSize: 10,
+              color: 'var(--color-accent)',
+              textAlign: 'center',
+              fontWeight: 600,
+              lineHeight: 1.2,
+            }
+          }, shortAmount(d.revenue)),
+          // 勤務/休日マーク
+          d.status && createElement('div', {
+            style: {
+              width: 8, height: 8,
+              borderRadius: '50%',
+              background: d.status === 'work' ? 'var(--color-accent)' : 'var(--color-warning)',
+              margin: '2px auto 0',
+            }
+          })
+        );
+      })
+    ),
+
+    // 選択日の詳細パネル
+    selectedDayData && createElement('div', {
+      className: 'card',
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' }
+    },
+      createElement('div', {
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-sm)' }
+      },
+        createElement('div', null,
+          createElement('strong', { style: { fontSize: 'var(--font-size-lg)' } },
+            `${selectedDayData.day}日（${selectedDayData.dayOfWeek}）`
+          ),
+          selectedDayData.holiday && createElement('span', {
+            style: { marginLeft: 'var(--space-sm)', color: 'var(--color-error)', fontSize: 'var(--font-size-sm)' }
+          }, selectedDayData.holiday)
+        )
+      ),
+
+      // 勤務/休日ボタン
+      createElement('div', {
+        style: { display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }
+      },
+        createElement('button', {
+          className: `btn ${selectedDayData.status === 'work' ? 'btn--primary' : 'btn--secondary'}`,
+          onClick: () => toggleWorkStatus(selectedDate, 'work'),
+          style: { flex: 1, padding: '8px 12px' }
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 16, marginRight: 4 } }, 'work'),
+          '勤務'
+        ),
+        createElement('button', {
+          className: `btn ${selectedDayData.status === 'off' ? 'btn--secondary' : 'btn--secondary'}`,
+          onClick: () => toggleWorkStatus(selectedDate, 'off'),
+          style: Object.assign({ flex: 1, padding: '8px 12px' },
+            selectedDayData.status === 'off' ? { background: 'var(--color-warning)', borderColor: 'var(--color-warning)' } : {}
+          )
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 16, marginRight: 4 } }, 'weekend'),
+          '休日'
+        )
+      ),
+
+      // 売上情報
+      createElement('div', {
+        style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }
+      },
+        createElement('div', { style: { textAlign: 'center' } },
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '件数'),
+          createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } }, selectedDayData.count)
+        ),
+        createElement('div', { style: { textAlign: 'center' } },
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '合計'),
+          createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-accent)' } },
+            selectedDayData.revenue > 0 ? `${selectedDayData.revenue.toLocaleString()}円` : '−'
+          )
+        ),
+        createElement('div', { style: { textAlign: 'center' } },
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '平均'),
+          createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
+            selectedDayData.count > 0 ? `${Math.round(selectedDayData.revenue / selectedDayData.count).toLocaleString()}円` : '−'
+          )
+        )
+      ),
+
+      // シフト記録
+      selectedDayData.shifts.length > 0 && createElement('div', {
+        style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)' }
+      },
+        createElement('div', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: 4 }
+        }, 'シフト記録'),
+        ...selectedDayData.shifts.map((s, i) => {
+          const start = s.startTime ? new Date(s.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '?';
+          const end = s.endTime ? new Date(s.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '勤務中';
+          return createElement('div', {
+            key: i,
+            style: { fontSize: 'var(--font-size-sm)', padding: '2px 0' }
+          },
+            createElement('span', { className: 'material-icons-round', style: { fontSize: 14, verticalAlign: 'middle', marginRight: 4 } }, 'schedule'),
+            `${start} 〜 ${end}`
+          );
+        })
+      )
+    ),
+
+    // 月間サマリーカード
+    createElement('div', {
+      className: 'card',
+      style: { padding: 'var(--space-md)' }
+    },
+      createElement('div', {
+        style: { fontWeight: 700, marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-xs)' }
+      },
+        createElement('span', { className: 'material-icons-round', style: { fontSize: 18, color: 'var(--color-secondary)' } }, 'summarize'),
+        `${yearMonth} サマリー`
+      ),
+      createElement('div', {
+        style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-md)' }
+      },
+        createElement('div', null,
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '勤務日数'),
+          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700 } }, `${monthlySummary.workDays}日`)
+        ),
+        createElement('div', null,
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '休日数'),
+          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700 } }, `${monthlySummary.offDays}日`)
+        ),
+        createElement('div', null,
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '月間売上合計'),
+          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-accent)' } },
+            monthlySummary.totalRevenue > 0 ? `${monthlySummary.totalRevenue.toLocaleString()}円` : '−'
+          )
+        ),
+        createElement('div', null,
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '勤務日平均日収'),
+          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700 } },
+            monthlySummary.avgDaily > 0 ? `${monthlySummary.avgDaily.toLocaleString()}円` : '−'
+          )
+        )
+      )
+    )
+  );
+};
+
+})();
+
+// ============================================================
+// FILE: src/pages/Info.jsx
+// ============================================================
+(function() {
+// Info.jsx - 情報ページ（交通機関 + イベント統合）
+
+window.InfoPage = () => {
+  const { useState } = React;
+  const createElement = React.createElement;
+  const [tab, setTab] = useState('transit');
+
+  const tabs = [
+    { id: 'transit', label: '公共交通機関', icon: 'directions_transit' },
+    { id: 'events', label: 'イベント', icon: 'event' },
+  ];
+
+  return createElement('div', null,
+    createElement('h1', { className: 'page-title' },
+      createElement('span', { className: 'material-icons-round' }, 'info'),
+      '情報'
+    ),
+    // タブバー
+    createElement('div', {
+      style: {
+        display: 'flex',
+        gap: 'var(--space-xs)',
+        marginBottom: 'var(--space-lg)',
+        background: 'var(--bg-card)',
+        borderRadius: 'var(--border-radius)',
+        padding: 4,
+      }
+    },
+      ...tabs.map(t =>
+        createElement('button', {
+          key: t.id,
+          className: `btn ${tab === t.id ? 'btn--primary' : 'btn--ghost'}`,
+          onClick: () => setTab(t.id),
+          style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '8px 12px' }
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 18 } }, t.icon),
+          t.label
+        )
+      )
+    ),
+    // 子ページ（タイトルは非表示）
+    createElement('div', { className: 'info-page-content' },
+      tab === 'transit'
+        ? createElement(TransitInfoPage)
+        : createElement(EventsPage)
+    )
   );
 };
 
@@ -14319,6 +14818,8 @@ window.App = () => {
       case 'transit-info': return React.createElement(TransitInfoPage);
       case 'events': return React.createElement(EventsPage);
       case 'analytics': return React.createElement(AnalyticsPage);
+      case 'calendar': return React.createElement(CalendarPage);
+      case 'info': return React.createElement(InfoPage);
       case 'data-manage': return React.createElement(DataManagePage);
       case 'settings': return React.createElement(SettingsPage);
       case 'dev': return React.createElement(DevToolsPage);
