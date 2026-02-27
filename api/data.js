@@ -77,8 +77,21 @@ export default async function handler(req, res) {
         const result = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
         const latest = result.blobs.find(b => b.pathname.endsWith('latest.json'));
         if (!latest) return res.json({ entries: [] });
-        const data = await fetch(latest.url).then(r => r.json());
-        return res.json(data);
+        // downloadUrl があればそちらを使用（認証付きURL）、なければ url にフォールバック
+        const blobUrl = latest.downloadUrl || latest.url;
+        const blobRes = await fetch(blobUrl);
+        if (!blobRes.ok) {
+          console.error('[API] Blob fetch failed:', blobRes.status, blobRes.statusText, blobUrl);
+          return res.status(502).json({ error: `Blobデータ取得失敗 (${blobRes.status})` });
+        }
+        const text = await blobRes.text();
+        try {
+          const data = JSON.parse(text);
+          return res.json(data);
+        } catch (parseErr) {
+          console.error('[API] JSON parse error:', parseErr.message, 'body preview:', text.substring(0, 200));
+          return res.status(502).json({ error: 'Blobデータの形式が不正です' });
+        }
       }
 
       case 'DELETE': {
@@ -93,7 +106,7 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (err) {
-    console.error('[API ERROR]', err.message);
-    return res.status(500).json({ error: 'サーバーエラー' });
+    console.error('[API ERROR]', err.message, err.stack);
+    return res.status(500).json({ error: 'サーバーエラー', detail: err.message });
   }
 }
