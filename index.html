@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.3.3',
+  VERSION: '1.3.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -14174,7 +14174,7 @@ window.DataManagePage = () => {
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const todayDefault = getLocalDateString();
-  const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+  const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discountAmount: '', discountType: '' });
   const [addErrors, setAddErrors] = useState([]);
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const [addCoords, setAddCoords] = useState({ pickupCoords: null, dropoffCoords: null });
@@ -14417,7 +14417,7 @@ window.DataManagePage = () => {
     const formWithCoords = { ...addForm, pickupCoords: addCoords.pickupCoords, dropoffCoords: addCoords.dropoffCoords };
     const result = DataService.addEntry(formWithCoords);
     if (!result.success) { setAddErrors(result.errors); return; }
-    setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discountAmount: '', discountType: '' });
     setAddCoords({ pickupCoords: null, dropoffCoords: null });
     setMapPickerField(null);
     setShowAddForm(false);
@@ -14780,7 +14780,7 @@ window.DataManagePage = () => {
                       };
                       const result = DataService.addEntry(formData);
                       if (result.success) {
-                        setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                        setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discountAmount: '', discountType: '' });
                         setAddCoords({ pickupCoords: null, dropoffCoords: null });
                         setMapPickerField(null);
                         setShowAddForm(false);
@@ -14864,6 +14864,45 @@ window.DataManagePage = () => {
               React.createElement('div', { style: { gridColumn: '1 / -1' } },
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
                 React.createElement('input', { type: 'text', value: addForm.memo, placeholder: '自由入力', onChange: e => setAddForm(f => ({ ...f, memo: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
+              ),
+              // 割引
+              React.createElement('div', { style: { gridColumn: '1 / -1' } },
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '割引'),
+                React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' } },
+                  ...[
+                    { value: 'disability', label: '障害者割引', icon: 'accessible' },
+                    { value: 'coupon', label: 'クーポン', icon: 'local_offer' },
+                    { value: 'ticket', label: 'タクシーチケット', icon: 'confirmation_number' },
+                  ].map(d =>
+                    React.createElement('button', {
+                      key: d.value, type: 'button',
+                      onClick: () => setAddForm(f => ({ ...f, discountType: f.discountType === d.value ? '' : d.value, discountAmount: f.discountType === d.value ? '' : f.discountAmount })),
+                      style: {
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        padding: '6px 10px', borderRadius: '8px',
+                        fontSize: '12px', fontWeight: addForm.discountType === d.value ? '700' : '400',
+                        cursor: 'pointer',
+                        border: addForm.discountType === d.value ? '2px solid #a78bfa' : '1px solid rgba(255,255,255,0.15)',
+                        background: addForm.discountType === d.value ? 'rgba(167,139,250,0.25)' : 'rgba(255,255,255,0.05)',
+                        color: addForm.discountType === d.value ? '#c4b5fd' : 'var(--text-secondary)',
+                        transition: 'all 0.15s ease',
+                      },
+                    },
+                      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, d.icon),
+                      d.label
+                    )
+                  )
+                ),
+                addForm.discountType && React.createElement('div', null,
+                  React.createElement('input', {
+                    type: 'number', value: addForm.discountAmount, placeholder: '割引金額',
+                    onChange: e => setAddForm(f => ({ ...f, discountAmount: e.target.value })),
+                    style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(167,139,250,0.3)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
+                  }),
+                  addForm.amount && addForm.discountAmount && React.createElement('div', { style: { fontSize: '11px', color: '#a78bfa', marginTop: '4px' } },
+                    `割引後: ¥${(parseInt(addForm.amount) - parseInt(addForm.discountAmount)).toLocaleString()} (割引率: ${Math.round(parseInt(addForm.discountAmount) / parseInt(addForm.amount) * 100)}%)`
+                  )
+                )
               )
             ),
             addErrors.length > 0 && React.createElement('div', { style: { color: 'var(--color-danger)', fontSize: '12px', marginTop: '8px' } }, addErrors.join(', ')),
