@@ -79,13 +79,16 @@ export default async function handler(req, res) {
         if (!latest) return res.json({ entries: [] });
         // head() で認証付き downloadUrl を取得
         const blobMeta = await head(latest.url, { token: blobToken });
-        console.log('[API] blob url:', latest.url, 'downloadUrl:', blobMeta.downloadUrl);
         const blobUrl = blobMeta.downloadUrl;
         const blobRes = await fetch(blobUrl);
         if (!blobRes.ok) {
           const errBody = await blobRes.text().catch(() => '');
-          console.error('[API] Blob fetch failed:', blobRes.status, blobRes.statusText, 'url:', blobUrl, 'body:', errBody.substring(0, 300));
-          return res.status(502).json({ error: `Blobデータ取得失敗 (${blobRes.status})`, detail: errBody.substring(0, 200) });
+          if (errBody.includes('blocked')) {
+            console.error('[API] Blob store is blocked');
+            return res.status(503).json({ error: 'Blobストアがブロックされています。Vercelダッシュボードでストアの状態を確認してください。' });
+          }
+          console.error('[API] Blob fetch failed:', blobRes.status, errBody.substring(0, 200));
+          return res.status(502).json({ error: `Blobデータ取得失敗 (${blobRes.status})` });
         }
         const text = await blobRes.text();
         try {
