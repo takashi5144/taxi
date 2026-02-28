@@ -51,12 +51,18 @@ export default async function handler(req, res) {
       }
     }
 
-    const type = req.query.type; // 'revenue' | 'rival'
-    if (!['revenue', 'rival'].includes(type)) {
+    const type = req.query.type; // 'revenue' | 'rival' | 'workstatus'
+    if (!['revenue', 'rival', 'workstatus'].includes(type)) {
       return res.status(400).json({ error: '無効なデータタイプ' });
     }
 
-    const blobPath = type === 'revenue' ? '売上記録/latest.json' : '他社乗車/latest.json';
+    const blobPathMap = {
+      revenue: '売上記録/latest.json',
+      rival: '他社乗車/latest.json',
+      workstatus: '勤務状態/latest.json',
+    };
+    const blobPath = blobPathMap[type];
+    const blobPrefix = blobPath.split('/')[0] + '/';
 
     switch (req.method) {
       case 'POST': {
@@ -74,7 +80,7 @@ export default async function handler(req, res) {
       }
 
       case 'GET': {
-        const result = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
+        const result = await list({ prefix: blobPrefix, token: blobToken });
         const latest = result.blobs.find(b => b.pathname.endsWith('latest.json'));
         if (!latest) return res.json({ entries: [] });
         // head() で認証付き downloadUrl を取得
@@ -101,7 +107,7 @@ export default async function handler(req, res) {
       }
 
       case 'DELETE': {
-        const listResult = await list({ prefix: type === 'revenue' ? '売上記録/' : '他社乗車/', token: blobToken });
+        const listResult = await list({ prefix: blobPrefix, token: blobToken });
         if (listResult.blobs.length > 0) {
           await del(listResult.blobs.map(b => b.url), { token: blobToken });
         }

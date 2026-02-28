@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.3.7',
+  VERSION: '1.3.8',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2128,7 +2128,7 @@ window.DataService = (() => {
     return (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
   }
 
-  const ALLOWED_SYNC_TYPES = ['revenue', 'rival'];
+  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus'];
 
   async function _syncToCloud(type, entries) {
     if (!ALLOWED_SYNC_TYPES.includes(type)) { AppLogger.warn('不正な同期タイプ: ' + type); return; }
@@ -2196,21 +2196,81 @@ window.DataService = (() => {
 
   async function autoSync() {
     try {
-      const [r1, r2] = await Promise.all([
+      const [r1, r2, r3] = await Promise.all([
         syncFromCloud('revenue'),
         syncFromCloud('rival'),
+        syncWorkStatusFromCloud(),
       ]);
       const totalMerged = (r1.merged || 0) + (r2.merged || 0);
-      if (totalMerged > 0) {
-        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, 他社+${r2.merged}件`);
+      if (totalMerged > 0 || r3.merged) {
+        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, 他社+${r2.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
       } else {
         AppLogger.debug('自動同期: 新規データなし');
       }
-      return { revenue: r1, rival: r2 };
+      return { revenue: r1, rival: r2, workStatus: r3 };
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
     }
+  }
+
+  // ============================================================
+  // 勤務状態クラウド同期
+  // ============================================================
+  async function syncWorkStatusToCloud(workStatus) {
+    try {
+      const secret = _getSyncSecret();
+      if (!secret) return;
+      const params = new URLSearchParams({ type: 'workstatus' });
+      const res = await fetch(`/api/data?${params}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${secret}`,
+        },
+        body: JSON.stringify({
+          version: APP_CONSTANTS.VERSION,
+          syncedAt: new Date().toISOString(),
+          workStatus,
+        }),
+      });
+      if (res.ok) {
+        AppLogger.info('勤務状態クラウド同期完了');
+      } else {
+        AppLogger.warn(`勤務状態クラウド同期失敗: ${res.status}`);
+      }
+    } catch (e) {
+      AppLogger.warn('勤務状態クラウド同期エラー: ' + e.message);
+    }
+  }
+
+  async function loadWorkStatusFromCloud() {
+    try {
+      const params = new URLSearchParams({ type: 'workstatus' });
+      const res = await fetch(`/api/data?${params}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data || typeof data !== 'object') return null;
+      return data.workStatus || null;
+    } catch (e) {
+      AppLogger.warn('勤務状態クラウド読込エラー: ' + e.message);
+      return null;
+    }
+  }
+
+  async function syncWorkStatusFromCloud() {
+    const cloudStatus = await loadWorkStatusFromCloud();
+    if (!cloudStatus || typeof cloudStatus !== 'object') return { merged: false };
+
+    const local = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS) || '{}');
+    // クラウドのデータをローカルにマージ（クラウド側を優先、ローカルのみのキーは保持）
+    const merged = { ...local, ...cloudStatus };
+    const changed = JSON.stringify(merged) !== JSON.stringify(local);
+    if (changed) {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS, JSON.stringify(merged));
+      AppLogger.info('勤務状態クラウド同期: ローカルを更新しました');
+    }
+    return { merged: changed, data: merged };
   }
 
   // ============================================================
@@ -4203,6 +4263,8 @@ window.DataService = (() => {
     loadFromCloud,
     syncFromCloud,
     autoSync,
+    syncWorkStatusToCloud,
+    syncWorkStatusFromCloud,
 
     // イベント
     getEvents,
@@ -11066,10 +11128,38 @@ window.CalendarPage = () => {
   });
   const [selectedDate, setSelectedDate] = useState(null);
 
-  // 勤務状態をlocalStorageに保存
+  // クラウドから勤務状態を同期（ページ表示時・タブ復帰時）
+  useEffect(() => {
+    const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+    if (!secret) return;
+
+    // カレンダーページ表示時にクラウドから最新を取得
+    DataService.syncWorkStatusFromCloud().then(result => {
+      if (result && result.merged && result.data) {
+        setWorkStatus(result.data);
+      }
+    });
+
+    // タブ復帰時にも再同期
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        DataService.syncWorkStatusFromCloud().then(result => {
+          if (result && result.merged && result.data) {
+            setWorkStatus(result.data);
+          }
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
+
+  // 勤務状態をlocalStorageに保存し、クラウドに自動同期
   const saveWorkStatus = useCallback((newStatus) => {
     setWorkStatus(newStatus);
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS, JSON.stringify(newStatus));
+    // クラウドに自動同期（非同期、バックグラウンド）
+    DataService.syncWorkStatusToCloud(newStatus);
   }, []);
 
   // 売上データを日別に集計
