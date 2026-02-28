@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.3.5</title>
+  <title>タクシー売上サポート v1.3.6</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.3.5',
+  VERSION: '1.3.6',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3061,7 +3061,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車時間,待機時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -3082,7 +3082,8 @@ window.DataService = (() => {
       const purpose = (e.purpose || '').replace(/,/g, '、');
       const source = e.source || '';
       const memo = (e.memo || '').replace(/,/g, '、');
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
+      const waitingTime = e.waitingTime || '';
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupTime},${waitingTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -3173,6 +3174,7 @@ window.DataService = (() => {
       paymentMethod: form.paymentMethod || 'cash',
       discountAmount: form.discountAmount ? parseInt(form.discountAmount) : 0,
       discountType: form.discountType || '',
+      waitingTime: form.waitingTime || '',
       timestamp: new Date().toISOString(),
     };
 
@@ -8076,7 +8078,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', waitingTime: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -8421,7 +8423,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', waitingTime: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setMapPickerField(null);
     setSaved(true);
@@ -8806,6 +8808,69 @@ window.RevenuePage = () => {
             )
           ),
 
+          // 待機乗車
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { className: 'form-label' }, '待機乗車'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'text',
+                placeholder: '待機時間（例: 5分）',
+                value: form.waitingTime,
+                onChange: (e) => setForm({ ...form, waitingTime: e.target.value }),
+                readOnly: true,
+                style: { flex: 1, minWidth: 0, background: form.waitingTime ? 'rgba(255,152,0,0.1)' : 'var(--bg-secondary)', color: form.waitingTime ? 'var(--color-warning)' : 'var(--text-primary)', fontWeight: form.waitingTime ? 600 : 400 },
+              }),
+              React.createElement('button', {
+                type: 'button',
+                disabled: !form.pickupTime,
+                onClick: () => {
+                  const now = getNowTime();
+                  const [ph, pm] = form.pickupTime.split(':').map(Number);
+                  const [nh, nm] = now.split(':').map(Number);
+                  let diff = (nh * 60 + nm) - (ph * 60 + pm);
+                  if (diff < 0) diff += 1440;
+                  const waitStr = diff >= 60 ? `${Math.floor(diff / 60)}時間${diff % 60}分` : `${diff}分`;
+                  setForm(prev => ({ ...prev, waitingTime: waitStr }));
+                },
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                  color: !form.pickupTime ? 'var(--text-muted)' : '#fff', cursor: !form.pickupTime ? 'not-allowed' : 'pointer',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: !form.pickupTime ? 'rgba(255,255,255,0.05)' : 'rgba(255,152,0,0.2)',
+                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                  opacity: !form.pickupTime ? 0.5 : 1,
+                },
+                title: form.pickupTime ? '乗車時間からの待機時間を計算' : '先に乗車時間を設定してください',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'hourglass_top'),
+                '待機乗車'
+              ),
+              form.waitingTime && React.createElement('button', {
+                type: 'button',
+                onClick: () => setForm(prev => ({ ...prev, waitingTime: '' })),
+                style: {
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '8px', borderRadius: '6px', fontSize: '11px',
+                  color: 'var(--text-muted)', cursor: 'pointer',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'rgba(255,255,255,0.05)',
+                  transition: 'all 0.2s ease', flex: '0 0 auto',
+                },
+                title: '待機時間をクリア',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'close')
+              )
+            ),
+            !form.pickupTime && React.createElement('div', {
+              style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' },
+            }, '* 先に乗車時間を記録してから「待機乗車」を押してください'),
+            form.pickupTime && !form.waitingTime && React.createElement('div', {
+              style: { fontSize: '11px', color: 'var(--color-warning)', marginTop: '4px' },
+            }, `* 乗車時間 ${form.pickupTime} から待機中。お客様が乗車したら「待機乗車」を押してください`)
+          ),
+
           // 降車地（GPS付き）
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '降車地'),
@@ -8905,7 +8970,7 @@ window.RevenuePage = () => {
                 }
                 const result = DataService.addEntry(formData);
                 if (result.success) {
-                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+                  setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discountAmount: '', discountType: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', waitingTime: '' });
                   setGpsInfo({ pickup: null, dropoff: null });
                   setMapPickerField(null);
                   setSaved(true);
@@ -9468,6 +9533,9 @@ window.RevenuePage = () => {
               entry.pickupTime && React.createElement('span', {
                 style: { fontSize: '11px', color: 'var(--color-primary-light)', fontWeight: '600', padding: '1px 6px', borderRadius: '3px', background: 'rgba(26,115,232,0.12)' },
               }, entry.pickupTime),
+              entry.waitingTime && React.createElement('span', {
+                style: { fontSize: '10px', color: 'var(--color-warning)', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.12)' },
+              }, `待機${entry.waitingTime}`),
               React.createElement('span', null, `${entry.pickup || '---'}`),
               React.createElement('span', { style: { color: 'var(--text-muted)', margin: '0 2px' } }, '→'),
               entry.dropoffTime && React.createElement('span', {
