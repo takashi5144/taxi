@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.0.3</title>
+  <title>タクシー売上サポート v1.3.5</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.3.4',
+  VERSION: '1.3.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3069,7 +3069,7 @@ window.DataService = (() => {
       const holiday = e.holiday || dateInfo.holiday || '';
       const dateTime = new Date(e.timestamp).toLocaleString('ja-JP');
       const weather = (e.weather || '').replace(/,/g, '、');
-      const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : '現金';
+      const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'didi' ? 'DIDI決済' : '現金';
       const discountAmount = e.discountAmount || 0;
       const discountTypeMap = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
       const discountType = discountTypeMap[e.discountType] || (e.discountType || '');
@@ -3179,7 +3179,7 @@ window.DataService = (() => {
     entries.unshift(entry);
     saveEntries(entries);
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
-    const paymentStr = entry.paymentMethod === 'uncollected' ? ' [未収]' : '';
+    const paymentStr = entry.paymentMethod === 'uncollected' ? ' [未収]' : entry.paymentMethod === 'didi' ? ' [DIDI決済]' : '';
     const discountStr = entry.discountAmount > 0 ? ` [割引¥${entry.discountAmount}]` : '';
     AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
     // 自動ファイル保存
@@ -8496,9 +8496,11 @@ window.RevenuePage = () => {
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash');
-  const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
+  const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected' || e.paymentMethod === 'didi');
+  const todayDidiEntries = todayEntries.filter(e => e.paymentMethod === 'didi');
   const todayCash = todayCashEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayDidi = todayDidiEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayDiscount = todayEntries.reduce((sum, e) => sum + (e.discountAmount || 0), 0);
   const todayDiscountDisability = todayEntries.filter(e => e.discountType === 'disability');
   const todayDiscountCoupon = todayEntries.filter(e => e.discountType === 'coupon');
@@ -8542,9 +8544,9 @@ window.RevenuePage = () => {
         )
       ),
 
-      // 現金・未収 内訳
+      // 現金・未収・DIDI決済 内訳
       React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)' },
+        style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
       },
         // 現金
         React.createElement('div', {
@@ -8566,7 +8568,7 @@ window.RevenuePage = () => {
             `消費税: ¥${(todayCash - Math.floor(todayCash / 1.1)).toLocaleString()}`
           )
         ),
-        // 未収
+        // 未収（DIDI決済含む）
         React.createElement('div', {
           style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)' },
         },
@@ -8584,6 +8586,26 @@ window.RevenuePage = () => {
           ),
           React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
             `消費税: ¥${(todayUncollected - Math.floor(todayUncollected / 1.1)).toLocaleString()}`
+          )
+        ),
+        // DIDI決済
+        React.createElement('div', {
+          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.2)' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)', fontWeight: 600, marginBottom: 6 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'smartphone'),
+            'DIDI決済'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-warning)' } },
+            `¥${todayDidi.toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+            `税抜: ¥${Math.floor(todayDidi / 1.1).toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+            `消費税: ¥${(todayDidi - Math.floor(todayDidi / 1.1)).toLocaleString()}`
           )
         )
       ),
@@ -8629,6 +8651,9 @@ window.RevenuePage = () => {
         ),
         React.createElement('span', { style: { color: 'var(--color-error)' } },
           `未収: ${todayUncollectedEntries.length}件`
+        ),
+        React.createElement('span', { style: { color: 'var(--color-warning)' } },
+          `DIDI: ${todayDidiEntries.length}件`
         ),
         React.createElement('span', { style: { color: 'var(--text-muted)' } },
           `全${entries.length}件 累計¥${allTotal.toLocaleString()}`
@@ -9146,11 +9171,12 @@ window.RevenuePage = () => {
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '支払い方法'),
             React.createElement('div', { style: { display: 'flex', gap: '8px' } },
-              ...['cash', 'uncollected'].map(method => {
+              ...['cash', 'uncollected', 'didi'].map(method => {
                 const selected = form.paymentMethod === method;
-                const label = method === 'cash' ? '現金' : '未収';
-                const icon = method === 'cash' ? 'payments' : 'pending';
-                const activeColor = method === 'cash' ? 'var(--color-accent)' : 'var(--color-error)';
+                const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : '未収';
+                const icon = method === 'cash' ? 'payments' : method === 'didi' ? 'smartphone' : 'pending';
+                const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : 'var(--color-error)';
+                const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : 'rgba(229,57,53,0.15)';
                 return React.createElement('button', {
                   key: method,
                   type: 'button',
@@ -9160,7 +9186,7 @@ window.RevenuePage = () => {
                     padding: '10px 12px', borderRadius: '8px', fontSize: '14px', fontWeight: selected ? 700 : 400,
                     cursor: 'pointer',
                     border: selected ? `2px solid ${activeColor}` : '1px solid rgba(255,255,255,0.15)',
-                    background: selected ? (method === 'cash' ? 'rgba(0,200,83,0.15)' : 'rgba(229,57,53,0.15)') : 'rgba(255,255,255,0.05)',
+                    background: selected ? activeBg : 'rgba(255,255,255,0.05)',
                     color: selected ? activeColor : 'var(--text-secondary)',
                     transition: 'all 0.15s ease',
                   },
@@ -9487,6 +9513,9 @@ window.RevenuePage = () => {
             entry.paymentMethod === 'uncollected' && React.createElement('div', {
               style: { fontSize: '10px', color: 'var(--color-error)', fontWeight: 600, marginTop: '2px' }
             }, '未収'),
+            entry.paymentMethod === 'didi' && React.createElement('div', {
+              style: { fontSize: '10px', color: 'var(--color-warning)', fontWeight: 600, marginTop: '2px' }
+            }, 'DIDI決済'),
             entry.discountAmount > 0 && React.createElement('div', {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
