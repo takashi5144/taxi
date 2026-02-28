@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.3.6</title>
+  <title>タクシー売上サポート v1.3.7</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.3.6',
+  VERSION: '1.3.7',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -14325,7 +14325,7 @@ window.DataManagePage = () => {
   const startEdit = useCallback((entry, type) => {
     setEditingId(entry.id);
     setEditForm(type === 'revenue'
-      ? { amount: String(entry.amount), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '', source: entry.source || '' }
+      ? { amount: String(entry.amount), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '', source: entry.source || '', paymentMethod: entry.paymentMethod || 'cash' }
       : { date: entry.date || '', time: entry.time || '', weather: entry.weather || '', location: entry.location || '', memo: entry.memo || '' }
     );
     setErrors([]);
@@ -14628,6 +14628,35 @@ window.DataManagePage = () => {
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
         field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ']),
         field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し']),
+        // 支払方法
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
+          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', minWidth: '56px', textAlign: 'right' } }, '支払方法'),
+          React.createElement('div', { style: { flex: 1, display: 'flex', gap: '6px' } },
+            ...['cash', 'uncollected', 'didi'].map(method => {
+              const selected = (editForm.paymentMethod || 'cash') === method;
+              const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : '未収';
+              const icon = method === 'cash' ? 'payments' : method === 'didi' ? 'smartphone' : 'pending';
+              const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : 'var(--color-error)';
+              const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : 'rgba(229,57,53,0.15)';
+              return React.createElement('button', {
+                key: method, type: 'button',
+                onClick: () => setEditForm(f => ({ ...f, paymentMethod: method })),
+                style: {
+                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                  padding: '6px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: selected ? 700 : 400,
+                  cursor: 'pointer',
+                  border: selected ? `2px solid ${activeColor}` : '1px solid rgba(255,255,255,0.15)',
+                  background: selected ? activeBg : 'rgba(255,255,255,0.05)',
+                  color: selected ? activeColor : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease',
+                },
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, icon),
+                label
+              );
+            })
+          )
+        ),
         field('メモ', 'memo', 'text')
       ) : React.createElement(React.Fragment, null,
         field('日付', 'date', 'date'),
