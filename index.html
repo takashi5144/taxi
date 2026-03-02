@@ -1027,6 +1027,58 @@ window.APP_CONSTANTS = {
         evening:  { start: '18:00', end: '20:00', label: '夕食・外出', weight: 0.6 },
         night:    { start: '22:00', end: '24:00', label: '帰館', weight: 0.5 },
       },
+      // 待機スポット定義（需要指数算出用）
+      waitingSpots: [
+        {
+          id: 'station', name: '旭川駅前', shortName: '駅前',
+          lat: 43.7631, lng: 142.3581,
+          hasOddDayRule: true, // 奇数日は待機不可
+          // 24要素: 0時〜23時のベース需要(0-100) 平日
+          basePatternWeekday: [0,0,0,0,0,0,5,15,30,55,65,50,40,35,45,55,60,50,55,60,45,30,15,5],
+          basePatternWeekend: [0,0,0,0,0,0,3,10,25,50,60,55,45,40,40,50,55,50,55,65,50,35,20,8],
+          peakBoost: null, // 交通機関ブーストで加算
+        },
+        {
+          id: 'asahikawa_medical', name: '旭川医科大学病院', shortName: '医大',
+          lat: 43.7306, lng: 142.3857,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,5,20,55,70,75,65,30,15,10,8,5,3,2,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,2,5,8,10,8,5,3,2,1,0,0,0,0,0,0,0,0],
+          peakBoost: { startHour: 8, endHour: 11, boost: 20 },
+        },
+        {
+          id: 'red_cross', name: '旭川赤十字病院', shortName: '赤十字',
+          lat: 43.7580, lng: 142.3720,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,3,15,45,65,70,60,25,12,8,5,3,2,1,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,2,5,8,10,8,5,3,2,1,0,0,0,0,0,0,0,0],
+          peakBoost: { startHour: 8, endHour: 11, boost: 18 },
+        },
+        {
+          id: 'kosei', name: '旭川厚生病院', shortName: '厚生',
+          lat: 43.7650, lng: 142.3490,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,3,10,25,35,40,35,40,60,65,50,20,8,3,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,2,5,8,10,8,5,3,2,1,0,0,0,0,0,0,0,0],
+          peakBoost: { startHour: 13, endHour: 15, boost: 20 },
+        },
+        {
+          id: 'shiritsu', name: '市立旭川病院', shortName: '市立',
+          lat: 43.7710, lng: 142.3650,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,3,10,25,35,40,35,40,55,60,45,18,6,2,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,2,5,8,10,8,5,3,2,1,0,0,0,0,0,0,0,0],
+          peakBoost: { startHour: 13, endHour: 15, boost: 18 },
+        },
+        {
+          id: 'aeon', name: 'イオンモール旭川駅前', shortName: 'イオン',
+          lat: 43.7618, lng: 142.3592,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,0,5,10,25,45,50,40,30,25,30,50,55,50,35,15,5,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,0,8,15,35,55,60,50,40,35,40,60,65,55,40,20,8,0],
+          peakBoost: null, // ホテル需要ブーストで加算
+        },
+      ],
     },
   },
 
@@ -4278,6 +4330,163 @@ window.DataService = (() => {
     return origins;
   }
 
+  // 待機スポット需要指数を算出（全スポット×24時間）
+  function getWaitingSpotDemandIndex() {
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const spots = locs.waitingSpots || [];
+    if (spots.length === 0) return { spots: [], timestamp: new Date().toISOString() };
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const dayOfWeek = now.getDay(); // 0=Sun
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const isOddDay = now.getDate() % 2 !== 0;
+
+    // 曜日係数
+    const dayFactor = (() => {
+      if (dayOfWeek === 5 && currentHour >= 17) return 1.2; // 金夜
+      if (dayOfWeek === 6 && currentHour >= 10 && currentHour <= 18) return 1.15; // 土昼
+      return 1.0;
+    })();
+
+    // 天気係数: formの天気 or entries最新の天気から推定
+    const weatherFactor = (() => {
+      // 直近エントリーから天気取得
+      const entries = getEntries();
+      const today = now.toISOString().slice(0, 10);
+      const todayEntries = entries.filter(e => e.date === today && e.weather);
+      let weather = '';
+      if (todayEntries.length > 0) {
+        weather = todayEntries[todayEntries.length - 1].weather;
+      }
+      if (weather === '雨') return 1.25;
+      if (weather === '雪') return 1.35;
+      return 1.0;
+    })();
+
+    // 履歴データ集計: 各スポットの時間帯別平均需要
+    const entries = getEntries();
+    const historyBySpot = {};
+    spots.forEach(spot => {
+      historyBySpot[spot.id] = new Array(24).fill(null).map(() => ({ total: 0, count: 0 }));
+    });
+    entries.forEach(e => {
+      if (!e.pickup || !e.pickupTime) return;
+      const hour = parseInt(e.pickupTime.split(':')[0], 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) return;
+      spots.forEach(spot => {
+        let match = false;
+        if (spot.id === 'station' && (/駅前|駅/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
+        if (spot.id === 'asahikawa_medical' && (/医大|医科大/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
+        if (spot.id === 'red_cross' && (/赤十字/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
+        if (spot.id === 'kosei' && (/厚生/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
+        if (spot.id === 'shiritsu' && (/市立/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
+        if (spot.id === 'aeon' && (/イオン/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
+        if (match) {
+          historyBySpot[spot.id][hour].total += (e.amount || 0);
+          historyBySpot[spot.id][hour].count += 1;
+        }
+      });
+    });
+
+    // 交通機関到着データ（駅ブースト用）
+    const busArrivals = getBusArrivalsData();
+
+    // ホテル需要ウィンドウ（駅・イオンブースト用）
+    const peaks = locs.hotelPeakWindows || {};
+
+    function timeToMin(hhmm) {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    // スポットごとに24時間分の指数を算出
+    const result = spots.map(spot => {
+      const hourlyIndex = [];
+      for (let h = 0; h < 24; h++) {
+        // 奇数日ルール: 駅前は待機不可
+        if (spot.hasOddDayRule && isOddDay) {
+          hourlyIndex.push({ hour: h, index: 0, disabled: true });
+          continue;
+        }
+
+        const basePattern = isWeekend ? spot.basePatternWeekend : spot.basePatternWeekday;
+        let base = basePattern[h] || 0;
+
+        // 履歴データとのブレンド
+        const hist = historyBySpot[spot.id][h];
+        if (hist.count >= 3) {
+          // 履歴十分: 60%履歴 40%ベース
+          const histAvg = Math.min(100, hist.count * 8); // 件数ベースの需要推定
+          base = histAvg * 0.6 + base * 0.4;
+        }
+
+        // 交通機関到着ブースト（駅のみ）
+        let transitBoost = 0;
+        if (spot.id === 'station') {
+          busArrivals.forEach(arr => {
+            if (!arr.arrivalTime) return;
+            const arrMin = timeToMin(arr.arrivalTime) + (arr.demandDelay || 5);
+            const hStart = h * 60;
+            const hEnd = (h + 1) * 60;
+            // この時間帯に到着便があればブースト
+            if (arrMin >= hStart && arrMin < hEnd) {
+              transitBoost += (arr.peakWeight || 0.5) * 10;
+            }
+          });
+          transitBoost = Math.min(transitBoost, 30);
+        }
+
+        // ホテル需要ブースト（駅・イオン）
+        let hotelBoost = 0;
+        if (spot.id === 'station' || spot.id === 'aeon') {
+          Object.values(peaks).forEach(pw => {
+            const pwStart = parseInt(pw.start.split(':')[0], 10);
+            const pwEnd = parseInt(pw.end.split(':')[0], 10);
+            if (h >= pwStart && h <= pwEnd) {
+              hotelBoost += pw.weight * 10;
+            }
+          });
+          hotelBoost = Math.min(hotelBoost, 15);
+        }
+
+        // ピーク時間帯ブースト（病院）
+        let peakBoost = 0;
+        if (spot.peakBoost && h >= spot.peakBoost.startHour && h <= spot.peakBoost.endHour) {
+          peakBoost = spot.peakBoost.boost;
+        }
+
+        // 合算して係数適用
+        let index = (base + transitBoost + hotelBoost + peakBoost) * dayFactor * weatherFactor;
+        index = Math.round(Math.max(0, Math.min(100, index)));
+        hourlyIndex.push({ hour: h, index: index, disabled: false });
+      }
+
+      return {
+        id: spot.id,
+        name: spot.name,
+        shortName: spot.shortName,
+        lat: spot.lat,
+        lng: spot.lng,
+        hourlyIndex: hourlyIndex,
+        currentIndex: hourlyIndex[currentHour].index,
+        currentDisabled: hourlyIndex[currentHour].disabled,
+      };
+    });
+
+    // currentIndexの降順でソート
+    result.sort((a, b) => b.currentIndex - a.currentIndex);
+
+    return {
+      spots: result,
+      timestamp: now.toISOString(),
+      currentHour: currentHour,
+      isOddDay: isOddDay,
+      weatherFactor: weatherFactor,
+      dayFactor: dayFactor,
+    };
+  }
+
   // 交通到着データ + 病院ピークからヒートマップポイントを生成
   function getTransitHeatmapData() {
     const schedule = getDailyDemandSchedule();
@@ -4551,6 +4760,9 @@ window.DataService = (() => {
     getTransitHeatmapData,
     getHotelDemandData,
     getBusArrivalsData,
+
+    // 待機スポット需要指数
+    getWaitingSpotDemandIndex,
 
     // ホテル価格
     getHotelPriceHistory,
@@ -7794,6 +8006,9 @@ window.DashboardPage = () => {
   const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(), [refreshKey]);
   const eventAlerts = useMemo(() => DataService.getUpcomingEventAlerts(), [refreshKey]);
 
+  // 待機スポット需要指数
+  const waitingSpotData = useMemo(() => DataService.getWaitingSpotDemandIndex(), [refreshKey]);
+
   // 営業プラン関連
   const dailySchedule = useMemo(() => DataService.getDailyDemandSchedule(), [refreshKey]);
   const [demandPlanLoading, setDemandPlanLoading] = useState(false);
@@ -8219,6 +8434,147 @@ window.DashboardPage = () => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', animation: 'spin 1s linear infinite', display: 'block', marginBottom: '4px' } }, 'sync'),
         'Gemini AIから需要予測データを取得中...'
+      )
+    ),
+
+    // 待機スポット需要指数カード
+    waitingSpotData.spots.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(16,185,129,0.06))',
+        border: '1px solid rgba(59,130,246,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#3b82f6' } }, 'pin_drop'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機スポット需要指数')
+        ),
+        waitingSpotData.isOddDay && React.createElement('span', {
+          style: { fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(239,68,68,0.15)', color: '#ef4444' },
+        }, '奇数日: 駅前待機不可')
+      ),
+
+      // 今のおすすめ
+      (() => {
+        const best = waitingSpotData.spots.find(s => !s.currentDisabled && s.currentIndex > 0);
+        if (!best) return null;
+        const indexColor = best.currentIndex >= 80 ? '#ef4444' : best.currentIndex >= 60 ? '#f59e0b' : best.currentIndex >= 40 ? '#10b981' : '#3b82f6';
+        return React.createElement('div', {
+          style: {
+            padding: '10px 14px', borderRadius: '8px', marginBottom: '12px',
+            background: `linear-gradient(135deg, ${indexColor}18, ${indexColor}08)`,
+            border: `1px solid ${indexColor}30`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          },
+        },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, '今のおすすめ'),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-md)', fontWeight: 700 } }, best.name)
+          ),
+          React.createElement('div', {
+            style: { fontSize: '24px', fontWeight: 800, color: indexColor },
+          }, String(best.currentIndex))
+        );
+      })(),
+
+      // 全スポット現在値
+      React.createElement('div', {
+        style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '12px' },
+      },
+        ...waitingSpotData.spots.map(spot => {
+          const idx = spot.currentIndex;
+          const disabled = spot.currentDisabled;
+          const bg = disabled ? 'rgba(107,114,128,0.1)' : idx >= 80 ? 'rgba(239,68,68,0.12)' : idx >= 60 ? 'rgba(245,158,11,0.12)' : idx >= 40 ? 'rgba(16,185,129,0.12)' : idx >= 20 ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.08)';
+          const color = disabled ? '#6b7280' : idx >= 80 ? '#ef4444' : idx >= 60 ? '#f59e0b' : idx >= 40 ? '#10b981' : idx >= 20 ? '#3b82f6' : '#9ca3af';
+          return React.createElement('div', {
+            key: spot.id,
+            style: { padding: '8px', borderRadius: '8px', background: bg, textAlign: 'center' },
+          },
+            React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, spot.shortName),
+            React.createElement('div', { style: { fontSize: '18px', fontWeight: 800, color: color } }, disabled ? '---' : String(idx)),
+            disabled && React.createElement('div', { style: { fontSize: '9px', color: '#ef4444', fontWeight: 600 } }, '待機不可')
+          );
+        })
+      ),
+
+      // 凡例
+      React.createElement('div', {
+        style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', justifyContent: 'center' },
+      },
+        ...[
+          { label: '80+ 最高', color: '#ef4444' },
+          { label: '60-79 高い', color: '#f59e0b' },
+          { label: '40-59 普通', color: '#10b981' },
+          { label: '20-39 低い', color: '#3b82f6' },
+          { label: '0-19 ---', color: '#9ca3af' },
+        ].map(leg => React.createElement('span', {
+          key: leg.label,
+          style: { fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' },
+        },
+          React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: leg.color, display: 'inline-block' } }),
+          leg.label
+        ))
+      ),
+
+      // 時間帯別マトリクス (6:00-23:00)
+      React.createElement('div', {
+        style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' },
+      },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '10px', width: 'max-content', minWidth: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              React.createElement('th', {
+                style: { position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' },
+              }, 'スポット'),
+              ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
+                const isCurrent = h === waitingSpotData.currentHour;
+                return React.createElement('th', {
+                  key: h,
+                  style: {
+                    padding: '4px 5px', fontWeight: isCurrent ? 800 : 500, textAlign: 'center',
+                    borderBottom: '1px solid rgba(255,255,255,0.1)',
+                    background: isCurrent ? 'rgba(59,130,246,0.18)' : 'transparent',
+                    color: isCurrent ? '#3b82f6' : 'var(--text-muted)',
+                  },
+                }, String(h));
+              })
+            )
+          ),
+          React.createElement('tbody', null,
+            ...waitingSpotData.spots.map(spot =>
+              React.createElement('tr', { key: spot.id },
+                React.createElement('td', {
+                  style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                }, spot.shortName),
+                ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
+                  const hd = spot.hourlyIndex[h];
+                  const idx = hd ? hd.index : 0;
+                  const disabled = hd ? hd.disabled : false;
+                  const isCurrent = h === waitingSpotData.currentHour;
+                  const cellBg = disabled ? 'rgba(107,114,128,0.08)' : idx >= 80 ? 'rgba(239,68,68,0.25)' : idx >= 60 ? 'rgba(245,158,11,0.22)' : idx >= 40 ? 'rgba(16,185,129,0.18)' : idx >= 20 ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.06)';
+                  const cellColor = disabled ? '#6b7280' : idx >= 80 ? '#fca5a5' : idx >= 60 ? '#fcd34d' : idx >= 40 ? '#6ee7b7' : idx >= 20 ? '#93c5fd' : '#6b7280';
+                  return React.createElement('td', {
+                    key: h,
+                    style: {
+                      padding: '3px 5px', textAlign: 'center', fontWeight: 600,
+                      background: isCurrent ? `linear-gradient(180deg, rgba(59,130,246,0.12), ${cellBg})` : cellBg,
+                      color: cellColor,
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      borderLeft: isCurrent ? '2px solid rgba(59,130,246,0.4)' : 'none',
+                      borderRight: isCurrent ? '2px solid rgba(59,130,246,0.4)' : 'none',
+                    },
+                  }, disabled ? '-' : idx > 0 ? String(idx) : '');
+                })
+              )
+            )
+          )
+        )
       )
     ),
 
