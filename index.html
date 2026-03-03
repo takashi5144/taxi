@@ -5972,7 +5972,23 @@ window.useGeolocation = () => {
     AppLogger.info('GPS追跡を停止');
   }, [mapCtx]);
 
+  // 初回マウント時に自動でGPS追跡を開始
   useEffect(() => {
+    if (isSupported && !watchIdRef.current) {
+      AppLogger.info('GPS追跡を自動開始');
+      mapCtx.setIsTracking(true);
+      const id = navigator.geolocation.watchPosition(
+        (position) => { mapCtx.updatePosition(position); },
+        (error) => {
+          const msg = getErrorMessage(error);
+          mapCtx.setGpsError(msg);
+          AppLogger.warn(`GPS追跡エラー: ${msg}`);
+        },
+        APP_CONSTANTS.GPS_OPTIONS
+      );
+      watchIdRef.current = id;
+      setWatchId(id);
+    }
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
