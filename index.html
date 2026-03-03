@@ -4487,6 +4487,225 @@ window.DataService = (() => {
     };
   }
 
+  // ============================================================
+  // 待機スポット売上シミュレーション
+  // ============================================================
+  function getWaitingSpotRevenueForecast() {
+    const demandData = getWaitingSpotDemandIndex();
+    if (!demandData.spots || demandData.spots.length === 0) {
+      return { spots: [], assumptions: {}, timestamp: new Date().toISOString() };
+    }
+
+    const entries = getEntries();
+    const memos = getGatheringMemos();
+    const unitPrice = getUnitPriceAnalysis();
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const spots = locs.waitingSpots || [];
+
+    const OPERATING_START = 6;
+    const OPERATING_END = 22; // 6:00〜21:59
+    const DEFAULT_RIDE_DURATION = 15; // 分
+
+    // スポット別のマッチング関数（getWaitingSpotDemandIndexと同じロジック）
+    function matchSpot(spotId, pickup, pickupCoords, spot) {
+      if (spotId === 'station' && (/駅前|駅/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
+      if (spotId === 'asahikawa_medical' && (/医大|医科大/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
+      if (spotId === 'red_cross' && (/赤十字/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
+      if (spotId === 'kosei' && (/厚生/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
+      if (spotId === 'shiritsu' && (/市立/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
+      if (spotId === 'aeon' && (/イオン/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
+      return false;
+    }
+
+    // スポット別の実績データ集計
+    const spotStats = {};
+    spots.forEach(spot => {
+      spotStats[spot.id] = {
+        waitTimes: [],        // 待ち時間(分)の配列
+        rideDurations: [],    // 乗車所要時間(分)の配列
+        fares: [],            // 運賃の配列
+        faresByHour: {},      // 時間帯別運賃
+        waitByHour: {},       // 時間帯別待ち時間
+      };
+      for (let h = 0; h < 24; h++) {
+        spotStats[spot.id].faresByHour[h] = [];
+        spotStats[spot.id].waitByHour[h] = [];
+      }
+    });
+
+    // 売上記録から実績集計
+    entries.forEach(e => {
+      if (!e.pickup || !e.pickupTime) return;
+      const hour = parseInt(e.pickupTime.split(':')[0], 10);
+      if (isNaN(hour)) return;
+      spots.forEach(spot => {
+        if (!matchSpot(spot.id, e.pickup, e.pickupCoords, spot)) return;
+        if (e.amount > 0) {
+          spotStats[spot.id].fares.push(e.amount);
+          spotStats[spot.id].faresByHour[hour].push(e.amount);
+        }
+        if (e.waitingTime && !isNaN(Number(e.waitingTime)) && Number(e.waitingTime) > 0) {
+          spotStats[spot.id].waitTimes.push(Number(e.waitingTime));
+          spotStats[spot.id].waitByHour[hour].push(Number(e.waitingTime));
+        }
+        // 乗車所要時間: pickupTime→dropoffTimeの差
+        if (e.pickupTime && e.dropoffTime) {
+          const [ph, pm] = e.pickupTime.split(':').map(Number);
+          const [dh, dm] = e.dropoffTime.split(':').map(Number);
+          const dur = (dh * 60 + dm) - (ph * 60 + pm);
+          if (dur > 0 && dur < 120) spotStats[spot.id].rideDurations.push(dur);
+        }
+      });
+    });
+
+    // 集客メモからも待ち時間を集計
+    memos.forEach(m => {
+      if (!m.location || !m.stayMinutes) return;
+      const stay = Number(m.stayMinutes);
+      if (isNaN(stay) || stay <= 0) return;
+      const hour = m.time ? parseInt(m.time.split(':')[0], 10) : -1;
+      spots.forEach(spot => {
+        let match = false;
+        if (spot.id === 'station' && /駅/.test(m.location)) match = true;
+        if (spot.id === 'asahikawa_medical' && /医大|医科大/.test(m.location)) match = true;
+        if (spot.id === 'red_cross' && /赤十字/.test(m.location)) match = true;
+        if (spot.id === 'kosei' && /厚生/.test(m.location)) match = true;
+        if (spot.id === 'shiritsu' && /市立/.test(m.location)) match = true;
+        if (spot.id === 'aeon' && /イオン/.test(m.location)) match = true;
+        if (match) {
+          spotStats[spot.id].waitTimes.push(stay);
+          if (hour >= 0 && hour <= 23) spotStats[spot.id].waitByHour[hour].push(stay);
+        }
+      });
+    });
+
+    // 需要指数→待ち時間推定のフォールバック
+    function indexToWaitMin(index) {
+      if (index >= 80) return 10;
+      if (index >= 60) return 20;
+      if (index >= 40) return 35;
+      if (index >= 20) return 50;
+      return 60;
+    }
+
+    // 時間帯別全体平均客単価
+    const globalByHour = unitPrice.byHour; // [{hour, avg, count, ...}]
+
+    let totalDataPoints = 0;
+
+    // 各スポットのシミュレーション
+    const forecastSpots = demandData.spots.map(dSpot => {
+      const spot = spots.find(s => s.id === dSpot.id);
+      const stats = spotStats[dSpot.id];
+
+      // 全体平均乗車所要時間
+      const avgRideDur = stats.rideDurations.length >= 3
+        ? Math.round(stats.rideDurations.reduce((a, b) => a + b, 0) / stats.rideDurations.length)
+        : DEFAULT_RIDE_DURATION;
+
+      // 全体平均客単価(このスポット)
+      const spotAvgFare = stats.fares.length > 0
+        ? Math.round(stats.fares.reduce((a, b) => a + b, 0) / stats.fares.length)
+        : 0;
+
+      totalDataPoints += stats.fares.length + stats.waitTimes.length;
+
+      const hourlyDetail = [];
+      let dailyRevenue = 0;
+      let dailyRides = 0;
+
+      for (let h = 0; h < 24; h++) {
+        const hd = dSpot.hourlyIndex[h];
+        const disabled = hd ? hd.disabled : false;
+        const index = hd ? hd.index : 0;
+
+        if (h < OPERATING_START || h >= OPERATING_END || disabled) {
+          hourlyDetail.push({ hour: h, rides: 0, revenue: 0, waitMin: 0, fare: 0, index: index, disabled: disabled });
+          continue;
+        }
+
+        // 待ち時間: 時間帯別実績 → 全体実績 → 需要指数推定
+        let waitMin;
+        const hourWaits = stats.waitByHour[h];
+        if (hourWaits && hourWaits.length >= 2) {
+          waitMin = Math.round(hourWaits.reduce((a, b) => a + b, 0) / hourWaits.length);
+        } else if (stats.waitTimes.length >= 3) {
+          waitMin = Math.round(stats.waitTimes.reduce((a, b) => a + b, 0) / stats.waitTimes.length);
+        } else {
+          waitMin = indexToWaitMin(index);
+        }
+        waitMin = Math.max(5, waitMin); // 最低5分
+
+        // 客単価: 時間帯別スポット実績 → スポット全体 → 全体時間帯別
+        let fare;
+        const hourFares = stats.faresByHour[h];
+        if (hourFares && hourFares.length >= 2) {
+          fare = Math.round(hourFares.reduce((a, b) => a + b, 0) / hourFares.length);
+        } else if (spotAvgFare > 0) {
+          fare = spotAvgFare;
+        } else if (globalByHour[h] && globalByHour[h].avg > 0) {
+          fare = globalByHour[h].avg;
+        } else {
+          fare = 1500; // 最終フォールバック
+        }
+
+        // 1時間あたり乗車回数
+        const cycleMin = waitMin + avgRideDur;
+        const rides = 60 / cycleMin;
+
+        // 時間帯売上
+        const revenue = Math.round(rides * fare);
+
+        hourlyDetail.push({
+          hour: h, rides: Math.round(rides * 100) / 100,
+          revenue: revenue, waitMin: waitMin, fare: fare, index: index, disabled: false,
+        });
+
+        dailyRevenue += revenue;
+        dailyRides += rides;
+      }
+
+      // dayFactor・weatherFactor適用
+      dailyRevenue = Math.round(dailyRevenue * demandData.dayFactor * demandData.weatherFactor);
+
+      // ピーク時間帯top3（営業時間内、売上降順）
+      const opHours = hourlyDetail.filter(hd => hd.hour >= OPERATING_START && hd.hour < OPERATING_END && !hd.disabled && hd.revenue > 0);
+      opHours.sort((a, b) => b.revenue - a.revenue);
+      const peakHours = opHours.slice(0, 3).map(hd => hd.hour);
+
+      return {
+        id: dSpot.id,
+        name: dSpot.name,
+        shortName: dSpot.shortName,
+        disabled: dSpot.currentDisabled,
+        dailyRevenue: dailyRevenue,
+        dailyRides: Math.round(dailyRides * 10) / 10,
+        avgFare: spotAvgFare > 0 ? spotAvgFare : (globalByHour.find(h => h.avg > 0) || { avg: 1500 }).avg,
+        avgWaitMin: stats.waitTimes.length > 0
+          ? Math.round(stats.waitTimes.reduce((a, b) => a + b, 0) / stats.waitTimes.length)
+          : Math.round(hourlyDetail.filter(h => h.waitMin > 0).reduce((s, h) => s + h.waitMin, 0) / Math.max(1, hourlyDetail.filter(h => h.waitMin > 0).length)),
+        hourlyDetail: hourlyDetail,
+        peakHours: peakHours,
+      };
+    });
+
+    // dailyRevenue降順ソート
+    forecastSpots.sort((a, b) => b.dailyRevenue - a.dailyRevenue);
+
+    return {
+      spots: forecastSpots,
+      assumptions: {
+        operatingStart: OPERATING_START,
+        operatingEnd: OPERATING_END,
+        defaultRideDuration: DEFAULT_RIDE_DURATION,
+        dataPoints: totalDataPoints,
+        dayFactor: demandData.dayFactor,
+        weatherFactor: demandData.weatherFactor,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   // 交通到着データ + 病院ピークからヒートマップポイントを生成
   function getTransitHeatmapData() {
     const schedule = getDailyDemandSchedule();
@@ -4763,6 +4982,9 @@ window.DataService = (() => {
 
     // 待機スポット需要指数
     getWaitingSpotDemandIndex,
+
+    // 待機スポット売上シミュレーション
+    getWaitingSpotRevenueForecast,
 
     // ホテル価格
     getHotelPriceHistory,
@@ -8008,6 +8230,7 @@ window.DashboardPage = () => {
 
   // 待機スポット需要指数
   const waitingSpotData = useMemo(() => DataService.getWaitingSpotDemandIndex(), [refreshKey]);
+  const revenueForecast = useMemo(() => DataService.getWaitingSpotRevenueForecast(), [refreshKey]);
 
   // 営業プラン関連
   const dailySchedule = useMemo(() => DataService.getDailyDemandSchedule(), [refreshKey]);
@@ -8575,6 +8798,159 @@ window.DashboardPage = () => {
             )
           )
         )
+      )
+    ),
+
+    // 待機スポット売上シミュレーション
+    revenueForecast.spots.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.10), rgba(245,158,11,0.06))',
+        border: '1px solid rgba(16,185,129,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '6px' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#10b981' } }, 'calculate'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機スポット売上シミュレーション')
+        ),
+        React.createElement('span', {
+          style: { fontSize: '10px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: '4px' },
+        }, `営業${revenueForecast.assumptions.operatingStart}-${revenueForecast.assumptions.operatingEnd}時前提`)
+      ),
+
+      // ベストスポット
+      (() => {
+        const best = revenueForecast.spots.find(s => !s.disabled && s.dailyRevenue > 0);
+        if (!best) return null;
+        return React.createElement('div', {
+          style: {
+            padding: '10px 14px', borderRadius: '8px', marginBottom: '12px',
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))',
+            border: '1px solid rgba(16,185,129,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          },
+        },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, '1日最高売上予測'),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-md)', fontWeight: 700 } }, best.name)
+          ),
+          React.createElement('div', { style: { textAlign: 'right' } },
+            React.createElement('div', { style: { fontSize: '22px', fontWeight: 800, color: '#10b981' } },
+              '\u00A5' + best.dailyRevenue.toLocaleString()
+            ),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+              `${best.dailyRides}回 / 平均${best.avgWaitMin}分待ち`
+            )
+          )
+        );
+      })(),
+
+      // 全スポット比較グリッド (2列)
+      React.createElement('div', {
+        style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '14px' },
+      },
+        ...revenueForecast.spots.map(spot => {
+          const isTop = !spot.disabled && spot === revenueForecast.spots.find(s => !s.disabled);
+          return React.createElement('div', {
+            key: spot.id,
+            style: {
+              padding: '10px', borderRadius: '8px',
+              background: spot.disabled ? 'rgba(107,114,128,0.1)' : isTop ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.08)',
+              border: isTop ? '1px solid rgba(16,185,129,0.3)' : '1px solid transparent',
+            },
+          },
+            React.createElement('div', {
+              style: { fontSize: '11px', fontWeight: 700, color: spot.disabled ? '#6b7280' : 'var(--text-primary)', marginBottom: '4px' },
+            }, spot.shortName),
+            spot.disabled
+              ? React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: '#ef4444' } }, '待機不可')
+              : React.createElement(React.Fragment, null,
+                  React.createElement('div', {
+                    style: { fontSize: '18px', fontWeight: 800, color: isTop ? '#10b981' : 'var(--text-primary)', marginBottom: '4px' },
+                  }, '\u00A5' + spot.dailyRevenue.toLocaleString()),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', lineHeight: '1.5' } },
+                    `${spot.dailyRides}回乗車 / 客単価\u00A5${spot.avgFare.toLocaleString()}`,
+                    React.createElement('br'),
+                    `平均待ち${spot.avgWaitMin}分`,
+                    spot.peakHours.length > 0 ? ` / 狙い目: ${spot.peakHours.map(h => h + '時').join(', ')}` : ''
+                  )
+                )
+          );
+        })
+      ),
+
+      // 時間帯別詳細テーブル
+      React.createElement('div', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' } }, '時間帯別 予想売上'),
+      React.createElement('div', {
+        style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '10px' },
+      },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '10px', width: 'max-content', minWidth: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              React.createElement('th', {
+                style: { position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' },
+              }, 'スポット'),
+              ...Array.from({ length: revenueForecast.assumptions.operatingEnd - revenueForecast.assumptions.operatingStart }, (_, i) => i + revenueForecast.assumptions.operatingStart).map(h => {
+                const isCurrent = h === new Date().getHours();
+                return React.createElement('th', {
+                  key: h,
+                  style: {
+                    padding: '4px 5px', fontWeight: isCurrent ? 800 : 500, textAlign: 'center',
+                    borderBottom: '1px solid rgba(255,255,255,0.1)',
+                    background: isCurrent ? 'rgba(16,185,129,0.18)' : 'transparent',
+                    color: isCurrent ? '#10b981' : 'var(--text-muted)',
+                  },
+                }, String(h));
+              })
+            )
+          ),
+          React.createElement('tbody', null,
+            ...revenueForecast.spots.map(spot =>
+              React.createElement('tr', { key: spot.id },
+                React.createElement('td', {
+                  style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                }, spot.shortName),
+                ...Array.from({ length: revenueForecast.assumptions.operatingEnd - revenueForecast.assumptions.operatingStart }, (_, i) => i + revenueForecast.assumptions.operatingStart).map(h => {
+                  const hd = spot.hourlyDetail[h];
+                  const rev = hd ? hd.revenue : 0;
+                  const disabled = hd ? hd.disabled : false;
+                  const isCurrent = h === new Date().getHours();
+                  const maxRev = Math.max(...revenueForecast.spots.flatMap(s => s.hourlyDetail.filter(d => !d.disabled).map(d => d.revenue)), 1);
+                  const intensity = disabled ? 0 : rev / maxRev;
+                  const cellBg = disabled ? 'rgba(107,114,128,0.08)' : intensity >= 0.7 ? 'rgba(16,185,129,0.25)' : intensity >= 0.4 ? 'rgba(245,158,11,0.18)' : intensity > 0 ? 'rgba(59,130,246,0.10)' : 'rgba(107,114,128,0.04)';
+                  const cellColor = disabled ? '#6b7280' : intensity >= 0.7 ? '#6ee7b7' : intensity >= 0.4 ? '#fcd34d' : intensity > 0 ? '#93c5fd' : '#6b7280';
+                  return React.createElement('td', {
+                    key: h,
+                    style: {
+                      padding: '3px 4px', textAlign: 'center', fontWeight: 600,
+                      background: isCurrent ? `linear-gradient(180deg, rgba(16,185,129,0.12), ${cellBg})` : cellBg,
+                      color: cellColor,
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      borderLeft: isCurrent ? '2px solid rgba(16,185,129,0.4)' : 'none',
+                      borderRight: isCurrent ? '2px solid rgba(16,185,129,0.4)' : 'none',
+                      whiteSpace: 'nowrap',
+                    },
+                  }, disabled ? '-' : rev > 0 ? '\u00A5' + rev.toLocaleString() : '');
+                })
+              )
+            )
+          )
+        )
+      ),
+
+      // 注記
+      React.createElement('div', {
+        style: { fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', lineHeight: '1.4' },
+      },
+        `履歴データ${revenueForecast.assumptions.dataPoints}件に基づく推定値`,
+        revenueForecast.assumptions.dayFactor !== 1.0 ? ` / 曜日係数${revenueForecast.assumptions.dayFactor}x` : '',
+        revenueForecast.assumptions.weatherFactor !== 1.0 ? ` / 天気係数${revenueForecast.assumptions.weatherFactor}x` : ''
       )
     ),
 
@@ -9633,6 +10009,7 @@ window.RevenuePage = () => {
                 { label: '駅待機乗車', location: '駅', icon: 'train' },
                 { label: '病院待機乗車', location: '病院', icon: 'local_hospital' },
                 { label: 'イオン前待機乗車', location: 'イオン前', icon: 'store' },
+                { label: '動物園待機乗車', location: '動物園', icon: 'park' },
               ].map(btn => React.createElement('button', {
                 key: btn.label,
                 type: 'button',
@@ -15620,6 +15997,7 @@ window.DataManagePage = () => {
                     { label: '駅待機乗車', location: '駅', icon: 'train' },
                     { label: '病院待機乗車', location: '病院', icon: 'local_hospital' },
                     { label: 'イオン前待機乗車', location: 'イオン前', icon: 'store' },
+                    { label: '動物園待機乗車', location: '動物園', icon: 'park' },
                   ].map(btn => React.createElement('button', {
                     key: btn.label,
                     onClick: () => {
