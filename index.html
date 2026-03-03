@@ -8150,8 +8150,7 @@ window.Header = () => {
       className: 'header__logo',
       onClick: () => navigate('dashboard'),
     },
-      React.createElement('span', { className: 'material-icons-round' }, 'local_taxi'),
-      React.createElement('span', null, 'タクシー売上サポート')
+      React.createElement('span', { className: 'material-icons-round' }, 'local_taxi')
     ),
 
     // ナビゲーション（PC用）
@@ -10628,8 +10627,18 @@ window.RevenuePage = () => {
                     type: 'button',
                     onClick: () => {
                       const d = { ...(form.discounts || {}) };
-                      if (selected) { delete d[dtype]; if (dtype === 'coupon') { delete d._couponUnitPrice; delete d._couponSheets; } } else { d[dtype] = ''; if (dtype === 'coupon') { d._couponUnitPrice = ''; d._couponSheets = '1'; } }
-                      setForm({ ...form, discounts: d });
+                      if (selected) {
+                        delete d[dtype]; if (dtype === 'coupon') { delete d._couponUnitPrice; delete d._couponSheets; }
+                        setForm({ ...form, discounts: d });
+                      } else {
+                        if (dtype === 'ticket') {
+                          d[dtype] = form.amount || '';
+                          setForm({ ...form, discounts: d, paymentMethod: 'uncollected' });
+                        } else {
+                          d[dtype] = ''; if (dtype === 'coupon') { d._couponUnitPrice = ''; d._couponSheets = '1'; }
+                          setForm({ ...form, discounts: d });
+                        }
+                      }
                     },
                     style: {
                       flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
@@ -11050,8 +11059,18 @@ window.RevenuePage = () => {
                       type: 'button',
                       onClick: () => {
                         const dd = { ...(editForm.discounts || {}) };
-                        if (sel) { delete dd[dtype]; if (dtype === 'coupon') { delete dd._couponUnitPrice; delete dd._couponSheets; } } else { dd[dtype] = ''; if (dtype === 'coupon') { dd._couponUnitPrice = ''; dd._couponSheets = '1'; } }
-                        setEditForm({ ...editForm, discounts: dd });
+                        if (sel) {
+                          delete dd[dtype]; if (dtype === 'coupon') { delete dd._couponUnitPrice; delete dd._couponSheets; }
+                          setEditForm({ ...editForm, discounts: dd });
+                        } else {
+                          if (dtype === 'ticket') {
+                            dd[dtype] = editForm.amount || '';
+                            setEditForm({ ...editForm, discounts: dd, paymentMethod: 'uncollected' });
+                          } else {
+                            dd[dtype] = ''; if (dtype === 'coupon') { dd._couponUnitPrice = ''; dd._couponSheets = '1'; }
+                            setEditForm({ ...editForm, discounts: dd });
+                          }
+                        }
                       },
                       style: {
                         flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '3px',
@@ -16806,8 +16825,18 @@ window.DataManagePage = () => {
                         type: 'button',
                         onClick: () => setAddForm(f => {
                           const disc = { ...(f.discounts || {}) };
-                          if (selected) { delete disc[d.value]; if (d.value === 'coupon') { delete disc._couponUnitPrice; delete disc._couponSheets; } } else { disc[d.value] = ''; if (d.value === 'coupon') { disc._couponUnitPrice = ''; disc._couponSheets = '1'; } }
-                          return { ...f, discounts: disc };
+                          if (selected) {
+                            delete disc[d.value]; if (d.value === 'coupon') { delete disc._couponUnitPrice; delete disc._couponSheets; }
+                            return { ...f, discounts: disc };
+                          } else {
+                            if (d.value === 'ticket') {
+                              disc[d.value] = f.amount || '';
+                              return { ...f, discounts: disc, paymentMethod: 'uncollected' };
+                            } else {
+                              disc[d.value] = ''; if (d.value === 'coupon') { disc._couponUnitPrice = ''; disc._couponSheets = '1'; }
+                              return { ...f, discounts: disc };
+                            }
+                          }
                         }),
                         style: {
                           flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '4px',
