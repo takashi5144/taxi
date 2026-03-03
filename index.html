@@ -11202,23 +11202,28 @@ window.RevenuePage = () => {
             entry.paymentMethod === 'didi' && React.createElement('div', {
               style: { fontSize: '10px', color: 'var(--color-warning)', fontWeight: 600, marginTop: '2px' }
             }, 'DIDI決済'),
-            entry.discountAmount > 0 && React.createElement('div', {
+            (entry.discountAmount > 0 || (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.some(d => d.type === 'ticket'))) && React.createElement('div', {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
               (() => {
                 const typeLabels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
                 if (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.length > 0) {
+                  const realDiscounts = entry.discounts.filter(d => d.type !== 'ticket');
+                  const ticketDiscount = entry.discounts.find(d => d.type === 'ticket');
                   return React.createElement(React.Fragment, null,
-                    ...entry.discounts.map((d, i) => React.createElement('div', { key: i, style: { color: '#a78bfa', fontWeight: 600 } },
+                    ...realDiscounts.map((d, i) => React.createElement('div', { key: i, style: { color: '#a78bfa', fontWeight: 600 } },
                       d.type === 'coupon' && d.sheets
                         ? `${typeLabels[d.type]}: ¥${(d.unitPrice || d.amount).toLocaleString()} × ${d.sheets}枚 = -¥${(d.amount || 0).toLocaleString()}`
                         : `${typeLabels[d.type] || d.type}: -¥${(d.amount || 0).toLocaleString()}`
                     )),
-                    entry.discounts.length > 1 && React.createElement('div', { style: { color: '#a78bfa', fontWeight: 700, borderTop: '1px solid rgba(167,139,250,0.2)', marginTop: '2px', paddingTop: '2px' } },
+                    realDiscounts.length > 1 && React.createElement('div', { style: { color: '#a78bfa', fontWeight: 700, borderTop: '1px solid rgba(167,139,250,0.2)', marginTop: '2px', paddingTop: '2px' } },
                       `割引合計: -¥${entry.discountAmount.toLocaleString()}`
                     ),
-                    React.createElement('div', { style: { color: 'var(--text-muted)', marginTop: '1px' } },
+                    entry.discountAmount > 0 && React.createElement('div', { style: { color: 'var(--text-muted)', marginTop: '1px' } },
                       `割引前: ¥${(entry.amount + entry.discountAmount).toLocaleString()}`
+                    ),
+                    ticketDiscount && React.createElement('div', { style: { color: '#ff9800', fontWeight: 600, marginTop: realDiscounts.length > 0 ? '3px' : '0', borderTop: realDiscounts.length > 0 ? '1px solid rgba(255,152,0,0.2)' : 'none', paddingTop: realDiscounts.length > 0 ? '3px' : '0' } },
+                      `タクシーチケット: ¥${(ticketDiscount.amount || 0).toLocaleString()}`
                     )
                   );
                 }
