@@ -3275,10 +3275,10 @@ window.DataService = (() => {
     const entries = getEntries();
     const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
-    // 割引額を先に計算
+    // 割引額を先に計算（タクシーチケットは支払方法なので除外）
     const _discountAmt = (() => {
       const d = form.discounts || {};
-      return Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
+      return Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'ticket').reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
     })();
     const entry = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -9766,7 +9766,7 @@ window.RevenuePage = () => {
       }
       return item;
     });
-    const discountAmount = discounts.reduce((sum, dd) => sum + dd.amount, 0);
+    const discountAmount = discounts.filter(dd => dd.type !== 'ticket').reduce((sum, dd) => sum + dd.amount, 0);
     const discountType = discounts.map(dd => dd.type).join(',');
 
     const updates = {
