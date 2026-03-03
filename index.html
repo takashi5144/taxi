@@ -3275,9 +3275,14 @@ window.DataService = (() => {
     const entries = getEntries();
     const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
+    // 割引額を先に計算
+    const _discountAmt = (() => {
+      const d = form.discounts || {};
+      return Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
+    })();
     const entry = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-      amount: parseInt(form.amount),
+      amount: parseInt(form.amount) - _discountAmt,
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
@@ -3306,10 +3311,7 @@ window.DataService = (() => {
           return item;
         });
       })(),
-      discountAmount: (() => {
-        const d = form.discounts || {};
-        return Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
-      })(),
+      discountAmount: _discountAmt,
       discountType: (() => {
         const d = form.discounts || {};
         const types = Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([t]) => t);
@@ -9727,7 +9729,7 @@ window.RevenuePage = () => {
       discountsObj[entry.discountType] = String(entry.discountAmount);
     }
     setEditForm({
-      amount: String(entry.amount || ''),
+      amount: String((entry.amount || 0) + (entry.discountAmount || 0)),
       date: entry.date || '',
       weather: entry.weather || '',
       paymentMethod: entry.paymentMethod || 'cash',
@@ -9770,7 +9772,7 @@ window.RevenuePage = () => {
 
     const updates = {
       ...editForm,
-      amount: parseInt(editForm.amount) || 0,
+      amount: (parseInt(editForm.amount) || 0) - discountAmount,
       discounts,
       discountAmount,
       discountType,
@@ -16078,7 +16080,7 @@ window.DataManagePage = () => {
   const startEdit = useCallback((entry, type) => {
     setEditingId(entry.id);
     setEditForm(type === 'revenue'
-      ? { amount: String(entry.amount), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '', source: entry.source || '', paymentMethod: entry.paymentMethod || 'cash' }
+      ? { amount: String((entry.amount || 0) + (entry.discountAmount || 0)), date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', dropoff: entry.dropoff || '', dropoffTime: entry.dropoffTime || '', passengers: entry.passengers || '', gender: entry.gender || '', purpose: entry.purpose || '', memo: entry.memo || '', source: entry.source || '', paymentMethod: entry.paymentMethod || 'cash' }
       : { date: entry.date || '', time: entry.time || '', weather: entry.weather || '', location: entry.location || '', memo: entry.memo || '' }
     );
     setErrors([]);
@@ -16089,7 +16091,14 @@ window.DataManagePage = () => {
     setErrors([]);
     let result;
     if (tab === 'revenue') {
-      result = DataService.updateEntry(editingId, editForm);
+      // 金額は割引前で表示→割引後に変換して保存
+      const entry = revenueEntries.find(e => e.id === editingId);
+      const discAmt = (entry && entry.discountAmount) || 0;
+      const revenueUpdates = { ...editForm };
+      if (revenueUpdates.amount != null) {
+        revenueUpdates.amount = (parseInt(revenueUpdates.amount) || 0) - discAmt;
+      }
+      result = DataService.updateEntry(editingId, revenueUpdates);
     } else if (tab === 'rival') {
       result = DataService.updateRivalEntry(editingId, editForm);
     } else {
