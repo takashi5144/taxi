@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.6.0',
+  VERSION: '1.8.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -12890,16 +12890,18 @@ window.CalendarPage = () => {
   // 今日の日付文字列
   const todayStr = useMemo(() => getLocalDateString(), []);
 
-  // 月間サマリー
+  // 月間サマリー（休日でない過去日＝勤務日）
   const monthlySummary = useMemo(() => {
     let workDays = 0, offDays = 0, totalRevenue = 0, workDayRevenue = 0;
     calendarDays.forEach(d => {
       if (!d) return;
-      if (d.status === 'work') {
+      const isPastOrToday = d.dateStr <= todayStr;
+      if (d.status === 'off') {
+        if (isPastOrToday) offDays++;
+      } else if (isPastOrToday) {
         workDays++;
         workDayRevenue += d.revenue;
       }
-      if (d.status === 'off') offDays++;
       totalRevenue += d.revenue;
     });
     return {
@@ -12908,7 +12910,7 @@ window.CalendarPage = () => {
       totalRevenue,
       avgDaily: workDays > 0 ? Math.round(workDayRevenue / workDays) : 0,
     };
-  }, [calendarDays]);
+  }, [calendarDays, todayStr]);
 
   // 選択日の詳細
   const selectedDayData = useMemo(() => {
@@ -12938,13 +12940,13 @@ window.CalendarPage = () => {
     setSelectedDate(todayStr);
   }, [todayStr]);
 
-  // 勤務/休日切替
-  const toggleWorkStatus = useCallback((dateStr, status) => {
+  // 休日切替（休日でなければ勤務扱い）
+  const toggleWorkStatus = useCallback((dateStr) => {
     const newStatus = { ...workStatus };
-    if (newStatus[dateStr] === status) {
+    if (newStatus[dateStr] === 'off') {
       delete newStatus[dateStr];
     } else {
-      newStatus[dateStr] = status;
+      newStatus[dateStr] = 'off';
     }
     saveWorkStatus(newStatus);
   }, [workStatus, saveWorkStatus]);
@@ -13059,12 +13061,12 @@ window.CalendarPage = () => {
               lineHeight: 1.2,
             }
           }, shortAmount(d.revenue)),
-          // 勤務/休日マーク
-          d.status && createElement('div', {
+          // 休日マーク（休日のみ橙ドット表示）
+          d.status === 'off' && createElement('div', {
             style: {
               width: 8, height: 8,
               borderRadius: '50%',
-              background: d.status === 'work' ? 'var(--color-accent)' : 'var(--color-warning)',
+              background: 'var(--color-warning)',
               margin: '2px auto 0',
             }
           })
@@ -13090,27 +13092,19 @@ window.CalendarPage = () => {
         )
       ),
 
-      // 勤務/休日ボタン
+      // 休日トグルボタン
       createElement('div', {
         style: { display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }
       },
         createElement('button', {
-          className: `btn ${selectedDayData.status === 'work' ? 'btn--primary' : 'btn--secondary'}`,
-          onClick: () => toggleWorkStatus(selectedDate, 'work'),
-          style: { flex: 1, padding: '8px 12px' }
-        },
-          createElement('span', { className: 'material-icons-round', style: { fontSize: 16, marginRight: 4 } }, 'work'),
-          '勤務'
-        ),
-        createElement('button', {
-          className: `btn ${selectedDayData.status === 'off' ? 'btn--secondary' : 'btn--secondary'}`,
-          onClick: () => toggleWorkStatus(selectedDate, 'off'),
+          className: 'btn btn--secondary',
+          onClick: () => toggleWorkStatus(selectedDate),
           style: Object.assign({ flex: 1, padding: '8px 12px' },
-            selectedDayData.status === 'off' ? { background: 'var(--color-warning)', borderColor: 'var(--color-warning)' } : {}
+            selectedDayData.status === 'off' ? { background: 'var(--color-warning)', borderColor: 'var(--color-warning)', color: '#fff' } : {}
           )
         },
           createElement('span', { className: 'material-icons-round', style: { fontSize: 16, marginRight: 4 } }, 'weekend'),
-          '休日'
+          selectedDayData.status === 'off' ? '休日' : '休日にする'
         )
       ),
 
