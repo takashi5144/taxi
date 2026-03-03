@@ -988,6 +988,7 @@ window.APP_CONSTANTS = {
     WORK_STATUS: 'taxi_app_work_status',
     HOTEL_PRICES: 'taxi_app_hotel_prices',
     GATHERING_MEMOS: 'taxi_app_gathering_memos',
+    TRASH: 'taxi_app_trash',
   },
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -3342,6 +3343,112 @@ window.DataService = (() => {
     return true;
   }
 
+  // ============================================================
+  // ゴミ箱機能
+  // ============================================================
+  function getTrash() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.TRASH);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  }
+
+  function saveTrash(items) {
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.TRASH, JSON.stringify(items));
+    } catch (e) { AppLogger.error('ゴミ箱の保存に失敗', e); }
+  }
+
+  function moveToTrash(id) {
+    const entries = getEntries();
+    const entry = entries.find(e => e.id === id);
+    if (!entry) return false;
+    const trashEntry = { ...entry, _trashType: 'revenue', _deletedAt: new Date().toISOString(), _trashId: Date.now() + '_' + Math.random().toString(36).substr(2, 5) };
+    const trash = getTrash();
+    trash.unshift(trashEntry);
+    saveTrash(trash);
+    const filtered = entries.filter(e => e.id !== id);
+    saveEntries(filtered);
+    AppLogger.info('売上記録をゴミ箱に移動しました');
+    autoSaveToFile();
+    _syncToCloud('revenue', filtered);
+    _notifyDataChanged('revenue');
+    return true;
+  }
+
+  function moveRivalToTrash(id) {
+    const entries = getRivalEntries();
+    const entry = entries.find(e => e.id === id);
+    if (!entry) return false;
+    const trashEntry = { ...entry, _trashType: 'rival', _deletedAt: new Date().toISOString(), _trashId: Date.now() + '_' + Math.random().toString(36).substr(2, 5) };
+    const trash = getTrash();
+    trash.unshift(trashEntry);
+    saveTrash(trash);
+    const filtered = entries.filter(e => e.id !== id);
+    saveRivalEntries(filtered);
+    AppLogger.info('他社乗車記録をゴミ箱に移動しました');
+    autoSaveRivalToFile();
+    _syncToCloud('rival', filtered);
+    _notifyDataChanged('rival');
+    return true;
+  }
+
+  function restoreFromTrash(trashId) {
+    const trash = getTrash();
+    const idx = trash.findIndex(e => e._trashId === trashId);
+    if (idx === -1) return false;
+    const item = { ...trash[idx] };
+    const type = item._trashType;
+    delete item._trashType;
+    delete item._deletedAt;
+    delete item._trashId;
+    trash.splice(idx, 1);
+    saveTrash(trash);
+    if (type === 'revenue') {
+      const entries = getEntries();
+      entries.unshift(item);
+      saveEntries(entries);
+      autoSaveToFile();
+      _syncToCloud('revenue', entries);
+      _notifyDataChanged('revenue');
+      AppLogger.info('売上記録をゴミ箱から復元しました');
+    } else if (type === 'rival') {
+      const entries = getRivalEntries();
+      entries.unshift(item);
+      saveRivalEntries(entries);
+      autoSaveRivalToFile();
+      _syncToCloud('rival', entries);
+      _notifyDataChanged('rival');
+      AppLogger.info('他社乗車記録をゴミ箱から復元しました');
+    }
+    return true;
+  }
+
+  function permanentDeleteFromTrash(trashId) {
+    const trash = getTrash();
+    const filtered = trash.filter(e => e._trashId !== trashId);
+    saveTrash(filtered);
+    AppLogger.info('ゴミ箱からデータを完全削除しました');
+    return true;
+  }
+
+  function emptyTrash() {
+    saveTrash([]);
+    AppLogger.info('ゴミ箱を空にしました');
+    return true;
+  }
+
+  function cleanupTrash() {
+    const trash = getTrash();
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    const filtered = trash.filter(e => new Date(e._deletedAt) > oneMonthAgo);
+    if (filtered.length < trash.length) {
+      saveTrash(filtered);
+      AppLogger.info(`ゴミ箱の自動クリーンアップ: ${trash.length - filtered.length}件を削除`);
+    }
+  }
+
   function updateEntry(id, updates) {
     const entries = getEntries();
     const idx = entries.findIndex(e => e.id === id);
@@ -4931,6 +5038,16 @@ window.DataService = (() => {
     deleteEntry,
     clearAllEntries,
     validateEntry,
+
+    // ゴミ箱
+    getTrash,
+    saveTrash,
+    moveToTrash,
+    moveRivalToTrash,
+    restoreFromTrash,
+    permanentDeleteFromTrash,
+    emptyTrash,
+    cleanupTrash,
 
     // エクスポート
     exportCSV,
@@ -9571,10 +9688,24 @@ window.RevenuePage = () => {
     }
   };
 
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const confirmDeleteTimeoutRef = useRef(null);
+
   const handleDelete = useCallback((id) => {
-    DataService.deleteEntry(id);
-    setRefreshKey(k => k + 1);
-  }, []);
+    if (confirmDelete === id) {
+      DataService.moveToTrash(id);
+      setConfirmDelete(null);
+      if (confirmDeleteTimeoutRef.current) { clearTimeout(confirmDeleteTimeoutRef.current); confirmDeleteTimeoutRef.current = null; }
+      setRefreshKey(k => k + 1);
+    } else {
+      setConfirmDelete(id);
+      if (confirmDeleteTimeoutRef.current) clearTimeout(confirmDeleteTimeoutRef.current);
+      confirmDeleteTimeoutRef.current = setTimeout(() => { setConfirmDelete(null); confirmDeleteTimeoutRef.current = null; }, 3000);
+    }
+  }, [confirmDelete]);
+
+  // 起動時ゴミ箱自動クリーンアップ
+  useEffect(() => { DataService.cleanupTrash(); }, []);
 
   // 編集機能
   const [editingId, setEditingId] = useState(null);
@@ -11105,15 +11236,15 @@ window.RevenuePage = () => {
               onClick: () => handleDelete(entry.id),
               style: {
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--text-muted)', padding: '4px',
+                color: confirmDelete === entry.id ? 'var(--color-danger)' : 'var(--text-muted)', padding: '4px',
                 borderRadius: '4px', transition: 'color 0.2s',
               },
-              title: '削除',
+              title: confirmDelete === entry.id ? 'もう一度押して削除' : '削除',
             },
               React.createElement('span', {
                 className: 'material-icons-round',
                 style: { fontSize: '18px' },
-              }, 'delete_outline')
+              }, confirmDelete === entry.id ? 'delete_forever' : 'delete_outline')
             )
           )
         )
@@ -15825,6 +15956,7 @@ window.DataManagePage = () => {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'rival', label: '他社記録', icon: 'local_taxi' },
     { id: 'transit', label: '交通情報', icon: 'directions_transit' },
+    { id: 'trash', label: 'ゴミ箱', icon: 'delete_outline' },
   ];
 
   // データ読み込み
@@ -15836,11 +15968,95 @@ window.DataManagePage = () => {
       return saved;
     } catch { return {}; }
   }, [refreshKey]);
+  const trashEntries = useMemo(() => DataService.getTrash(), [refreshKey]);
+  const [confirmTrashDelete, setConfirmTrashDelete] = useState(null);
+  const [regeocoding, setRegeocoding] = useState(false);
+  const [regeoProgress, setRegeoProgress] = useState('');
+
+  // 座標から住所を一括再取得
+  const handleRegeocode = useCallback(async () => {
+    const targets = revenueEntries.filter(e =>
+      (e.pickupCoords && e.pickupCoords.lat && e.pickupCoords.lng) ||
+      (e.dropoffCoords && e.dropoffCoords.lat && e.dropoffCoords.lng)
+    );
+    if (targets.length === 0) {
+      alert('座標データを持つ記録がありません。');
+      return;
+    }
+    if (!confirm(`${targets.length}件の記録の住所を座標から再取得します。よろしいですか？`)) return;
+
+    setRegeocoding(true);
+    let updated = 0;
+    const geocoder = window.google && window.google.maps && window.google.maps.Geocoder ? new window.google.maps.Geocoder() : null;
+
+    for (let i = 0; i < targets.length; i++) {
+      const entry = targets[i];
+      setRegeoProgress(`${i + 1}/${targets.length}件処理中...`);
+      const updates = {};
+
+      try {
+        // 乗車地
+        if (entry.pickupCoords && entry.pickupCoords.lat && entry.pickupCoords.lng) {
+          const addr = await reverseGeocode(geocoder, entry.pickupCoords.lat, entry.pickupCoords.lng);
+          if (addr) updates.pickup = addr;
+        }
+        // 降車地
+        if (entry.dropoffCoords && entry.dropoffCoords.lat && entry.dropoffCoords.lng) {
+          const addr = await reverseGeocode(geocoder, entry.dropoffCoords.lat, entry.dropoffCoords.lng);
+          if (addr) updates.dropoff = addr;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          DataService.updateEntry(entry.id, updates);
+          updated++;
+        }
+      } catch (err) {
+        AppLogger.warn(`住所再取得エラー (id=${entry.id}): ${err.message}`);
+      }
+
+      // Nominatimレート制限対策（500ms間隔）
+      if (i < targets.length - 1) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    setRegeocoding(false);
+    setRegeoProgress('');
+    setRefreshKey(k => k + 1);
+    alert(`住所再取得完了: ${updated}/${targets.length}件を更新しました。`);
+  }, [revenueEntries]);
+
+  // 逆ジオコーディングヘルパー
+  async function reverseGeocode(geocoder, lat, lng) {
+    if (geocoder) {
+      try {
+        const results = await new Promise((resolve, reject) => {
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === 'OK' && results && results.length > 0) resolve(results);
+            else reject(new Error(status));
+          });
+        });
+        const preferred = results.find(r => r.types.includes('premise') || r.types.includes('street_address')) || results[0];
+        return TaxiApp.utils.extractAddress(preferred);
+      } catch {
+        // Google失敗時はNominatimにフォールバック
+      }
+    }
+    // Nominatim
+    const res = await fetch(TaxiApp.utils.nominatimUrl(lat, lng, 18));
+    const data = await res.json();
+    if (data && data.address) {
+      const a = data.address;
+      const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
+      return parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
+    }
+    return null;
+  }
 
   // storage変更を監視
   useEffect(() => {
     const handleStorage = (e) => {
-      if ([APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES, APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO].includes(e.key)) {
+      if ([APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, APP_CONSTANTS.STORAGE_KEYS.RIVAL_RIDES, APP_CONSTANTS.STORAGE_KEYS.TRANSIT_INFO, APP_CONSTANTS.STORAGE_KEYS.TRASH].includes(e.key)) {
         setRefreshKey(k => k + 1);
       }
     };
@@ -15889,11 +16105,11 @@ window.DataManagePage = () => {
     setRefreshKey(k => k + 1);
   }, [tab, editingId, editForm]);
 
-  // 削除確認→実行
+  // 削除確認→実行（ゴミ箱に移動）
   const handleDelete = useCallback((id) => {
     if (confirmDelete === id) {
-      if (tab === 'revenue') DataService.deleteEntry(id);
-      else if (tab === 'rival') DataService.deleteRivalEntry(id);
+      if (tab === 'revenue') DataService.moveToTrash(id);
+      else if (tab === 'rival') DataService.moveRivalToTrash(id);
       setConfirmDelete(null);
       setRefreshKey(k => k + 1);
     } else {
@@ -15901,6 +16117,32 @@ window.DataManagePage = () => {
       setTimeout(() => setConfirmDelete(null), 3000);
     }
   }, [tab, confirmDelete]);
+
+  // ゴミ箱: 復元
+  const handleRestore = useCallback((trashId) => {
+    DataService.restoreFromTrash(trashId);
+    setRefreshKey(k => k + 1);
+  }, []);
+
+  // ゴミ箱: 完全削除（2回クリック）
+  const handlePermanentDelete = useCallback((trashId) => {
+    if (confirmTrashDelete === trashId) {
+      DataService.permanentDeleteFromTrash(trashId);
+      setConfirmTrashDelete(null);
+      setRefreshKey(k => k + 1);
+    } else {
+      setConfirmTrashDelete(trashId);
+      setTimeout(() => setConfirmTrashDelete(null), 3000);
+    }
+  }, [confirmTrashDelete]);
+
+  // ゴミ箱を空にする
+  const handleEmptyTrash = useCallback(() => {
+    if (confirm('ゴミ箱を空にしますか？全てのデータが完全に削除されます。')) {
+      DataService.emptyTrash();
+      setRefreshKey(k => k + 1);
+    }
+  }, []);
 
   // 交通情報の個別カテゴリ削除
   const deleteTransitCategory = useCallback((key) => {
@@ -16327,7 +16569,7 @@ window.DataManagePage = () => {
     ),
 
     // 検索バー（売上・他社タブ）
-    tab !== 'transit' && React.createElement('div', { style: { marginBottom: '12px' } },
+    (tab !== 'transit' && tab !== 'trash') && React.createElement('div', { style: { marginBottom: '12px' } },
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px 12px' } },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-muted)' } }, 'search'),
         React.createElement('input', {
@@ -16636,11 +16878,19 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
           `${filteredRevenue.length}件${search ? ` (全${revenueEntries.length}件中)` : ''}`
         ),
-        revenueEntries.length > 0 && React.createElement(Button, {
-          variant: 'danger', icon: 'delete_forever',
-          onClick: () => { if (confirm('全ての売上記録を削除しますか？この操作は取り消せません。')) { DataService.clearAllEntries(); setRefreshKey(k => k + 1); } },
-          style: { padding: '5px 10px', fontSize: '11px' },
-        }, '全削除')
+        React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+          React.createElement(Button, {
+            icon: 'my_location',
+            disabled: regeocoding,
+            onClick: handleRegeocode,
+            style: { padding: '5px 10px', fontSize: '11px', color: regeocoding ? 'var(--text-muted)' : 'var(--color-primary)', borderColor: 'var(--color-primary)' },
+          }, regeocoding ? regeoProgress : '住所再取得'),
+          revenueEntries.length > 0 && React.createElement(Button, {
+            variant: 'danger', icon: 'delete_forever',
+            onClick: () => { if (confirm('全ての売上記録を削除しますか？この操作は取り消せません。')) { DataService.clearAllEntries(); setRefreshKey(k => k + 1); } },
+            style: { padding: '5px 10px', fontSize: '11px' },
+          }, '全削除')
+        )
       ),
       filteredRevenue.length === 0
         ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' } },
@@ -16713,6 +16963,87 @@ window.DataManagePage = () => {
           style: { padding: '5px 10px', fontSize: '11px' },
         }, '全削除')
       )
+    ),
+
+    // === ゴミ箱タブ ===
+    tab === 'trash' && React.createElement(React.Fragment, null,
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
+        React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
+          `ゴミ箱（${trashEntries.length}件）`
+        ),
+        trashEntries.length > 0 && React.createElement(Button, {
+          variant: 'danger', icon: 'delete_forever',
+          onClick: handleEmptyTrash,
+          style: { padding: '5px 10px', fontSize: '11px' },
+        }, 'ゴミ箱を空にする')
+      ),
+      React.createElement('div', {
+        style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '12px', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px' },
+      }, '削除から1ヶ月経過後に自動削除されます'),
+      trashEntries.length === 0
+        ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', opacity: 0.3, display: 'block', marginBottom: '8px' } }, 'delete_outline'),
+            'ゴミ箱は空です'
+          )
+        : React.createElement(Card, null,
+            trashEntries.map(entry => {
+              const isConfirmPerm = confirmTrashDelete === entry._trashId;
+              const deletedDate = new Date(entry._deletedAt);
+              const now = new Date();
+              const diffMs = now - deletedDate;
+              const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+              const agoText = diffDays === 0 ? '今日' : diffDays === 1 ? '昨日' : `${diffDays}日前`;
+              const typeLabel = entry._trashType === 'revenue' ? '売上記録' : entry._trashType === 'rival' ? '他社記録' : 'データ';
+              const typeBg = entry._trashType === 'revenue' ? 'rgba(0,200,83,0.12)' : 'rgba(26,115,232,0.12)';
+              const typeColor = entry._trashType === 'revenue' ? 'var(--color-accent)' : 'var(--color-primary-light)';
+
+              return React.createElement('div', {
+                key: entry._trashId,
+                style: { padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+              },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' } },
+                  React.createElement('span', {
+                    style: { fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: typeBg, color: typeColor, fontWeight: 600 },
+                  }, typeLabel),
+                  React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, `削除: ${agoText}`)
+                ),
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                  React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    entry._trashType === 'revenue'
+                      ? React.createElement(React.Fragment, null,
+                          React.createElement('div', { style: { fontWeight: 500, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } },
+                            entry.noPassenger
+                              ? React.createElement('span', { style: { color: '#d32f2f', fontWeight: 700 } }, '¥0（待機）')
+                              : React.createElement('span', { style: { color: 'var(--color-secondary)', fontWeight: 700 } }, `¥${(entry.amount || 0).toLocaleString()}`),
+                            entry.pickup && React.createElement('span', { style: { color: 'var(--text-muted)', fontSize: '12px' } }, `${entry.pickup}→${entry.dropoff || '---'}`)
+                          ),
+                          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, entry.date || '')
+                        )
+                      : React.createElement(React.Fragment, null,
+                          React.createElement('div', { style: { fontWeight: 500, fontSize: '13px' } }, entry.location || '---'),
+                          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
+                            [entry.date, entry.time].filter(Boolean).join(' ')
+                          )
+                        )
+                  ),
+                  React.createElement('button', {
+                    onClick: () => handleRestore(entry._trashId),
+                    style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary-light)', padding: '4px', display: 'flex', alignItems: 'center', gap: '2px', fontSize: '11px', fontWeight: 600 },
+                    title: '復元',
+                  },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'restore'),
+                  ),
+                  React.createElement('button', {
+                    onClick: () => handlePermanentDelete(entry._trashId),
+                    style: { background: 'none', border: 'none', cursor: 'pointer', color: isConfirmPerm ? 'var(--color-danger)' : 'var(--text-muted)', padding: '4px' },
+                    title: isConfirmPerm ? 'もう一度押して完全削除' : '完全削除',
+                  },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, isConfirmPerm ? 'delete_forever' : 'delete_outline')
+                  )
+                )
+              );
+            })
+          )
     )
   );
 };
