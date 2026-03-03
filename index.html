@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.5.0',
+  VERSION: '1.6.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3193,7 +3193,7 @@ window.DataService = (() => {
       const discountAmount = e.discountAmount || 0;
       const discountTypeMap = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
       const discountType = (e.discounts && Array.isArray(e.discounts) && e.discounts.length > 0)
-        ? e.discounts.map(d => `${discountTypeMap[d.type] || d.type}(¥${d.amount})`).join('/')
+        ? e.discounts.map(d => d.type === 'coupon' && d.sheets ? `${discountTypeMap[d.type]}(¥${d.unitPrice || d.amount}×${d.sheets}枚=¥${d.amount})` : `${discountTypeMap[d.type] || d.type}(¥${d.amount})`).join('/')
         : discountTypeMap[e.discountType] || (e.discountType || '');
       const pickup = (e.pickup || '').replace(/,/g, '、');
       const pickupTime = e.pickupTime || '';
@@ -3296,15 +3296,22 @@ window.DataService = (() => {
       paymentMethod: form.paymentMethod || 'cash',
       discounts: (() => {
         const d = form.discounts || {};
-        return Object.entries(d).filter(([, v]) => v && parseInt(v) > 0).map(([type, amount]) => ({ type, amount: parseInt(amount) }));
+        return Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([type, amount]) => {
+          const item = { type, amount: parseInt(amount) };
+          if (type === 'coupon') {
+            item.unitPrice = parseInt(d._couponUnitPrice) || parseInt(amount);
+            item.sheets = parseInt(d._couponSheets) || 1;
+          }
+          return item;
+        });
       })(),
       discountAmount: (() => {
         const d = form.discounts || {};
-        return Object.values(d).reduce((sum, v) => sum + (parseInt(v) || 0), 0);
+        return Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
       })(),
       discountType: (() => {
         const d = form.discounts || {};
-        const types = Object.entries(d).filter(([, v]) => v && parseInt(v) > 0).map(([t]) => t);
+        const types = Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([t]) => t);
         return types.join(',');
       })(),
       waitingTime: form.waitingTime || '',
@@ -9592,21 +9599,29 @@ window.RevenuePage = () => {
   const todayDiscount = todayEntries.reduce((sum, e) => sum + (e.discountAmount || 0), 0);
   // 各割引種別の合計額を算出（新旧フォーマット両対応）
   const getDiscountByType = (entries, dtype) => {
-    let total = 0, count = 0;
+    let total = 0, count = 0, sheets = 0;
     entries.forEach(e => {
       if (e.discounts && Array.isArray(e.discounts)) {
-        // 新フォーマット: discounts配列
-        e.discounts.forEach(d => { if (d.type === dtype) { total += d.amount || 0; count++; } });
+        e.discounts.forEach(d => {
+          if (d.type === dtype) {
+            total += d.amount || 0;
+            count++;
+            if (dtype === 'coupon') sheets += d.sheets || 1;
+          }
+        });
       } else if (e.discountType === dtype || (e.discountType && e.discountType.includes(dtype))) {
-        // 旧フォーマット: 単一discountType
         total += e.discountAmount || 0; count++;
+        if (dtype === 'coupon') sheets += 1;
       }
     });
-    return { total, count };
+    return { total, count, sheets };
   };
   const todayDiscountDisability = getDiscountByType(todayEntries, 'disability');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
+  // クーポン未収金額（クーポンは未収扱い）
+  const todayCouponUncollected = todayDiscountCoupon.total;
+  const todayTotalUncollected = todayUncollected + todayCouponUncollected;
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
 
   // GPS取得ボタンのスタイル
@@ -9670,7 +9685,7 @@ window.RevenuePage = () => {
             `消費税: ¥${(todayCash - Math.floor(todayCash / 1.1)).toLocaleString()}`
           )
         ),
-        // 未収（DIDI決済含む）
+        // 未収（DIDI決済含む + クーポン未収）
         React.createElement('div', {
           style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)' },
         },
@@ -9688,6 +9703,16 @@ window.RevenuePage = () => {
           ),
           React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
             `消費税: ¥${(todayUncollected - Math.floor(todayUncollected / 1.1)).toLocaleString()}`
+          ),
+          todayCouponUncollected > 0 && React.createElement('div', {
+            style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
+          },
+            React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
+              `クーポン未収: ¥${todayCouponUncollected.toLocaleString()}`
+            ),
+            React.createElement('div', { style: { fontSize: 11, color: 'var(--color-error)', fontWeight: 700, marginTop: 2 } },
+              `未収+クーポン合計: ¥${todayTotalUncollected.toLocaleString()}`
+            )
           )
         ),
         // DIDI決済
@@ -9733,7 +9758,7 @@ window.RevenuePage = () => {
             `障害者割引: ${todayDiscountDisability.count}件 -¥${todayDiscountDisability.total.toLocaleString()}`
           ),
           React.createElement('span', { style: { color: '#a78bfa' } },
-            `クーポン: ${todayDiscountCoupon.count}件 -¥${todayDiscountCoupon.total.toLocaleString()}`
+            `クーポン: ${todayDiscountCoupon.sheets}枚 -¥${todayDiscountCoupon.total.toLocaleString()}`
           ),
           React.createElement('span', { style: { color: '#a78bfa' } },
             `チケット: ${todayDiscountTicket.count}件 -¥${todayDiscountTicket.total.toLocaleString()}`
@@ -10383,12 +10408,12 @@ window.RevenuePage = () => {
                 const selected = dtype in (form.discounts || {});
                 const labels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
                 const icons = { disability: 'accessible', coupon: 'local_offer', ticket: 'confirmation_number' };
-                return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+                return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                   React.createElement('button', {
                     type: 'button',
                     onClick: () => {
                       const d = { ...(form.discounts || {}) };
-                      if (selected) { delete d[dtype]; } else { d[dtype] = ''; }
+                      if (selected) { delete d[dtype]; if (dtype === 'coupon') { delete d._couponUnitPrice; delete d._couponSheets; } } else { d[dtype] = ''; if (dtype === 'coupon') { d._couponUnitPrice = ''; d._couponSheets = '1'; } }
                       setForm({ ...form, discounts: d });
                     },
                     style: {
@@ -10404,7 +10429,40 @@ window.RevenuePage = () => {
                     React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, icons[dtype]),
                     labels[dtype]
                   ),
-                  selected && React.createElement('input', {
+                  // クーポン: 単価 × 枚数
+                  dtype === 'coupon' && selected && React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flex: 1, minWidth: '200px' } },
+                    React.createElement('input', {
+                      className: 'form-input', type: 'number', min: '0', max: '100000',
+                      placeholder: '1枚の金額',
+                      value: (form.discounts || {})._couponUnitPrice || '',
+                      onChange: (e) => {
+                        const unitPrice = e.target.value;
+                        const sheets = (form.discounts || {})._couponSheets || '1';
+                        const total = (parseInt(unitPrice) || 0) * (parseInt(sheets) || 0);
+                        setForm({ ...form, discounts: { ...(form.discounts || {}), _couponUnitPrice: unitPrice, _couponSheets: sheets, coupon: String(total || '') } });
+                      },
+                      style: { flex: 1, minWidth: '70px' },
+                    }),
+                    React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円 ×'),
+                    React.createElement('input', {
+                      className: 'form-input', type: 'number', min: '1', max: '100',
+                      placeholder: '枚数',
+                      value: (form.discounts || {})._couponSheets || '',
+                      onChange: (e) => {
+                        const sheets = e.target.value;
+                        const unitPrice = (form.discounts || {})._couponUnitPrice || '';
+                        const total = (parseInt(unitPrice) || 0) * (parseInt(sheets) || 0);
+                        setForm({ ...form, discounts: { ...(form.discounts || {}), _couponSheets: sheets, _couponUnitPrice: unitPrice, coupon: String(total || '') } });
+                      },
+                      style: { width: '50px' },
+                    }),
+                    React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '枚'),
+                    (parseInt((form.discounts || {}).coupon) || 0) > 0 && React.createElement('span', { style: { fontSize: '12px', color: '#a78bfa', fontWeight: 700, whiteSpace: 'nowrap' } },
+                      `= ¥${parseInt((form.discounts || {}).coupon).toLocaleString()}`
+                    )
+                  ),
+                  // その他の割引: 金額入力
+                  dtype !== 'coupon' && selected && React.createElement('input', {
                     className: 'form-input',
                     type: 'number',
                     min: '0',
@@ -10414,27 +10472,36 @@ window.RevenuePage = () => {
                     onChange: (e) => setForm({ ...form, discounts: { ...(form.discounts || {}), [dtype]: e.target.value } }),
                     style: { flex: 1 },
                   }),
-                  selected && React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円')
+                  dtype !== 'coupon' && selected && React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円')
                 );
               })
             ),
             (() => {
               const d = form.discounts || {};
-              const totalDiscount = Object.values(d).reduce((s, v) => s + (parseInt(v) || 0), 0);
+              const totalDiscount = Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((s, [, v]) => s + (parseInt(v) || 0), 0);
               const amt = parseInt(form.amount) || 0;
+              const couponAmt = parseInt(d.coupon) || 0;
+              const cashAfterDiscount = amt - totalDiscount;
+              const cashReceived = cashAfterDiscount - couponAmt;
               if (totalDiscount > 0 && amt > 0) {
                 return React.createElement('div', {
                   style: {
                     marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
                     background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.15)',
                     fontSize: '12px', color: 'var(--text-secondary)',
-                    display: 'flex', gap: '12px',
+                    display: 'flex', flexDirection: 'column', gap: '4px',
                   },
                 },
-                  React.createElement('span', null, `割引合計: -¥${totalDiscount.toLocaleString()}`),
-                  React.createElement('span', null, `割引後: ¥${(amt - totalDiscount).toLocaleString()}`),
-                  React.createElement('span', { style: { color: '#a78bfa' } },
-                    `割引率: ${Math.round((totalDiscount / amt) * 100)}%`
+                  React.createElement('div', { style: { display: 'flex', gap: '12px' } },
+                    React.createElement('span', null, `割引合計: -¥${totalDiscount.toLocaleString()}`),
+                    React.createElement('span', null, `割引後: ¥${cashAfterDiscount.toLocaleString()}`),
+                    React.createElement('span', { style: { color: '#a78bfa' } },
+                      `割引率: ${Math.round((totalDiscount / amt) * 100)}%`
+                    )
+                  ),
+                  couponAmt > 0 && React.createElement('div', { style: { display: 'flex', gap: '12px', color: '#a78bfa' } },
+                    React.createElement('span', null, `クーポン未収: ¥${couponAmt.toLocaleString()}`),
+                    React.createElement('span', { style: { fontWeight: 700 } }, `現金受取: ¥${Math.max(0, cashReceived).toLocaleString()}`)
                   )
                 );
               }
@@ -10716,7 +10783,9 @@ window.RevenuePage = () => {
                 if (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.length > 0) {
                   return React.createElement(React.Fragment, null,
                     ...entry.discounts.map((d, i) => React.createElement('div', { key: i, style: { color: '#a78bfa', fontWeight: 600 } },
-                      `${typeLabels[d.type] || d.type}: -¥${(d.amount || 0).toLocaleString()}`
+                      d.type === 'coupon' && d.sheets
+                        ? `${typeLabels[d.type]}: ¥${(d.unitPrice || d.amount).toLocaleString()} × ${d.sheets}枚 = -¥${(d.amount || 0).toLocaleString()}`
+                        : `${typeLabels[d.type] || d.type}: -¥${(d.amount || 0).toLocaleString()}`
                     )),
                     entry.discounts.length > 1 && React.createElement('div', { style: { color: '#a78bfa', fontWeight: 700, borderTop: '1px solid rgba(167,139,250,0.2)', marginTop: '2px', paddingTop: '2px' } },
                       `割引合計: -¥${entry.discountAmount.toLocaleString()}`
@@ -16189,12 +16258,12 @@ window.DataManagePage = () => {
                     { value: 'ticket', label: 'タクシーチケット', icon: 'confirmation_number' },
                   ].map(d => {
                     const selected = d.value in (addForm.discounts || {});
-                    return React.createElement('div', { key: d.value, style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+                    return React.createElement('div', { key: d.value, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: d.value === 'coupon' ? 'wrap' : 'nowrap' } },
                       React.createElement('button', {
                         type: 'button',
                         onClick: () => setAddForm(f => {
                           const disc = { ...(f.discounts || {}) };
-                          if (selected) { delete disc[d.value]; } else { disc[d.value] = ''; }
+                          if (selected) { delete disc[d.value]; if (d.value === 'coupon') { delete disc._couponUnitPrice; delete disc._couponSheets; } } else { disc[d.value] = ''; if (d.value === 'coupon') { disc._couponUnitPrice = ''; disc._couponSheets = '1'; } }
                           return { ...f, discounts: disc };
                         }),
                         style: {
@@ -16211,18 +16280,49 @@ window.DataManagePage = () => {
                         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, d.icon),
                         d.label
                       ),
-                      selected && React.createElement('input', {
+                      // クーポン: 単価 × 枚数
+                      d.value === 'coupon' && selected && React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flex: 1, minWidth: '200px' } },
+                        React.createElement('input', {
+                          type: 'number', min: '0', max: '100000', placeholder: '1枚の金額',
+                          value: (addForm.discounts || {})._couponUnitPrice || '',
+                          onChange: e => setAddForm(f => {
+                            const unitPrice = e.target.value;
+                            const sheets = (f.discounts || {})._couponSheets || '1';
+                            const total = (parseInt(unitPrice) || 0) * (parseInt(sheets) || 0);
+                            return { ...f, discounts: { ...(f.discounts || {}), _couponUnitPrice: unitPrice, _couponSheets: sheets, coupon: String(total || '') } };
+                          }),
+                          style: { flex: 1, minWidth: '60px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(167,139,250,0.3)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
+                        }),
+                        React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円 ×'),
+                        React.createElement('input', {
+                          type: 'number', min: '1', max: '100', placeholder: '枚数',
+                          value: (addForm.discounts || {})._couponSheets || '',
+                          onChange: e => setAddForm(f => {
+                            const sheets = e.target.value;
+                            const unitPrice = (f.discounts || {})._couponUnitPrice || '';
+                            const total = (parseInt(unitPrice) || 0) * (parseInt(sheets) || 0);
+                            return { ...f, discounts: { ...(f.discounts || {}), _couponSheets: sheets, _couponUnitPrice: unitPrice, coupon: String(total || '') } };
+                          }),
+                          style: { width: '45px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(167,139,250,0.3)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
+                        }),
+                        React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '枚'),
+                        (parseInt((addForm.discounts || {}).coupon) || 0) > 0 && React.createElement('span', { style: { fontSize: '11px', color: '#a78bfa', fontWeight: 700, whiteSpace: 'nowrap' } },
+                          `= ¥${parseInt((addForm.discounts || {}).coupon).toLocaleString()}`
+                        )
+                      ),
+                      // その他: 金額入力
+                      d.value !== 'coupon' && selected && React.createElement('input', {
                         type: 'number', value: (addForm.discounts || {})[d.value] || '', placeholder: `${d.label}金額`,
                         onChange: e => setAddForm(f => ({ ...f, discounts: { ...(f.discounts || {}), [d.value]: e.target.value } })),
                         style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(167,139,250,0.3)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
                       }),
-                      selected && React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円')
+                      d.value !== 'coupon' && selected && React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, '円')
                     );
                   })
                 ),
                 (() => {
                   const d = addForm.discounts || {};
-                  const totalDiscount = Object.values(d).reduce((s, v) => s + (parseInt(v) || 0), 0);
+                  const totalDiscount = Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((s, [, v]) => s + (parseInt(v) || 0), 0);
                   const amt = parseInt(addForm.amount) || 0;
                   if (totalDiscount > 0 && amt > 0) {
                     return React.createElement('div', { style: { fontSize: '11px', color: '#a78bfa', marginTop: '4px' } },
