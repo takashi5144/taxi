@@ -1,6 +1,6 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
 // アプリはindex.html単体で動作するため、キャッシュ対象は最小限に絞る
-const CACHE_NAME = 'taxi-support-v1.6.0';
+const CACHE_NAME = 'taxi-support-v2.2.0';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -20,10 +20,7 @@ const CDN_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] 静的アセットをキャッシュ中...');
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('[SW] 一部のアセットのキャッシュに失敗:', err);
-      });
+      return cache.addAll(STATIC_ASSETS).catch(() => {});
     })
   );
   self.skipWaiting();
@@ -36,10 +33,7 @@ self.addEventListener('activate', (event) => {
       Promise.all(
         keys
           .filter((key) => key !== CACHE_NAME)
-          .map((key) => {
-            console.log('[SW] 古いキャッシュを削除:', key);
-            return caches.delete(key);
-          })
+          .map((key) => caches.delete(key))
       )
     )
   );
