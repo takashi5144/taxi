@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.0.0',
+  VERSION: '2.0.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6215,10 +6215,16 @@ window.GpsLogService = (() => {
 
   // --- 公開API ---
 
-  /** 1秒スロットル記録（同期・バッファ書き込み）- 休憩中は記録しない */
+  function _isMobile() {
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }
+
+  /** 1秒スロットル記録（同期・バッファ書き込み）- スマホ+始業中+休憩外のみ */
   function maybeRecord(lat, lng, accuracy, speed) {
     const now = Date.now();
     if (now - _lastRecordTime < THROTTLE_MS) return false;
+    if (!_isMobile()) return false;
+    if (!_isShiftActive()) return false;
     if (_isOnBreak()) return false;
     if (lat == null || lng == null) return false;
 
