@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.7.6',
+  VERSION: '2.7.7',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -21462,29 +21462,24 @@ window.WatchPage = () => {
 
     let lat, lng, acc;
 
-    // キャッシュされたGPS位置を優先使用（確認ダイアログなし）
+    // キャッシュされたGPS位置のみ使用（確認ダイアログを出さない）
+    // キャッシュが無い場合は最大5秒待つ
+    if (!cachedPosRef.current) {
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        if (cachedPosRef.current) break;
+      }
+    }
     if (cachedPosRef.current) {
       lat = cachedPosRef.current.lat;
       lng = cachedPosRef.current.lng;
       acc = cachedPosRef.current.accuracy;
     } else {
-      // キャッシュなし: 新規取得（初回のみ確認が出る可能性）
-      try {
-        const pos = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true, timeout: 15000, maximumAge: 10000
-          });
-        });
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
-        acc = pos.coords.accuracy;
-      } catch (e) {
-        setStatus('error');
-        setMessage('GPS取得失敗');
-        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
-        return;
-      }
+      setStatus('error');
+      setMessage('GPS未取得');
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
+      return;
     }
 
     // 逆ジオコーディング
