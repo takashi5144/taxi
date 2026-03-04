@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.4.1</title>
+  <title>タクシー売上サポート v1.4.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -10039,8 +10039,12 @@ window.DashboardPage = () => {
       return geo && geo.geoName ? { ...s, displayName: geo.geoName, originalName: s.name } : s;
     });
   }, [frequentSpots, spotsWithGeoNames]);
-  // スポット詳細の展開状態
+  // スポット詳細の展開状態（修正7: refreshKeyでリセットしない）
+  const expandedSpotIdxRef = useRef(null);
   const [expandedSpotIdx, setExpandedSpotIdx] = useState(null);
+  const stableSetExpandedSpotIdx = useCallback((v) => { expandedSpotIdxRef.current = v; setExpandedSpotIdx(v); }, []);
+  // 修正6: 全期間スポット初期5件表示
+  const [showAllSpots, setShowAllSpots] = useState(false);
   // 改善1: topAreas + frequentSpotsNow を統合した「今おすすめスポット」
   const mergedNowSpots = useMemo(() => {
     const merged = [];
@@ -10527,6 +10531,15 @@ window.DashboardPage = () => {
       )
     ),
 
+    // 修正4: mergedNowSpotsが空の場合のデータ不足メッセージ
+    mergedNowSpots.length === 0 && displaySpots.length === 0 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)', textAlign: 'center' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '32px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' } }, 'explore'),
+      React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '乗車データが蓄積されるとスポット分析が表示されます'),
+      React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '4px' } }, 'GPS付きの売上記録が3件以上で自動検出')
+    ),
+
     // よく乗車される場所（全期間・詳細版）改善2,3,4,5
     displaySpots.length > 0 && React.createElement(Card, {
       style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
@@ -10539,7 +10552,8 @@ window.DashboardPage = () => {
         // 改善5: アフォーダンス
         React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, 'タップで詳細')
       ),
-      displaySpots.map((spot, i) => {
+      // 修正6: 初期5件表示
+      displaySpots.slice(0, showAllSpots ? displaySpots.length : 5).map((spot, i) => {
         const isExpanded = expandedSpotIdx === i;
         const tierTotal = spot.tiers ? spot.tiers.short + spot.tiers.mid + spot.tiers.long : 0;
         return React.createElement('div', {
@@ -10549,7 +10563,7 @@ window.DashboardPage = () => {
             borderRadius: '8px', transition: 'background 0.15s',
             background: isExpanded ? 'rgba(233,30,99,0.06)' : 'transparent',
           },
-          onClick: () => setExpandedSpotIdx(isExpanded ? null : i),
+          onClick: () => stableSetExpandedSpotIdx(isExpanded ? null : i),
         },
           // メイン行
           React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -10572,10 +10586,13 @@ window.DashboardPage = () => {
                     style: { fontSize: '9px', padding: '0 4px', borderRadius: '4px', background: 'rgba(255,152,0,0.2)', color: '#FFB74D', fontWeight: 600 },
                   }, `イベント${spot.eventMultiplier}x`),
                   // 改善4: 金額帯ミニバー（メイン行に表示）
-                  tierTotal > 0 && React.createElement('span', { style: { display: 'inline-flex', gap: '1px', borderRadius: '3px', overflow: 'hidden', height: '6px', width: '40px', flexShrink: 0 } },
-                    spot.tiers.short > 0 && React.createElement('span', { style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50', height: '100%' } }),
-                    spot.tiers.mid > 0 && React.createElement('span', { style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800', height: '100%' } }),
-                    spot.tiers.long > 0 && React.createElement('span', { style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63', height: '100%' } })
+                  // 修正2: filter(Boolean)でfalse除去
+                  tierTotal > 0 && React.createElement('span', { style: { display: 'inline-flex', borderRadius: '3px', overflow: 'hidden', height: '6px', width: '40px', flexShrink: 0 } },
+                    ...[
+                      spot.tiers.short > 0 && React.createElement('span', { key: 's', style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50', height: '100%' } }),
+                      spot.tiers.mid > 0 && React.createElement('span', { key: 'm', style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800', height: '100%' } }),
+                      spot.tiers.long > 0 && React.createElement('span', { key: 'l', style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63', height: '100%' } }),
+                    ].filter(Boolean)
                   )
                 )
               )
@@ -10592,39 +10609,48 @@ window.DashboardPage = () => {
           // 展開時の詳細パネル（改善2: 情報量整理、改善3: ヒストグラム拡大）
           isExpanded && React.createElement('div', { style: { marginTop: '12px', padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', fontSize: 'var(--font-size-xs)' } },
 
-            // 改善3: 拡大ヒストグラム（48px、時間ラベル改善）
-            spot.hourly && React.createElement('div', { style: { marginBottom: '14px' } },
-              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'),
-                '時間帯分布'
-              ),
-              React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '48px', padding: '0 2px' } },
-                spot.hourly.map((v, h) => {
-                  const maxH = Math.max(...spot.hourly, 1);
-                  const pct = v / maxH * 100;
-                  const isNow = h === new Date().getHours();
-                  return React.createElement('div', {
-                    key: h,
-                    style: {
-                      flex: 1, height: `${Math.max(pct, v > 0 ? 10 : 3)}%`,
-                      background: isNow ? '#e91e63' : v > 0 ? 'rgba(233,30,99,0.4)' : 'rgba(255,255,255,0.06)',
-                      borderRadius: '2px 2px 0 0', position: 'relative',
-                    },
-                    title: `${h}時: ${v}件`,
-                  },
-                    isNow && React.createElement('div', {
-                      style: { position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
-                        fontSize: '8px', fontWeight: 700, color: '#e91e63', whiteSpace: 'nowrap' },
-                    }, '今')
-                  );
-                })
-              ),
-              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '9px', marginTop: '3px', padding: '0 2px' } },
-                [0, 3, 6, 9, 12, 15, 18, 21].map(h =>
-                  React.createElement('span', { key: h, style: { width: '12px', textAlign: 'center' } }, `${h}`)
+            // 修正1+5: ヒストグラム（時間軸修正、今ラベル余白確保）
+            spot.hourly && (() => {
+              const maxH = Math.max(...spot.hourly, 1);
+              const nowH = new Date().getHours();
+              return React.createElement('div', { style: { marginBottom: '14px' } },
+                React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'),
+                  '時間帯分布'
+                ),
+                // バーエリア（上に「今」ラベル用余白16px）
+                React.createElement('div', { style: { paddingTop: '16px' } },
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '48px' } },
+                    spot.hourly.map((v, h) => {
+                      const pct = v / maxH * 100;
+                      const isNow = h === nowH;
+                      return React.createElement('div', {
+                        key: h,
+                        style: {
+                          flex: 1, height: `${Math.max(pct, v > 0 ? 10 : 3)}%`,
+                          background: isNow ? '#e91e63' : v > 0 ? 'rgba(233,30,99,0.4)' : 'rgba(255,255,255,0.06)',
+                          borderRadius: '2px 2px 0 0', position: 'relative',
+                        },
+                        title: `${h}時: ${v}件`,
+                      },
+                        isNow && React.createElement('div', {
+                          style: { position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
+                            fontSize: '8px', fontWeight: 700, color: '#e91e63', whiteSpace: 'nowrap' },
+                        }, '今')
+                      );
+                    })
+                  )
+                ),
+                // 修正1: 時間軸ラベル — バーと同じflex配置で正確に位置合わせ
+                React.createElement('div', { style: { display: 'flex', gap: '1px', marginTop: '2px' } },
+                  Array.from({ length: 24 }, (_, h) =>
+                    React.createElement('div', { key: h, style: { flex: 1, textAlign: 'center', fontSize: '8px', color: 'var(--text-muted)' } },
+                      h % 3 === 0 ? `${h}` : ''
+                    )
+                  )
                 )
-              )
-            ),
+              );
+            })(),
 
             // 改善4: 金額帯（色付きドット凡例）
             tierTotal > 0 && React.createElement('div', { style: { marginBottom: '14px' } },
@@ -10671,8 +10697,8 @@ window.DashboardPage = () => {
               )
             ),
 
-            // イベント影響 + 行き先（横並び2列）
-            (spot.eventMultiplier > 1.0 || (spot.topDropoffs && spot.topDropoffs.length > 0)) &&
+            // 修正3: eventMultiplier null安全 + イベント影響 + 行き先（横並び2列）
+            ((spot.eventMultiplier && spot.eventMultiplier > 1.0) || (spot.topDropoffs && spot.topDropoffs.length > 0)) &&
             React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
               // イベント倍率
               spot.eventMultiplier && spot.eventMultiplier > 1.0 && React.createElement('div', { style: { flex: '1 1 120px' } },
@@ -10706,7 +10732,32 @@ window.DashboardPage = () => {
             )
           )
         );
-      })
+      }),
+      // 修正6: 「もっと見る」ボタン
+      !showAllSpots && displaySpots.length > 5 && React.createElement('div', {
+        style: { textAlign: 'center', paddingTop: '8px' },
+      },
+        React.createElement('button', {
+          onClick: (e) => { e.stopPropagation(); setShowAllSpots(true); },
+          style: {
+            border: 'none', background: 'rgba(233,30,99,0.1)', color: '#f48fb1',
+            padding: '6px 20px', borderRadius: '16px', fontSize: '12px', fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'var(--font-family)',
+          },
+        }, `残り${displaySpots.length - 5}件を表示`)
+      ),
+      showAllSpots && displaySpots.length > 5 && React.createElement('div', {
+        style: { textAlign: 'center', paddingTop: '8px' },
+      },
+        React.createElement('button', {
+          onClick: (e) => { e.stopPropagation(); setShowAllSpots(false); setExpandedSpotIdx(null); },
+          style: {
+            border: 'none', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)',
+            padding: '6px 20px', borderRadius: '16px', fontSize: '12px',
+            cursor: 'pointer', fontFamily: 'var(--font-family)',
+          },
+        }, '折りたたむ')
+      )
     ),
 
     // イベント需要アラート
