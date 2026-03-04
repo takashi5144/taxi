@@ -17766,6 +17766,9 @@ const GpsAnalysisTab = ({ refreshKey }) => {
   const playPolylineRef = useRef(null);
   const playMarkerRef = useRef(null);
   const playTrailRef = useRef(null);
+  const playSegmentsRef = useRef([]);
+  const pickupMarkersRef = useRef([]);
+  const pickupInfoWindowRef = useRef(null);
 
   useEffect(() => {
     if (subTab !== 'playback' || !window.GpsLogService) return;
@@ -17818,17 +17821,73 @@ const GpsAnalysisTab = ({ refreshKey }) => {
     if (playPolylineRef.current) playPolylineRef.current.setMap(null);
     if (playMarkerRef.current) playMarkerRef.current.setMap(null);
     if (playTrailRef.current) playTrailRef.current.setMap(null);
+    playSegmentsRef.current.forEach(s => s.polyline.setMap(null));
+    playSegmentsRef.current = [];
+    pickupMarkersRef.current.forEach(m => m.setMap(null));
+    pickupMarkersRef.current = [];
+    if (pickupInfoWindowRef.current) pickupInfoWindowRef.current.close();
 
     // 全ルートのポリライン（薄いライン）
     const path = trackData.map(p => ({ lat: p.lat, lng: p.lng }));
     playPolylineRef.current = new google.maps.Polyline({
-      path, map, strokeColor: 'rgba(255,255,255,0.2)', strokeWeight: 2,
+      path, map, strokeColor: 'rgba(255,255,255,0.15)', strokeWeight: 2,
     });
 
-    // 走行済みトレイル（色付き）
-    playTrailRef.current = new google.maps.Polyline({
-      path: [], map, strokeWeight: 4,
-    });
+    // セグメント別ポリライン（実車/空車色分け）
+    const segments = [];
+    let segStart = 0;
+    for (let i = 1; i <= trackData.length; i++) {
+      if (i === trackData.length || trackData[i].status !== trackData[segStart].status) {
+        const isOccupied = trackData[segStart].status === 'occupied';
+        const segPath = trackData.slice(segStart, i + (i < trackData.length ? 1 : 0))
+          .map(pt => ({ lat: pt.lat, lng: pt.lng }));
+        const polyline = new google.maps.Polyline({
+          path: segPath,
+          map: null, // 初期は非表示、再生で表示
+          strokeColor: isOccupied ? '#00e676' : '#ff9800',
+          strokeWeight: isOccupied ? 4 : 3,
+          strokeOpacity: 0.9,
+        });
+        segments.push({ startIdx: segStart, endIdx: i - 1, polyline, status: trackData[segStart].status });
+        segStart = i;
+      }
+    }
+    playSegmentsRef.current = segments;
+
+    // playTrailRefは互換性のため残す（非表示）
+    playTrailRef.current = null;
+
+    // 乗車地マーカー
+    if (playDate && window.DataService) {
+      const entries = DataService.getEntries();
+      const dayEntries = entries.filter(e => e.date === playDate && e.pickupCoords && e.pickupCoords.lat && e.pickupCoords.lng);
+      const iw = new google.maps.InfoWindow();
+      pickupInfoWindowRef.current = iw;
+      dayEntries.forEach(e => {
+        const marker = new google.maps.Marker({
+          position: { lat: e.pickupCoords.lat, lng: e.pickupCoords.lng },
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: '#ff1744',
+            fillOpacity: 0.9,
+            strokeColor: '#fff',
+            strokeWeight: 1.5,
+            scale: 6,
+          },
+          zIndex: 50,
+          title: e.pickup || '乗車地',
+        });
+        marker.addListener('click', () => {
+          const amt = e.amount ? `${Number(e.amount).toLocaleString()}円` : '---';
+          const time = e.pickupTime || '---';
+          const place = e.pickup || '不明';
+          iw.setContent(`<div style="color:#333;font-size:13px;line-height:1.5;min-width:120px"><b>${amt}</b><br>${time} | ${place}</div>`);
+          iw.open(map, marker);
+        });
+        pickupMarkersRef.current.push(marker);
+      });
+    }
 
     // 現在位置マーカー
     playMarkerRef.current = new google.maps.Marker({
@@ -17841,7 +17900,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
     const bounds = new google.maps.LatLngBounds();
     path.forEach(p => bounds.extend(p));
     map.fitBounds(bounds, 40);
-  }, [trackData]);
+  }, [trackData, playDate]);
 
   // プレイバック位置更新
   useEffect(() => {
@@ -17851,14 +17910,32 @@ const GpsAnalysisTab = ({ refreshKey }) => {
     const pos = { lat: p.lat, lng: p.lng };
     playMarkerRef.current.setPosition(pos);
 
-    // 走行済みトレイルを更新（色は実車/空車で変化）
-    if (playTrailRef.current) {
-      const trailPath = trackData.slice(0, idx + 1).map(pt => ({ lat: pt.lat, lng: pt.lng }));
-      playTrailRef.current.setPath(trailPath);
-      playTrailRef.current.setOptions({
-        strokeColor: p.status === 'occupied' ? '#00e676' : '#ff9800',
-      });
+    // セグメント別表示更新
+    const segments = playSegmentsRef.current;
+    for (const seg of segments) {
+      if (seg.endIdx < idx) {
+        // 完全に通過済み → フル表示（次セグメントとの接続点も含む）
+        if (!seg.polyline.getMap()) seg.polyline.setMap(playMapInstanceRef.current);
+        const end = Math.min(seg.endIdx + 2, trackData.length);
+        const fullPath = trackData.slice(seg.startIdx, end).map(pt => ({ lat: pt.lat, lng: pt.lng }));
+        seg.polyline.setPath(fullPath);
+      } else if (seg.startIdx <= idx) {
+        // 現在位置を含むセグメント → 途中まで表示
+        if (!seg.polyline.getMap()) seg.polyline.setMap(playMapInstanceRef.current);
+        const partialPath = trackData.slice(seg.startIdx, idx + 1).map(pt => ({ lat: pt.lat, lng: pt.lng }));
+        seg.polyline.setPath(partialPath);
+      } else {
+        // まだ到達していないセグメント → 非表示
+        seg.polyline.setMap(null);
+      }
     }
+
+    // 現在位置マーカーの色を実車/空車で変える
+    playMarkerRef.current.setIcon({
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: p.status === 'occupied' ? '#00e676' : '#ff9800',
+      fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2, scale: 8,
+    });
   }, [playIdx, trackData]);
 
   // 再生タイマー
@@ -17876,7 +17953,14 @@ const GpsAnalysisTab = ({ refreshKey }) => {
 
   // クリーンアップ
   useEffect(() => {
-    return () => { if (playTimerRef.current) clearInterval(playTimerRef.current); };
+    return () => {
+      if (playTimerRef.current) clearInterval(playTimerRef.current);
+      playSegmentsRef.current.forEach(s => s.polyline.setMap(null));
+      playSegmentsRef.current = [];
+      pickupMarkersRef.current.forEach(m => m.setMap(null));
+      pickupMarkersRef.current = [];
+      if (pickupInfoWindowRef.current) pickupInfoWindowRef.current.close();
+    };
   }, []);
 
   const subTabs = [
