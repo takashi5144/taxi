@@ -865,6 +865,16 @@ window.TaxiApp.utils.getNowTime = () => {
   return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 };
 
+// WMO天気コードを天候カテゴリに変換（共通ユーティリティ）
+window.TaxiApp.utils.wmoToWeather = (code, fallback = '曇り') => {
+  if (code === undefined || code === null) return fallback;
+  if (code <= 1) return '晴れ';
+  if (code <= 3 || code === 45 || code === 48) return '曇り';
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
+  return fallback;
+};
+
 window.TaxiApp.utils.nominatimUrl = (lat, lng, zoom = 18) => {
   const params = new URLSearchParams({ format: 'json', lat: String(lat), lon: String(lng), zoom: String(zoom), addressdetails: '1', 'accept-language': 'ja' });
   return `https://nominatim.openstreetmap.org/reverse?${params}`;
@@ -960,7 +970,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.8.4',
+  VERSION: '2.9.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3187,7 +3197,12 @@ window.DataService = (() => {
         areaByHour[e.pickup].count += 1;
       }
     });
-    const topAreas = Object.values(areaByHour).sort((a, b) => b.amount - a.amount).slice(0, 3);
+    // 奇数日は駅前エリアを除外
+    const isOddDay = now.getDate() % 2 !== 0;
+    const stationPat = /駅前|旭川駅/;
+    let sortedAreas = Object.values(areaByHour).sort((a, b) => b.amount - a.amount);
+    if (isOddDay) sortedAreas = sortedAreas.filter(a => !stationPat.test(a.name));
+    const topAreas = sortedAreas.slice(0, 3);
 
     // 今日の曜日で平均単価が高い時間帯TOP3
     const hourByDow = {};
@@ -3519,7 +3534,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車時間,待機時間,降車地,降車時間,人数,性別,用途,配車方法,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車緯度,乗車経度,乗車時間,待機時間,降車地,降車緯度,降車経度,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -3543,7 +3558,11 @@ window.DataService = (() => {
       const source = e.source || '';
       const memo = (e.memo || '').replace(/,/g, '、');
       const waitingTime = e.waitingTime || '';
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupTime},${waitingTime},${dropoff},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
+      const pickupLat = e.pickupCoords ? e.pickupCoords.lat : '';
+      const pickupLng = e.pickupCoords ? e.pickupCoords.lng : '';
+      const dropoffLat = e.dropoffCoords ? e.dropoffCoords.lat : '';
+      const dropoffLng = e.dropoffCoords ? e.dropoffCoords.lng : '';
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupLat},${pickupLng},${pickupTime},${waitingTime},${dropoff},${dropoffLat},${dropoffLng},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -3989,12 +4008,14 @@ window.DataService = (() => {
       AppLogger.warn('エクスポート対象の他社乗車データがありません');
       return false;
     }
-    const header = 'ID,日付,曜日,祝日,時間,天候,乗車場所,メモ';
+    const header = 'ID,日付,曜日,祝日,時間,天候,乗車場所,緯度,経度,メモ';
     const rows = entries.map(e => {
       const weather = (e.weather || '').replace(/,/g, '、');
       const location = (e.location || '').replace(/,/g, '、');
       const memo = (e.memo || '').replace(/,/g, '、');
-      return `${e.id},${e.date},${e.dayOfWeek},${e.holiday},${e.time},${weather},${location},${memo}`;
+      const lat = e.locationCoords ? e.locationCoords.lat : '';
+      const lng = e.locationCoords ? e.locationCoords.lng : '';
+      return `${e.id},${e.date},${e.dayOfWeek},${e.holiday},${e.time},${weather},${location},${lat},${lng},${memo}`;
     });
     const csv = '\uFEFF' + header + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -4203,10 +4224,12 @@ window.DataService = (() => {
     }
     const densityLabels = { many: '多い', normal: '普通', few: '少ない', none: 'いない' };
     const typeLabels = { station: '駅', hospital: '病院', commercial: '商業施設', office: 'オフィス街', residential: '住宅街', event: 'イベント', other: 'その他' };
-    const header = 'ID,日付,曜日,祝日,時刻,場所,客の多さ,場所タイプ,天気,滞在分,メモ,入力方法';
+    const header = 'ID,日付,曜日,祝日,時刻,場所,緯度,経度,客の多さ,場所タイプ,天気,滞在分,メモ,入力方法';
     const rows = entries.map(e => {
       const esc = (s) => (s || '').replace(/,/g, '、');
-      return `${e.id},${e.date},${e.dayOfWeek},${e.holiday},${e.time},${esc(e.location)},${densityLabels[e.density] || e.density},${typeLabels[e.locationType] || e.locationType},${esc(e.weather)},${e.stayMinutes || 0},${esc(e.memo)},${e.source || 'manual'}`;
+      const lat = e.locationCoords ? e.locationCoords.lat : '';
+      const lng = e.locationCoords ? e.locationCoords.lng : '';
+      return `${e.id},${e.date},${e.dayOfWeek},${e.holiday},${e.time},${esc(e.location)},${lat},${lng},${densityLabels[e.density] || e.density},${typeLabels[e.locationType] || e.locationType},${esc(e.weather)},${e.stayMinutes || 0},${esc(e.memo)},${e.source || 'manual'}`;
     });
     const csv = '\uFEFF' + header + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -4384,8 +4407,12 @@ window.DataService = (() => {
       areas[e.pickup].total += e.amount;
       areas[e.pickup].count += 1;
     });
+    // 奇数日は駅前エリアを除外
+    const isOddDay = now.getDate() % 2 !== 0;
+    const stPat = /駅前|旭川駅/;
     return Object.values(areas)
       .filter(a => a.count >= 2)
+      .filter(a => !isOddDay || !stPat.test(a.name))
       .map(a => ({ ...a, avg: Math.round(a.total / a.count) }))
       .sort((a, b) => b.avg - a.avg)
       .slice(0, 3);
@@ -4745,14 +4772,25 @@ window.DataService = (() => {
     // 時間順ソート
     mergedPlan.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 
+    // 奇数日フィルタ: 駅前待機不可の日は駅関連ブロックを除外
+    const isOddDay = now.getDate() % 2 !== 0;
+    const stationPattern = /駅前|旭川駅/;
+    const filteredPlan = isOddDay
+      ? mergedPlan.filter(block => !stationPattern.test(block.location || '') || /病院|医大|商業|イオン|ホテル/.test(block.action || ''))
+      : mergedPlan;
+    const filteredDemandWindows = isOddDay
+      ? (geminiData.demandWindows || []).filter(w => !stationPattern.test(w.location || ''))
+      : (geminiData.demandWindows || []);
+
     return {
       available: true,  // バスデータは常にあるのでtrue
       date: today,
       transitArrivals: mergedArrivals,
       hospitalWindows: geminiData.hospitalWindows || [],
-      demandWindows: geminiData.demandWindows || [],
+      demandWindows: filteredDemandWindows,
       hotelWindows: hotelWindows,
-      dailyPlan: mergedPlan,
+      dailyPlan: filteredPlan,
+      isOddDay: isOddDay,
       hasGeminiPlan: hasGemini,
     };
   }
@@ -4825,20 +4863,34 @@ window.DataService = (() => {
       return 1.0;
     })();
 
-    // 天気係数: formの天気 or entries最新の天気から推定
+    // 天気係数: GPSキャッシュ優先 → 直近エントリーフォールバック
     const weatherFactor = (() => {
-      // 直近エントリーから天気取得
-      const entries = getEntries();
-      const today = now.toISOString().slice(0, 10);
-      const todayEntries = entries.filter(e => e.date === today && e.weather);
-      let weather = '';
-      if (todayEntries.length > 0) {
-        weather = todayEntries[todayEntries.length - 1].weather;
+      // GPSキャッシュ天気を最優先使用
+      const gpsWeather = GpsLogService.getCurrentWeather();
+      let weather = gpsWeather ? gpsWeather.weather : '';
+      // フォールバック: 直近エントリーから天気取得
+      if (!weather) {
+        const entries = getEntries();
+        const today = now.toISOString().slice(0, 10);
+        const todayEntries = entries.filter(e => e.date === today && e.weather);
+        if (todayEntries.length > 0) weather = todayEntries[todayEntries.length - 1].weather;
       }
       if (weather === '雨') return 1.25;
       if (weather === '雪') return 1.35;
       return 1.0;
     })();
+
+    // スポットマッチング共通ヘルパー
+    const spotKeywords = {
+      station: /駅前|駅/, asahikawa_medical: /医大|医科大/, red_cross: /赤十字/,
+      kosei: /厚生/, shiritsu: /市立/, aeon: /イオン/,
+    };
+    function _matchesSpot(spotId, text, coords, spotDef) {
+      const kw = spotKeywords[spotId];
+      if (kw && kw.test(text)) return true;
+      if (coords && Math.abs(coords.lat - spotDef.lat) < 0.003 && Math.abs(coords.lng - spotDef.lng) < 0.003) return true;
+      return false;
+    }
 
     // 履歴データ集計: 各スポットの時間帯別平均需要
     const entries = getEntries();
@@ -4851,16 +4903,46 @@ window.DataService = (() => {
       const hour = parseInt(e.pickupTime.split(':')[0], 10);
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       spots.forEach(spot => {
-        let match = false;
-        if (spot.id === 'station' && (/駅前|駅/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
-        if (spot.id === 'asahikawa_medical' && (/医大|医科大/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
-        if (spot.id === 'red_cross' && (/赤十字/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
-        if (spot.id === 'kosei' && (/厚生/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
-        if (spot.id === 'shiritsu' && (/市立/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
-        if (spot.id === 'aeon' && (/イオン/.test(e.pickup) || (e.pickupCoords && Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003))) match = true;
-        if (match) {
+        if (_matchesSpot(spot.id, e.pickup, e.pickupCoords, spot)) {
           historyBySpot[spot.id][hour].total += (e.amount || 0);
           historyBySpot[spot.id][hour].count += 1;
+        }
+      });
+    });
+
+    // 集客メモ密度集計: 場所×時間帯のスコア
+    const gatheringBySpot = {};
+    spots.forEach(spot => {
+      gatheringBySpot[spot.id] = new Array(24).fill(null).map(() => ({ totalScore: 0, count: 0 }));
+    });
+    const densityScoreMap = { many: 3, normal: 2, few: 1, none: 0 };
+    const gatheringMemos = getGatheringMemos();
+    gatheringMemos.forEach(m => {
+      if (!m.time || !m.density) return;
+      const hour = parseInt(m.time.split(':')[0], 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) return;
+      spots.forEach(spot => {
+        const matched = _matchesSpot(spot.id, m.location || '', m.locationCoords, spot);
+        if (matched) {
+          gatheringBySpot[spot.id][hour].totalScore += (densityScoreMap[m.density] || 0);
+          gatheringBySpot[spot.id][hour].count += 1;
+        }
+      });
+    });
+
+    // 他社乗車密度集計: 場所×時間帯の目撃回数
+    const rivalBySpot = {};
+    spots.forEach(spot => {
+      rivalBySpot[spot.id] = new Array(24).fill(null).map(() => 0);
+    });
+    const rivalEntries = getRivalEntries();
+    rivalEntries.forEach(r => {
+      if (!r.time) return;
+      const hour = parseInt(r.time.split(':')[0], 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) return;
+      spots.forEach(spot => {
+        if (_matchesSpot(spot.id, r.location || '', r.locationCoords, spot)) {
+          rivalBySpot[spot.id][hour] += 1;
         }
       });
     });
@@ -4932,8 +5014,23 @@ window.DataService = (() => {
           peakBoost = spot.peakBoost.boost;
         }
 
+        // 集客メモ密度ブレンド: メモ2件以上の時間帯で30%メモ密度+70%既存値
+        const gath = gatheringBySpot[spot.id][h];
+        if (gath.count >= 2) {
+          const avgDensity = gath.totalScore / gath.count; // 0-3スケール
+          const memoDemand = (avgDensity / 3) * 100; // 0-100にスケール
+          base = memoDemand * 0.3 + base * 0.7;
+        }
+
+        // 他社乗車ペナルティ: 2件以上で-5pt/件、最大-25pt
+        const rivalCount = rivalBySpot[spot.id][h];
+        let rivalPenalty = 0;
+        if (rivalCount >= 2) {
+          rivalPenalty = Math.min(rivalCount * 5, 25);
+        }
+
         // 合算して係数適用
-        let index = (base + transitBoost + hotelBoost + peakBoost) * dayFactor * weatherFactor;
+        let index = (base + transitBoost + hotelBoost + peakBoost) * dayFactor * weatherFactor - rivalPenalty;
         index = Math.round(Math.max(0, Math.min(100, index)));
         hourlyIndex.push({ hour: h, index: index, disabled: false });
       }
@@ -4982,16 +5079,31 @@ window.DataService = (() => {
       return 1.0;
     })();
 
+    // 天気係数: GPSキャッシュ優先 → 直近エントリーフォールバック
     const weatherFactor = (() => {
-      const entries = getEntries();
-      const today = now.toISOString().slice(0, 10);
-      const todayEntries = entries.filter(e => e.date === today && e.weather);
-      let weather = '';
-      if (todayEntries.length > 0) weather = todayEntries[todayEntries.length - 1].weather;
+      const gpsWeather = GpsLogService.getCurrentWeather();
+      let weather = gpsWeather ? gpsWeather.weather : '';
+      if (!weather) {
+        const entries = getEntries();
+        const today = now.toISOString().slice(0, 10);
+        const todayEntries = entries.filter(e => e.date === today && e.weather);
+        if (todayEntries.length > 0) weather = todayEntries[todayEntries.length - 1].weather;
+      }
       if (weather === '雨') return 1.25;
       if (weather === '雪') return 1.35;
       return 1.0;
     })();
+
+    // エリアマッチングヘルパー
+    function _matchesArea(area, text, coords) {
+      const kw = area.keywords.join('|');
+      if (new RegExp(kw).test(text)) return true;
+      if (coords) {
+        const dist = Math.sqrt(Math.pow(coords.lat - area.lat, 2) + Math.pow(coords.lng - area.lng, 2));
+        if (dist < 0.015) return true;
+      }
+      return false;
+    }
 
     // 履歴データ集計
     const entries = getEntries();
@@ -5004,16 +5116,45 @@ window.DataService = (() => {
       const hour = parseInt(e.pickupTime.split(':')[0], 10);
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       areas.forEach(area => {
-        let match = false;
-        const kw = area.keywords.join('|');
-        if (new RegExp(kw).test(e.pickup)) match = true;
-        if (!match && e.pickupCoords) {
-          const dist = Math.sqrt(Math.pow(e.pickupCoords.lat - area.lat, 2) + Math.pow(e.pickupCoords.lng - area.lng, 2));
-          if (dist < 0.015) match = true;
-        }
-        if (match) {
+        if (_matchesArea(area, e.pickup, e.pickupCoords)) {
           historyByArea[area.id][hour].total += (e.amount || 0);
           historyByArea[area.id][hour].count += 1;
+        }
+      });
+    });
+
+    // 集客メモ密度集計
+    const gatheringByArea = {};
+    areas.forEach(area => {
+      gatheringByArea[area.id] = new Array(24).fill(null).map(() => ({ totalScore: 0, count: 0 }));
+    });
+    const densityScoreMap2 = { many: 3, normal: 2, few: 1, none: 0 };
+    const gatheringMemos2 = getGatheringMemos();
+    gatheringMemos2.forEach(m => {
+      if (!m.time || !m.density) return;
+      const hour = parseInt(m.time.split(':')[0], 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) return;
+      areas.forEach(area => {
+        if (_matchesArea(area, m.location || '', m.locationCoords)) {
+          gatheringByArea[area.id][hour].totalScore += (densityScoreMap2[m.density] || 0);
+          gatheringByArea[area.id][hour].count += 1;
+        }
+      });
+    });
+
+    // 他社乗車密度集計
+    const rivalByArea = {};
+    areas.forEach(area => {
+      rivalByArea[area.id] = new Array(24).fill(null).map(() => 0);
+    });
+    const rivalEntries2 = getRivalEntries();
+    rivalEntries2.forEach(r => {
+      if (!r.time) return;
+      const hour = parseInt(r.time.split(':')[0], 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) return;
+      areas.forEach(area => {
+        if (_matchesArea(area, r.location || '', r.locationCoords)) {
+          rivalByArea[area.id][hour] += 1;
         }
       });
     });
@@ -5030,7 +5171,22 @@ window.DataService = (() => {
           base = histAvg * 0.6 + base * 0.4;
         }
 
-        let index = base * dayFactor * weatherFactor;
+        // 集客メモ密度ブレンド
+        const gath = gatheringByArea[area.id][h];
+        if (gath.count >= 2) {
+          const avgDensity = gath.totalScore / gath.count;
+          const memoDemand = (avgDensity / 3) * 100;
+          base = memoDemand * 0.3 + base * 0.7;
+        }
+
+        // 他社乗車ペナルティ
+        const rivalCount = rivalByArea[area.id][h];
+        let rivalPenalty = 0;
+        if (rivalCount >= 2) {
+          rivalPenalty = Math.min(rivalCount * 5, 25);
+        }
+
+        let index = base * dayFactor * weatherFactor - rivalPenalty;
         index = Math.round(Math.max(0, Math.min(100, index)));
         hourlyIndex.push({ hour: h, index: index });
       }
@@ -5445,6 +5601,169 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // シフト生産性分析
+  // ============================================================
+  function getShiftProductivity() {
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    const entries = getEntries();
+    if (shifts.length === 0) return { shifts: [], totals: null };
+
+    const results = [];
+    shifts.forEach(s => {
+      if (!s.startTime || !s.endTime) return; // 未完了シフトは除外
+      const start = new Date(s.startTime);
+      const end = new Date(s.endTime);
+      const shiftDate = toDateStr(s.startTime);
+      const dateInfo = JapaneseHolidays.getDateInfo(shiftDate);
+
+      // 勤務時間（分）
+      const workMinutesGross = Math.round((end - start) / 60000);
+
+      // 休憩時間（分）
+      let breakMinutes = 0;
+      breaks.forEach(b => {
+        if (!b.startTime || !b.endTime) return;
+        const bStart = new Date(b.startTime);
+        const bEnd = new Date(b.endTime);
+        // このシフト時間内の休憩のみ
+        if (bStart >= start && bEnd <= end) {
+          breakMinutes += Math.round((bEnd - bStart) / 60000);
+        }
+      });
+      const actualMinutes = Math.max(0, workMinutesGross - breakMinutes);
+
+      // シフト内売上エントリをマッチング
+      const shiftEntries = entries.filter(e => {
+        if (!e.timestamp) return false;
+        const t = new Date(e.timestamp);
+        return t >= start && t <= end;
+      });
+      const totalAmount = shiftEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+      const rideCount = shiftEntries.length;
+      const hourlyRate = actualMinutes > 0 ? Math.round(totalAmount / (actualMinutes / 60)) : 0;
+      const avgPrice = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
+
+      results.push({
+        date: shiftDate,
+        dayOfWeek: dateInfo.dayOfWeek,
+        holiday: dateInfo.holiday || '',
+        startTime: start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        endTime: end.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        workMinutesGross,
+        breakMinutes,
+        actualMinutes,
+        totalAmount,
+        rideCount,
+        hourlyRate,
+        avgPrice,
+      });
+    });
+
+    // ソート: 日付降順
+    results.sort((a, b) => b.date.localeCompare(a.date));
+
+    // 合計/平均
+    const totals = results.length > 0 ? {
+      shiftCount: results.length,
+      totalWorkMinutes: results.reduce((s, r) => s + r.workMinutesGross, 0),
+      totalBreakMinutes: results.reduce((s, r) => s + r.breakMinutes, 0),
+      totalActualMinutes: results.reduce((s, r) => s + r.actualMinutes, 0),
+      totalAmount: results.reduce((s, r) => s + r.totalAmount, 0),
+      totalRides: results.reduce((s, r) => s + r.rideCount, 0),
+      avgHourlyRate: Math.round(results.reduce((s, r) => s + r.hourlyRate, 0) / results.length),
+      avgPrice: Math.round(results.reduce((s, r) => s + r.avgPrice, 0) / results.length),
+    } : null;
+
+    return { shifts: results, totals };
+  }
+
+  // ============================================================
+  // 天気×売上相関
+  // ============================================================
+  function getWeatherRevenueCorrelation() {
+    const entries = getEntries();
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    const byWeather = {};
+    weathers.forEach(w => { byWeather[w] = { name: w, totalAmount: 0, totalRides: 0, days: new Set() }; });
+
+    entries.forEach(e => {
+      const w = e.weather && weathers.includes(e.weather) ? e.weather : null;
+      if (!w) return;
+      byWeather[w].totalAmount += (e.amount || 0);
+      byWeather[w].totalRides += 1;
+      byWeather[w].days.add(e.date || toDateStr(e.timestamp));
+    });
+
+    return weathers.map(w => {
+      const d = byWeather[w];
+      const dayCount = d.days.size;
+      return {
+        name: w,
+        dailyAvgAmount: dayCount > 0 ? Math.round(d.totalAmount / dayCount) : 0,
+        avgPrice: d.totalRides > 0 ? Math.round(d.totalAmount / d.totalRides) : 0,
+        dailyAvgRides: dayCount > 0 ? Math.round(d.totalRides / dayCount * 10) / 10 : 0,
+        dayCount,
+        totalRides: d.totalRides,
+        totalAmount: d.totalAmount,
+      };
+    });
+  }
+
+  // ============================================================
+  // 集客メモ×売上検証
+  // ============================================================
+  function getGatheringRevenueCorrelation() {
+    const memos = getGatheringMemos();
+    const entries = getEntries();
+    if (memos.length === 0) return [];
+
+    // 場所別に集約
+    const byLocation = {};
+    memos.forEach(m => {
+      if (!m.location) return;
+      if (!byLocation[m.location]) {
+        byLocation[m.location] = { location: m.location, memoCount: 0, totalDensityScore: 0, coords: m.locationCoords || null, matchedRides: 0, matchedAmount: 0 };
+      }
+      byLocation[m.location].memoCount += 1;
+      const ds = { many: 3, normal: 2, few: 1, none: 0 };
+      byLocation[m.location].totalDensityScore += (ds[m.density] || 0);
+      if (!byLocation[m.location].coords && m.locationCoords) byLocation[m.location].coords = m.locationCoords;
+    });
+
+    // 各集客メモ場所について同日同エリア（300m以内）の売上エントリをマッチング
+    Object.values(byLocation).forEach(loc => {
+      // テキストマッチング + 座標マッチング
+      entries.forEach(e => {
+        let matched = false;
+        // テキストで部分一致
+        if (e.pickup && loc.location && e.pickup.includes(loc.location)) matched = true;
+        if (!matched && e.pickup && loc.location && loc.location.includes(e.pickup) && e.pickup.length >= 3) matched = true;
+        // 座標で300m以内
+        if (!matched && loc.coords && e.pickupCoords) {
+          const dLat = loc.coords.lat - e.pickupCoords.lat;
+          const dLng = loc.coords.lng - e.pickupCoords.lng;
+          const approxDist = Math.sqrt(dLat * dLat + dLng * dLng) * 111000; // 概算メートル
+          if (approxDist < 300) matched = true;
+        }
+        if (matched) {
+          loc.matchedRides += 1;
+          loc.matchedAmount += (e.amount || 0);
+        }
+      });
+    });
+
+    return Object.values(byLocation).map(loc => ({
+      location: loc.location,
+      memoCount: loc.memoCount,
+      avgDensity: loc.memoCount > 0 ? Math.round(loc.totalDensityScore / loc.memoCount * 10) / 10 : 0,
+      matchedRides: loc.matchedRides,
+      matchedAmount: loc.matchedAmount,
+      verdict: loc.matchedRides >= 3 && loc.avgDensity >= 2 ? '行く価値あり' : loc.matchedRides >= 1 ? '要検討' : 'データ不足',
+    })).sort((a, b) => b.matchedAmount - a.matchedAmount);
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -5464,6 +5783,9 @@ window.DataService = (() => {
     getWeeklyBreakdown,
     getMonthlyBreakdown,
     getWeatherBreakdown,
+    getWeatherRevenueCorrelation,
+    getShiftProductivity,
+    getGatheringRevenueCorrelation,
     getSourceBreakdown,
     getPurposeBreakdown,
     getPurposeDayAnalysis,
@@ -6322,15 +6644,8 @@ window.GpsLogService = (() => {
   let _weatherCache = null;       // { w: '晴れ', tp: 5.2, wc: 1, ts: Date.now() }
   let _weatherTimer = null;
 
-  // WMO天気コードを天候カテゴリに変換（IIFEスコープ内にローカルコピー）
-  function _wmoToWeather(code) {
-    if (code === undefined || code === null) return '曇り';
-    if (code <= 1) return '晴れ';
-    if (code <= 3 || code === 45 || code === 48) return '曇り';
-    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
-    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
-    return '曇り';
-  }
+  // WMO天気コードを天候カテゴリに変換（共通ユーティリティ委譲）
+  const _wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '曇り');
 
   /** Open-Meteo APIから現在地の天気を取得しキャッシュ更新 */
   function _fetchWeather() {
@@ -6932,6 +7247,46 @@ window.GpsLogService = (() => {
     return periods;
   }
 
+  /** GPSキャッシュ天気を公開（10分以内のキャッシュを返す、古い/未取得はnull） */
+  function getCurrentWeather() {
+    if (!_weatherCache) return null;
+    if (Date.now() - _weatherCache.ts > 600000) return null; // 10分超は古い
+    return { weather: _weatherCache.w, temperature: _weatherCache.tp, weatherCode: _weatherCache.wc };
+  }
+
+  /** GPS天気トレンド: GPSポイントのw/tpフィールドを時間帯別に集約 */
+  async function getWeatherTrend(dateStr) {
+    const log = await getLogForDate(dateStr);
+    if (log.length === 0) return { date: dateStr, hourly: [] };
+
+    const byHour = {};
+    log.forEach(p => {
+      if (p.w === undefined && p.tp === undefined) return; // 天気データなし
+      const hour = new Date(p.t).getHours();
+      if (!byHour[hour]) byHour[hour] = { temps: [], weatherCounts: {} };
+      if (p.tp != null) byHour[hour].temps.push(p.tp);
+      if (p.w) {
+        byHour[hour].weatherCounts[p.w] = (byHour[hour].weatherCounts[p.w] || 0) + 1;
+      }
+    });
+
+    const hourly = [];
+    for (let h = 0; h < 24; h++) {
+      const data = byHour[h];
+      if (!data) continue;
+      const avgTemp = data.temps.length > 0 ? Math.round(data.temps.reduce((s, t) => s + t, 0) / data.temps.length * 10) / 10 : null;
+      // 主要天気: 最頻出カテゴリ
+      let mainWeather = null;
+      let maxCount = 0;
+      Object.entries(data.weatherCounts).forEach(([w, c]) => {
+        if (c > maxCount) { mainWeather = w; maxCount = c; }
+      });
+      hourly.push({ hour: h, avgTemp, mainWeather, sampleCount: data.temps.length });
+    }
+
+    return { date: dateStr, hourly };
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -6942,7 +7297,9 @@ window.GpsLogService = (() => {
     clearAll,
     cleanup,
     exportCsv,
-    // 天気ポーリング
+    // 天気
+    getCurrentWeather,
+    getWeatherTrend,
     startWeatherPolling,
     stopWeatherPolling,
     // 分析API
@@ -10793,16 +11150,8 @@ window.RevenuePage = () => {
 
   const getNowTime = TaxiApp.utils.getNowTime;
 
-  // WMO天気コードを天候カテゴリに変換
-  const wmoToWeather = (code) => {
-    if (code === undefined || code === null) return '';
-    // 0-1: 晴れ, 2-3: 曇り, 45-67: 雨系, 71-77,85-86: 雪系
-    if (code <= 1) return '晴れ';
-    if (code <= 3 || code === 45 || code === 48) return '曇り';
-    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
-    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
-    return '曇り'; // デフォルト
-  };
+  // WMO天気コードを天候カテゴリに変換（共通ユーティリティ委譲）
+  const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
@@ -10811,6 +11160,7 @@ window.RevenuePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
+  const pickupGpsDone = useRef(false); // 乗車地GPS取得済みフラグ（手動/自動問わず、1回取得したら以降の自動取得を抑止）
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
@@ -10822,10 +11172,18 @@ window.RevenuePage = () => {
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
 
-  // ページ読み込み時に天気を自動取得
+  // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
     if (weatherFetched.current) return;
     weatherFetched.current = true;
+
+    // GPSキャッシュから天気取得を試みる
+    const cached = GpsLogService.getCurrentWeather();
+    if (cached && cached.weather) {
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      AppLogger.info(`売上 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
+      return;
+    }
 
     const fetchWeather = () => {
       if (!navigator.geolocation) {
@@ -10897,6 +11255,8 @@ window.RevenuePage = () => {
 
   // GPS座標から逆ジオコーディングして住所をフォームに反映
   const _reverseGeocodeAndSetForm = useCallback((lat, lng, acc, field) => {
+    // 乗車地GPS取得済みフラグを立てる（以降の自動取得を抑止）
+    if (field === 'pickup') pickupGpsDone.current = true;
     setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
 
     if (apiKey && window.google && window.google.maps) {
@@ -11021,6 +11381,10 @@ window.RevenuePage = () => {
     const checkPending = () => {
       if (window.__watchGpsTriggerPending) {
         window.__watchGpsTriggerPending = false;
+        if (pickupGpsDone.current) {
+          AppLogger.info('ウォッチGPSトリガー検知 → 乗車地GPS取得済みのためスキップ');
+          return false;
+        }
         AppLogger.info('ウォッチGPSトリガー検知 → 乗車地GPS取得開始');
         getGpsLocation('pickup');
         return true;
@@ -11068,12 +11432,14 @@ window.RevenuePage = () => {
     let consuming = false;
     const poll = async () => {
       if (cancelled || consuming) return;
+      if (pickupGpsDone.current) return; // 乗車地GPS取得済みなら自動取得しない
       try {
         const res = await fetch('/api/gps?uid=' + encodeURIComponent(watchUid));
         if (cancelled) return;
         const data = await res.json();
         if (data.empty || cancelled) return;
         consuming = true;
+        pickupGpsDone.current = true; // ウォッチGPS取得済みフラグ
         const lat = data.lat, lng = data.lng, acc = data.accuracy;
         const d = new Date(data.timestamp);
         const pickupTime = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -11228,6 +11594,7 @@ window.RevenuePage = () => {
 
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
+    pickupGpsDone.current = false; // 新規記録用にGPSフラグリセット
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -12794,14 +13161,7 @@ window.RivalRidePage = () => {
 
   const getNowTime = TaxiApp.utils.getNowTime;
 
-  const wmoToWeather = (code) => {
-    if (code === undefined || code === null) return '';
-    if (code <= 1) return '晴れ';
-    if (code <= 3 || code === 45 || code === 48) return '曇り';
-    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
-    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
-    return '曇り';
-  };
+  const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState({ date: todayDefault, time: getNowTime(), weather: '', location: '', locationCoords: null, memo: '' });
@@ -12817,10 +13177,18 @@ window.RivalRidePage = () => {
 
   const { apiKey } = useAppContext();
 
-  // ページロード時に天気を自動取得
+  // ページロード時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
     if (weatherFetched.current) return;
     weatherFetched.current = true;
+
+    // GPSキャッシュから天気取得を試みる
+    const cached = GpsLogService.getCurrentWeather();
+    if (cached && cached.weather) {
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      AppLogger.info(`他社乗車 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
+      return;
+    }
 
     if (!navigator.geolocation) return;
     setWeatherLoading(true);
@@ -16089,6 +16457,8 @@ window.AnalyticsPage = () => {
   const hourly = useMemo(() => tab === 'hourly' ? DataService.getHourlyBreakdown() : [], [refreshKey, tab]);
   const areas = useMemo(() => tab === 'area' ? DataService.getAreaBreakdown() : { pickups: [], dropoffs: [] }, [refreshKey, tab]);
   const weather = useMemo(() => tab === 'weather' ? DataService.getWeatherBreakdown() : [], [refreshKey, tab]);
+  const weatherCorrelation = useMemo(() => tab === 'weather' ? DataService.getWeatherRevenueCorrelation() : [], [refreshKey, tab]);
+  const shiftProductivity = useMemo(() => tab === 'shift' ? DataService.getShiftProductivity() : { shifts: [], totals: null }, [refreshKey, tab]);
 
   const rivalHourly = useMemo(() => tab === 'rival' ? DataService.getRivalHourlyBreakdown() : [], [refreshKey, tab]);
   const rivalDow = useMemo(() => tab === 'rival' ? DataService.getRivalDayOfWeekBreakdown() : [], [refreshKey, tab]);
@@ -16132,6 +16502,7 @@ window.AnalyticsPage = () => {
     { id: 'hourly', label: '時間帯別', icon: 'schedule' },
     { id: 'area', label: 'エリア別', icon: 'place' },
     { id: 'weather', label: '天候別', icon: 'cloud' },
+    { id: 'shift', label: '稼働分析', icon: 'work_history' },
     { id: 'purposeDay', label: '用途別', icon: 'category' },
     { id: 'rival', label: '他社分析', icon: 'local_taxi' },
     { id: 'forecast', label: '業務予測', icon: 'tips_and_updates' },
@@ -16396,7 +16767,102 @@ window.AnalyticsPage = () => {
             )
           )
         )
+      ),
+
+      // 天気×売上相関カード
+      weatherCorrelation.filter(wc => wc.dayCount > 0).length > 0 && React.createElement(Card, { title: '天気×売上 相関分析', style: { marginTop: 'var(--space-lg)' } },
+        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' } },
+          ...weatherCorrelation.filter(wc => wc.dayCount > 0).map(wc => {
+            const weatherIcon = wc.name === '晴れ' ? 'wb_sunny' : wc.name === '曇り' ? 'cloud' : wc.name === '雨' ? 'water_drop' : 'ac_unit';
+            return React.createElement('div', {
+              key: wc.name,
+              style: { padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' },
+            },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-primary-light)' } }, weatherIcon),
+                React.createElement('span', { style: { fontWeight: 600, fontSize: '14px' } }, wc.name)
+              ),
+              React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.8 } },
+                React.createElement('div', null, `日平均売上: ¥${wc.dailyAvgAmount.toLocaleString()}`),
+                React.createElement('div', null, `平均単価: ¥${wc.avgPrice.toLocaleString()}`),
+                React.createElement('div', null, `日平均乗車: ${wc.dailyAvgRides}回`),
+                React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '11px' } }, `(${wc.dayCount}日分)`)
+              )
+            );
+          })
+        )
       )
+    ),
+
+    // 稼働分析タブ
+    tab === 'shift' && React.createElement(React.Fragment, null,
+      shiftProductivity.shifts.length === 0
+        ? React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '12px' } }, 'work_history'),
+            React.createElement('p', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, 'シフトデータがありません。始業/終業を記録すると、ここに稼働分析が表示されます。')
+          )
+        : React.createElement(React.Fragment, null,
+            // サマリ
+            shiftProductivity.totals && React.createElement('div', { className: 'grid grid--4', style: { marginBottom: 'var(--space-lg)' } },
+              [
+                { label: '勤務回数', value: `${shiftProductivity.totals.shiftCount}回`, icon: 'event_available', color: 'var(--color-primary-light)' },
+                { label: '合計売上', value: `¥${shiftProductivity.totals.totalAmount.toLocaleString()}`, icon: 'payments', color: 'var(--color-secondary)' },
+                { label: '平均時給', value: `¥${shiftProductivity.totals.avgHourlyRate.toLocaleString()}`, icon: 'speed', color: 'var(--color-accent)' },
+                { label: '平均単価', value: `¥${shiftProductivity.totals.avgPrice.toLocaleString()}`, icon: 'price_check', color: 'var(--color-warning)' },
+              ].map((s, i) =>
+                React.createElement(Card, { key: i, className: 'stat-card' },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: s.color, marginBottom: '4px' } }, s.icon),
+                  React.createElement('div', { className: 'stat-card__value', style: { fontSize: 'var(--font-size-lg)' } }, s.value),
+                  React.createElement('div', { className: 'stat-card__label' }, s.label)
+                )
+              )
+            ),
+
+            // テーブル
+            React.createElement(Card, { title: '勤務別 詳細' },
+              React.createElement('div', { style: { overflowX: 'auto' } },
+                React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '600px' } },
+                  React.createElement('thead', null,
+                    React.createElement('tr', null,
+                      ['日付', '曜日', '勤務時間', '休憩', '実働', '売上', '乗車数', '時給', '平均単価'].map(h =>
+                        React.createElement('th', { key: h, style: { padding: '8px 6px', textAlign: h === '日付' || h === '曜日' ? 'left' : 'right', borderBottom: '2px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontWeight: 600, fontSize: '11px', whiteSpace: 'nowrap' } }, h)
+                      )
+                    )
+                  ),
+                  React.createElement('tbody', null,
+                    ...shiftProductivity.shifts.map((s, i) => {
+                      const fmtMin = (m) => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`;
+                      const isSun = s.dayOfWeek === '日';
+                      const isSat = s.dayOfWeek === '土';
+                      return React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                        React.createElement('td', { style: { padding: '8px 6px', whiteSpace: 'nowrap' } }, `${s.date} ${s.startTime}-${s.endTime}`),
+                        React.createElement('td', { style: { padding: '8px 6px', color: isSun ? '#ef4444' : isSat ? '#3b82f6' : 'var(--text-primary)' } }, s.dayOfWeek),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, fmtMin(s.workMinutesGross)),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right', color: 'var(--text-muted)' } }, fmtMin(s.breakMinutes)),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, fmtMin(s.actualMinutes)),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: 'var(--color-secondary)' } }, `¥${s.totalAmount.toLocaleString()}`),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, `${s.rideCount}回`),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right', fontWeight: 500, color: s.hourlyRate >= (shiftProductivity.totals?.avgHourlyRate || 0) ? '#4caf50' : '#ff9800' } }, `¥${s.hourlyRate.toLocaleString()}`),
+                        React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, `¥${s.avgPrice.toLocaleString()}`)
+                      );
+                    }),
+                    // 合計/平均行
+                    shiftProductivity.totals && React.createElement('tr', { style: { borderTop: '2px solid rgba(255,255,255,0.15)', fontWeight: 700 } },
+                      React.createElement('td', { style: { padding: '8px 6px' } }, '合計/平均'),
+                      React.createElement('td', null, ''),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, `${Math.floor(shiftProductivity.totals.totalWorkMinutes / 60)}h${String(shiftProductivity.totals.totalWorkMinutes % 60).padStart(2, '0')}m`),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right', color: 'var(--text-muted)' } }, `${Math.floor(shiftProductivity.totals.totalBreakMinutes / 60)}h${String(shiftProductivity.totals.totalBreakMinutes % 60).padStart(2, '0')}m`),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, `${Math.floor(shiftProductivity.totals.totalActualMinutes / 60)}h${String(shiftProductivity.totals.totalActualMinutes % 60).padStart(2, '0')}m`),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${shiftProductivity.totals.totalAmount.toLocaleString()}`),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, `${shiftProductivity.totals.totalRides}回`),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right', color: '#4caf50' } }, `¥${shiftProductivity.totals.avgHourlyRate.toLocaleString()}`),
+                      React.createElement('td', { style: { padding: '8px 6px', textAlign: 'right' } }, `¥${shiftProductivity.totals.avgPrice.toLocaleString()}`)
+                    )
+                  )
+                )
+              )
+            )
+          )
     ),
 
     // 他社分析タブ
@@ -20426,14 +20892,7 @@ window.GatheringMemoPage = () => {
     { value: '雪', icon: '❄️' },
   ];
 
-  const wmoToWeather = (code) => {
-    if (code === undefined || code === null) return '';
-    if (code <= 1) return '晴れ';
-    if (code <= 3 || code === 45 || code === 48) return '曇り';
-    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
-    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
-    return '曇り';
-  };
+  const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
 
   // ============================================================
   // State
@@ -20463,11 +20922,20 @@ window.GatheringMemoPage = () => {
   const { apiKey } = useAppContext();
 
   // ============================================================
-  // 天気・GPS自動取得
+  // 天気・GPS自動取得（GPSキャッシュ優先）
   // ============================================================
   useEffect(() => {
     if (weatherFetched.current) return;
     weatherFetched.current = true;
+
+    // GPSキャッシュから天気取得を試みる
+    const cached = GpsLogService.getCurrentWeather();
+    if (cached && cached.weather) {
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      AppLogger.info(`集客メモ 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
+      return;
+    }
+
     if (!navigator.geolocation) return;
     setWeatherLoading(true);
     getAccuratePosition({ accuracyThreshold: 500, timeout: 10000, maxWaitAfterFix: 3000 })
@@ -20523,6 +20991,7 @@ window.GatheringMemoPage = () => {
 
   const entries = useMemo(() => DataService.getGatheringMemos(), [refreshKey]);
   const analysis = useMemo(() => showAnalysis ? DataService.getGatheringAnalysis() : null, [refreshKey, showAnalysis]);
+  const gatheringRevenue = useMemo(() => showAnalysis ? DataService.getGatheringRevenueCorrelation() : [], [refreshKey, showAnalysis]);
 
   // ============================================================
   // 音声入力
@@ -21227,6 +21696,42 @@ window.GatheringMemoPage = () => {
                   )
                 )
               )
+            )
+          )
+        )
+      ),
+
+      // 売上検証セクション
+      showAnalysis && gatheringRevenue.length > 0 && React.createElement('div', { style: { marginTop: 'var(--space-lg)' } },
+        React.createElement('div', { style: { fontSize: '13px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-secondary)' } }, 'fact_check'),
+          '集客メモ x 売上 検証'
+        ),
+        React.createElement('div', { style: { overflowX: 'auto' } },
+          React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px', minWidth: '450px' } },
+            React.createElement('thead', null,
+              React.createElement('tr', null,
+                ['場所', 'メモ件数', '平均密度', '乗車件数', '総売上', '判定'].map(h =>
+                  React.createElement('th', {
+                    key: h,
+                    style: { padding: '6px 8px', textAlign: h === '場所' ? 'left' : 'right', borderBottom: '2px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontWeight: 600 },
+                  }, h)
+                )
+              )
+            ),
+            React.createElement('tbody', null,
+              ...gatheringRevenue.slice(0, 15).map((gr, i) => {
+                const verdictColor = gr.verdict === '行く価値あり' ? '#4caf50' : gr.verdict === '要検討' ? '#f9a825' : 'var(--text-muted)';
+                const densityLabel = gr.avgDensity >= 2.5 ? '多い' : gr.avgDensity >= 1.5 ? '普通' : gr.avgDensity >= 0.5 ? '少ない' : 'いない';
+                return React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                  React.createElement('td', { style: { padding: '6px 8px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, gr.location),
+                  React.createElement('td', { style: { padding: '6px 8px', textAlign: 'right' } }, `${gr.memoCount}件`),
+                  React.createElement('td', { style: { padding: '6px 8px', textAlign: 'right' } }, `${densityLabel} (${gr.avgDensity})`),
+                  React.createElement('td', { style: { padding: '6px 8px', textAlign: 'right', fontWeight: 500 } }, `${gr.matchedRides}回`),
+                  React.createElement('td', { style: { padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: 'var(--color-secondary)' } }, `¥${gr.matchedAmount.toLocaleString()}`),
+                  React.createElement('td', { style: { padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: verdictColor } }, gr.verdict)
+                );
+              })
             )
           )
         )
