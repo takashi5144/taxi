@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.3.1',
+  VERSION: '2.4.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6940,10 +6940,12 @@ window.useGeolocation = () => {
     AppLogger.info('GPS追跡を停止');
   }, [mapCtx]);
 
-  // 初回マウント時に自動でGPS追跡を開始
+  // 始業中なら自動でGPS追跡を開始（始業していなければ開始しない）
   useEffect(() => {
-    if (isSupported && !watchIdRef.current) {
-      AppLogger.info('GPS追跡を自動開始');
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const activeShift = shifts.find(s => !s.endTime);
+    if (isSupported && !watchIdRef.current && activeShift) {
+      AppLogger.info('GPS追跡を自動開始（始業中）');
       mapCtx.setIsTracking(true);
       const id = navigator.geolocation.watchPosition(
         (position) => { mapCtx.updatePosition(position); },
@@ -9169,6 +9171,7 @@ window.DashboardPage = () => {
   const { useState, useEffect, useMemo, useCallback, useRef } = React;
   const { navigate, geminiApiKey } = useAppContext();
   const { currentPosition, isTracking } = useMapContext();
+  const geo = useGeolocation();
 
   // DataServiceからリアルタイムデータを取得
   const [refreshKey, setRefreshKey] = useState(0);
@@ -9261,8 +9264,10 @@ window.DashboardPage = () => {
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
     DataService.syncShiftsToCloud();
     setShiftInfo({ active: true, startTime: now.toISOString() });
+    // GPS追跡を開始
+    if (!geo.isTracking) geo.startTracking();
     AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
-  }, [breakInfo.active]);
+  }, [breakInfo.active, geo]);
 
   const handleShiftEnd = useCallback(() => {
     const now = new Date();
@@ -9284,7 +9289,10 @@ window.DashboardPage = () => {
       AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     }
     setShiftInfo({ active: false, startTime: null });
-  }, [breakInfo.active]);
+    // GPS追跡を停止
+    if (geo.isTracking) geo.stopTracking();
+    AppLogger.info('GPS追跡を停止（終業）');
+  }, [breakInfo.active, geo]);
 
   const handleBreakStart = useCallback(() => {
     if (!shiftInfo.active) return;
