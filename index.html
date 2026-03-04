@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.6.2',
+  VERSION: '2.6.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6142,7 +6142,7 @@ JSONのみを返し、他のテキストは不要です。
     }
     const parsed = _parseGeminiResponse(await res.text());
     if (!parsed.success) throw new Error(parsed.error);
-    const text = parsed.data.candidates[0]?.content?.parts?.[0]?.text || '';
+    const text = parsed.text || '';
     const match = text.replace(/[,，\s]/g, '').match(/\d+/);
     return match ? parseInt(match[0], 10) : 0;
   }
