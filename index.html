@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.8.1',
+  VERSION: '2.8.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -21397,10 +21397,20 @@ window.GatheringMemoPage = () => {
 const WATCH_PICKUPS_KEY = APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS;
 
 window.WatchPage = () => {
-  const { useState, useEffect, useCallback } = React;
+  const { useState, useEffect, useCallback, useRef } = React;
   const [status, setStatus] = useState('ready'); // ready | loading | success | error
   const [message, setMessage] = useState('');
   const [time, setTime] = useState('');
+
+  // URLパラメータからシークレットを直接取得（localStorageに依存しない）
+  const secretRef = useRef('');
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const s = params.get('secret') || '';
+    secretRef.current = s;
+    // localStorageにも保存を試みる（フォールバック用）
+    if (s) { try { localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, s); } catch(e) {} }
+  }, []);
 
   // 時刻表示を更新
   useEffect(() => {
@@ -21421,7 +21431,19 @@ window.WatchPage = () => {
 
     if (navigator.vibrate) navigator.vibrate(50);
 
-    // トリガー信号をクラウドに送信（GPS座標は不要、スマホ側で取得する）
+    // シークレット取得（URL → localStorage の優先順）
+    const secret = secretRef.current
+      || (new URLSearchParams(window.location.search)).get('secret')
+      || (function() { try { return localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || ''; } catch(e) { return ''; } })();
+
+    if (!secret) {
+      setStatus('error');
+      setMessage('URLにsecretパラメータがありません');
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      setTimeout(() => { setStatus('ready'); setMessage(''); }, 5000);
+      return;
+    }
+
     const trigger = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
       type: 'gps_trigger',
@@ -21430,25 +21452,43 @@ window.WatchPage = () => {
     };
 
     try {
-      const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
-      pickups.push(trigger);
-      if (pickups.length > 100) pickups.splice(0, pickups.length - 100);
-      localStorage.setItem(WATCH_PICKUPS_KEY, JSON.stringify(pickups));
+      // localStorageに記録（ローカルバックアップ）
+      try {
+        const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
+        pickups.push(trigger);
+        if (pickups.length > 100) pickups.splice(0, pickups.length - 100);
+        localStorage.setItem(WATCH_PICKUPS_KEY, JSON.stringify(pickups));
+      } catch (e) { /* localStorage使えなくても続行 */ }
 
-      // クラウド送信を待ち、結果を表示
-      const result = await DataService.syncWatchPickupsToCloud();
-      if (result && result.ok) {
+      // クラウドに直接送信（DataServiceのlocalStorage依存を回避）
+      const allPickups = (function() { try { return JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]'); } catch(e) { return [trigger]; } })();
+      const res = await fetch('/api/data?type=watchpickups', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + secret,
+        },
+        body: JSON.stringify({
+          version: APP_CONSTANTS.VERSION,
+          syncedAt: new Date().toISOString(),
+          count: allPickups.length,
+          entries: allPickups,
+        }),
+      });
+
+      if (res.ok) {
         setStatus('success');
         setMessage('スマホに送信しました');
         if (navigator.vibrate) navigator.vibrate(200);
       } else {
+        const errText = await res.text().catch(() => '');
         setStatus('error');
-        setMessage('送信失敗: ' + (result ? result.error : '不明なエラー'));
+        setMessage('送信失敗(' + res.status + ')');
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       }
     } catch (e) {
       setStatus('error');
-      setMessage('送信失敗: ' + e.message);
+      setMessage('通信エラー: ' + e.message);
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     }
 
