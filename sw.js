@@ -1,6 +1,6 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
 // アプリはindex.html単体で動作するため、キャッシュ対象は最小限に絞る
-const CACHE_NAME = 'taxi-support-v2.2.0';
+const CACHE_NAME = 'taxi-support-v2.5.3';
 const STATIC_ASSETS = [
   './',
   './index.html',
