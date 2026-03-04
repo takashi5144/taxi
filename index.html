@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.0.1',
+  VERSION: '2.1.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -10357,6 +10357,7 @@ window.RevenuePage = () => {
   const [receiptLoading, setReceiptLoading] = useState(false);
 
   const { apiKey, geminiApiKey } = useAppContext();
+  const mapCtx = useMapContext();
 
   // ページ読み込み時に天気を自動取得
   useEffect(() => {
@@ -10395,6 +10396,27 @@ window.RevenuePage = () => {
     fetchWeather();
   }, []);
 
+  // ウォッチから記録された未消費の乗車地GPSを自動取り込み
+  useEffect(() => {
+    try {
+      const pickups = JSON.parse(localStorage.getItem('taxi_watch_pickups') || '[]');
+      const unconsumed = pickups.filter(p => !p.consumed);
+      if (unconsumed.length === 0) return;
+      // 最新の未消費pickupをフォームに反映
+      const latest = unconsumed[unconsumed.length - 1];
+      setForm(prev => ({
+        ...prev,
+        pickup: latest.address || (latest.lat.toFixed(5) + ', ' + latest.lng.toFixed(5)),
+        pickupTime: new Date(latest.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+      }));
+      setGpsInfo(prev => ({ ...prev, pickup: { lat: latest.lat, lng: latest.lng, accuracy: latest.accuracy, address: latest.address } }));
+      // 消費済みにマーク
+      const updated = pickups.map(p => p.id === latest.id ? { ...p, consumed: true } : p);
+      localStorage.setItem('taxi_watch_pickups', JSON.stringify(updated));
+      AppLogger.info('ウォッチ乗車地GPS自動取り込み: ' + (latest.address || ''));
+    } catch {}
+  }, []);
+
   // データは常にDataServiceから取得（単一のデータソース）
   const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
 
@@ -10431,7 +10453,82 @@ window.RevenuePage = () => {
     };
   }, []);
 
+  // GPS座標から逆ジオコーディングして住所をフォームに反映
+  const _reverseGeocodeAndSetForm = useCallback((lat, lng, acc, field) => {
+    setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
+
+    if (apiKey && window.google && window.google.maps) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        setGpsLoading(prev => ({ ...prev, [field]: false }));
+        if (status === 'OK' && results[0]) {
+          const address = _formatAddress(results[0]);
+          const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+          const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+          setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
+          setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddress } }));
+          AppLogger.info(`GPS逆ジオコーディング成功 (${field}): ${address}`);
+        } else {
+          const timeField2 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+          const nomUrl2 = TaxiApp.utils.nominatimUrl(lat, lng, 18);
+          fetch(nomUrl2)
+            .then(res2 => res2.json())
+            .then(data2 => {
+              if (data2 && data2.address) {
+                const a2 = data2.address;
+                const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
+                const shortAddr2 = parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' ');
+                setForm(prev => ({ ...prev, [field]: shortAddr2, [timeField2]: getNowTime() }));
+                setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: data2.display_name || shortAddr2 } }));
+              } else {
+                const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
+                setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
+              }
+            })
+            .catch(() => {
+              const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+              setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
+            });
+          AppLogger.warn(`Google逆ジオコーディング失敗、Nominatimにフォールバック`);
+        }
+      });
+    } else {
+      const timeField3 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+      const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
+      fetch(nomUrl)
+        .then(res => res.json())
+        .then(data => {
+          setGpsLoading(prev => ({ ...prev, [field]: false }));
+          if (data && data.address) {
+            const a = data.address;
+            const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
+            const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
+            const fullAddr = data.display_name || shortAddr;
+            setForm(prev => ({ ...prev, [field]: shortAddr, [timeField3]: getNowTime() }));
+            setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddr } }));
+            AppLogger.info(`Nominatim逆ジオコーディング成功 (${field}): ${shortAddr}`);
+          } else {
+            const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+            setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
+            setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
+            AppLogger.warn(`Nominatim逆ジオコーディング失敗、座標を使用: ${coordStr}`);
+          }
+        })
+        .catch(err => {
+          setGpsLoading(prev => ({ ...prev, [field]: false }));
+          const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
+          setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
+          AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
+        });
+    }
+  }, [apiKey]);
+
   // GPS現在地を取得して住所に変換
+  // バックグラウンドのwatchPositionキャッシュ（mapCtx.currentPosition）を優先使用し、
+  // 位置情報の確認ダイアログを毎回出さないようにする
   const getGpsLocation = useCallback((field) => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -10441,85 +10538,23 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
+    // バックグラウンドGPS追跡から最新位置が取得済みならそれを即座に使用（確認ダイアログなし）
+    if (mapCtx.currentPosition && mapCtx.currentPosition.lat && mapCtx.currentPosition.lng) {
+      const lat = mapCtx.currentPosition.lat;
+      const lng = mapCtx.currentPosition.lng;
+      const acc = Math.round(mapCtx.accuracy || 0);
+      AppLogger.info(`GPS(キャッシュ使用): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
+      _reverseGeocodeAndSetForm(lat, lng, acc, field);
+      return;
+    }
+
+    // キャッシュがない場合のみgetAccuratePositionで新規取得（初回のみ確認ダイアログが出る）
     getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         const acc = Math.round(position.coords.accuracy);
-        setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
-
-        // Google Maps Geocoding APIで逆ジオコーディング
-        if (apiKey && window.google && window.google.maps) {
-          const geocoder = new google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            setGpsLoading(prev => ({ ...prev, [field]: false }));
-            if (status === 'OK' && results[0]) {
-              // 住所コンポーネントから簡潔な住所を生成
-              const address = _formatAddress(results[0]);
-              const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-              const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
-              setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddress } }));
-              AppLogger.info(`GPS逆ジオコーディング成功 (${field}): ${address}`);
-            } else {
-              // Google Geocoding失敗時はNominatimにフォールバック
-              const timeField2 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
-              const nomUrl2 = TaxiApp.utils.nominatimUrl(lat, lng, 18);
-              fetch(nomUrl2)
-                .then(res2 => res2.json())
-                .then(data2 => {
-                  if (data2 && data2.address) {
-                    const a2 = data2.address;
-                    const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
-                    const shortAddr2 = parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' ');
-                    setForm(prev => ({ ...prev, [field]: shortAddr2, [timeField2]: getNowTime() }));
-                    setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: data2.display_name || shortAddr2 } }));
-                  } else {
-                    const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                    setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
-                    setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
-                  }
-                })
-                .catch(() => {
-                  const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                  setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
-                  setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
-                });
-              AppLogger.warn(`Google逆ジオコーディング失敗、Nominatimにフォールバック`);
-            }
-          });
-        } else {
-          // APIキーなし or Google Maps未ロードの場合はNominatim（OpenStreetMap）で逆ジオコーディング
-          const timeField3 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
-          const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
-          fetch(nomUrl)
-            .then(res => res.json())
-            .then(data => {
-              setGpsLoading(prev => ({ ...prev, [field]: false }));
-              if (data && data.address) {
-                // 日本の住所形式で組み立て
-                const a = data.address;
-                const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
-                const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
-                const fullAddr = data.display_name || shortAddr;
-                setForm(prev => ({ ...prev, [field]: shortAddr, [timeField3]: getNowTime() }));
-                setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddr } }));
-                AppLogger.info(`Nominatim逆ジオコーディング成功 (${field}): ${shortAddr}`);
-              } else {
-                const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
-                setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
-                AppLogger.warn(`Nominatim逆ジオコーディング失敗、座標を使用: ${coordStr}`);
-              }
-            })
-            .catch(err => {
-              setGpsLoading(prev => ({ ...prev, [field]: false }));
-              const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: null } }));
-              AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
-            });
-        }
+        _reverseGeocodeAndSetForm(lat, lng, acc, field);
       })
       .catch((error) => {
         setGpsLoading(prev => ({ ...prev, [field]: false }));
@@ -10531,7 +10566,7 @@ window.RevenuePage = () => {
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
         AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
       });
-  }, [apiKey]);
+  }, [apiKey, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
 
   // Geocoding結果から簡潔な住所を抽出
   function _formatAddress(result) {
@@ -16465,6 +16500,73 @@ window.SettingsPage = () => {
   });
   const [watchUrlCopied, setWatchUrlCopied] = useState(false);
 
+  // GPS設定state
+  const { useEffect, useRef, useCallback } = React;
+  const [gpsPermission, setGpsPermission] = useState('unknown'); // granted | denied | prompt | unknown
+  const [gpsTracking, setGpsTracking] = useState(false);
+  const [gpsPosition, setGpsPosition] = useState(null); // {lat, lng, accuracy, timestamp}
+  const [gpsRecordCount, setGpsRecordCount] = useState(0);
+  const [gpsBgEnabled, setGpsBgEnabled] = useState(() => localStorage.getItem('taxi_gps_bg_enabled') !== 'false');
+  const gpsWatchRef = useRef(null);
+
+  // GPS権限チェック
+  useEffect(() => {
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        setGpsPermission(result.state);
+        result.onchange = () => setGpsPermission(result.state);
+      }).catch(() => {});
+    }
+  }, []);
+
+  // バックグラウンドGPS追跡の開始/停止
+  useEffect(() => {
+    if (!gpsBgEnabled || !navigator.geolocation) {
+      if (gpsWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current);
+        gpsWatchRef.current = null;
+        setGpsTracking(false);
+      }
+      return;
+    }
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        setGpsTracking(true);
+        setGpsPosition({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy),
+          timestamp: Date.now(),
+        });
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+    gpsWatchRef.current = id;
+    setGpsTracking(true);
+    return () => {
+      if (gpsWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current);
+        gpsWatchRef.current = null;
+      }
+    };
+  }, [gpsBgEnabled]);
+
+  // GPS記録数をロード
+  useEffect(() => {
+    if (window.GpsLogService) {
+      GpsLogService.getLogDates().then(dates => {
+        setGpsRecordCount(dates.length);
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleGpsBgToggle = useCallback(() => {
+    const next = !gpsBgEnabled;
+    setGpsBgEnabled(next);
+    localStorage.setItem('taxi_gps_bg_enabled', next ? 'true' : 'false');
+  }, [gpsBgEnabled]);
+
   const handleSave = () => {
     setApiKey(inputKey.trim());
     setSaved(true);
@@ -16909,19 +17011,89 @@ window.SettingsPage = () => {
 
     // GPS設定
     React.createElement(Card, { title: 'GPS設定', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
+      // 位置情報権限
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '位置情報権限'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'ブラウザの位置情報アクセス許可')
+        ),
+        React.createElement('span', {
+          className: 'badge badge--' + (gpsPermission === 'granted' ? 'success' : gpsPermission === 'denied' ? 'danger' : 'warning'),
+        }, gpsPermission === 'granted' ? '許可済み' : gpsPermission === 'denied' ? '拒否' : gpsPermission === 'prompt' ? '未許可' : '確認中')
+      ),
+
+      // 高精度モード
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
         React.createElement('div', null,
           React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '高精度モード'),
           React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPSの精度を最大にする（バッテリー消費が増えます）')
         ),
-        React.createElement('span', { className: 'badge badge--success' }, '有効')
+        React.createElement('span', { className: 'badge badge--success' }, '常時有効')
       ),
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
+
+      // バックグラウンド追跡（トグル付き）
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
         React.createElement('div', null,
           React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'バックグラウンド追跡'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'アプリがバックグラウンドでも位置を追跡')
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+            'アプリを開いている間、位置を常時追跡',
+            gpsTracking ? ' (稼働中)' : ''
+          )
         ),
-        React.createElement('span', { className: 'badge badge--warning' }, 'PWA必要')
+        React.createElement('button', {
+          onClick: handleGpsBgToggle,
+          style: {
+            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
+            background: gpsBgEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
+            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          },
+        },
+          React.createElement('span', {
+            style: {
+              position: 'absolute', top: '3px',
+              left: gpsBgEnabled ? '24px' : '3px',
+              width: '20px', height: '20px', borderRadius: '50%',
+              background: '#fff', transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            },
+          })
+        )
+      ),
+
+      // 記録間隔
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '記録間隔'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPS軌跡の記録頻度（始業中・スマホのみ）')
+        ),
+        React.createElement('span', { className: 'badge badge--info' }, '1秒')
+      ),
+
+      // 保存期間
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '保存期間'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'IndexedDBに保存（自動削除なし）')
+        ),
+        React.createElement('span', { className: 'badge badge--info' }, '無期限')
+      ),
+
+      // 現在の状態サマリ
+      React.createElement('div', {
+        style: {
+          marginTop: '12px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(255,255,255,0.04)',
+          fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', lineHeight: 1.8,
+        },
+      },
+        React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' } }, '現在の状態'),
+        React.createElement('div', null, '追跡: ', React.createElement('span', { style: { color: gpsTracking ? '#4caf50' : '#ff9800' } }, gpsTracking ? '稼働中' : '停止中')),
+        gpsPosition && React.createElement('div', null,
+          '最終位置: ', gpsPosition.lat.toFixed(5), ', ', gpsPosition.lng.toFixed(5),
+          ' (精度: ', gpsPosition.accuracy, 'm)'
+        ),
+        React.createElement('div', null, '記録日数: ', gpsRecordCount, '日分'),
+        React.createElement('div', null, '記録条件: スマホ + 始業中 + 休憩外')
       )
     ),
 
@@ -16944,7 +17116,7 @@ window.SettingsPage = () => {
             wordBreak: 'break-all',
             lineHeight: 1.5,
           },
-        }, location.origin + '/watch.html?uid=' + watchUid)
+        }, location.origin + location.pathname + '?mode=watch')
       ),
 
       React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: 'var(--space-md)' } },
@@ -16952,7 +17124,7 @@ window.SettingsPage = () => {
           variant: 'primary',
           icon: watchUrlCopied ? 'check' : 'content_copy',
           onClick: () => {
-            navigator.clipboard.writeText(location.origin + '/watch.html?uid=' + watchUid);
+            navigator.clipboard.writeText(location.origin + location.pathname + '?mode=watch');
             setWatchUrlCopied(true);
             setTimeout(() => setWatchUrlCopied(false), 2000);
           },
@@ -16971,9 +17143,9 @@ window.SettingsPage = () => {
       },
         React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--color-primary-light)' } }, '使い方'),
         React.createElement('p', null, '1. 上のURLをウォッチのブラウザで開いてブックマーク'),
-        React.createElement('p', null, '2. 乗車時にウォッチの「乗車」ボタンをタップ'),
-        React.createElement('p', null, '3. スマホの売上記録画面に乗車地が自動反映されます'),
-        React.createElement('p', { style: { marginTop: '8px', color: 'var(--color-warning)' } }, '※ ウォッチとスマホの両方でインターネット接続が必要です')
+        React.createElement('p', null, '2. 乗車時に大きな「乗車」ボタンをワンタップ'),
+        React.createElement('p', null, '3. GPS位置情報が即座に記録されます'),
+        React.createElement('p', { style: { marginTop: '8px', color: 'var(--text-secondary)' } }, '※ 同じデバイスで売上記録を開くと乗車地が自動反映されます')
       )
     ),
 
@@ -20299,6 +20471,214 @@ window.GatheringMemoPage = () => {
 })();
 
 // ============================================================
+// FILE: src/pages/WatchPage.jsx
+// ============================================================
+(function() {
+// WatchPage.jsx - スマートウォッチ専用の乗車GPS記録ページ
+// ?mode=watch でアクセスする超シンプルなワンタップ記録UI
+
+const WATCH_PICKUPS_KEY = 'taxi_watch_pickups';
+
+window.WatchPage = () => {
+  const { useState, useEffect, useRef, useCallback } = React;
+  const [status, setStatus] = useState('ready'); // ready | loading | success | error
+  const [message, setMessage] = useState('');
+  const [lastPickup, setLastPickup] = useState(null);
+  const [time, setTime] = useState('');
+  const watchIdRef = useRef(null);
+  const cachedPosRef = useRef(null);
+
+  // 時刻表示を毎秒更新
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setTime(String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'));
+    };
+    tick();
+    const id = setInterval(tick, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  // バックグラウンドGPS追跡を開始（許可は初回のみ）
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        cachedPosRef.current = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          timestamp: pos.timestamp || Date.now(),
+        };
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+    watchIdRef.current = id;
+    return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
+  }, []);
+
+  // 直近の記録を読み込み
+  useEffect(() => {
+    try {
+      const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
+      if (pickups.length > 0) setLastPickup(pickups[pickups.length - 1]);
+    } catch {}
+  }, []);
+
+  // 逆ジオコーディング（Nominatim、軽量）
+  const reverseGeocode = useCallback(async (lat, lng) => {
+    try {
+      const url = TaxiApp.utils.nominatimUrl(lat, lng, 18);
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.address) {
+        const a = data.address;
+        const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
+        return parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
+      }
+    } catch {}
+    return lat.toFixed(5) + ', ' + lng.toFixed(5);
+  }, []);
+
+  // 乗車ボタン押下
+  const handlePickup = useCallback(async () => {
+    if (status === 'loading') return;
+    setStatus('loading');
+    setMessage('位置取得中...');
+
+    // バイブレーション（対応デバイスのみ）
+    if (navigator.vibrate) navigator.vibrate(50);
+
+    let lat, lng, acc;
+
+    // キャッシュされたGPS位置を優先使用（確認ダイアログなし）
+    if (cachedPosRef.current) {
+      lat = cachedPosRef.current.lat;
+      lng = cachedPosRef.current.lng;
+      acc = cachedPosRef.current.accuracy;
+    } else {
+      // キャッシュなし: 新規取得（初回のみ確認が出る可能性）
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true, timeout: 15000, maximumAge: 10000
+          });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        acc = pos.coords.accuracy;
+      } catch (e) {
+        setStatus('error');
+        setMessage('GPS取得失敗');
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
+        return;
+      }
+    }
+
+    // 逆ジオコーディング
+    setMessage('住所変換中...');
+    const address = await reverseGeocode(lat, lng);
+
+    // 記録を保存
+    const pickup = {
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      lat, lng,
+      accuracy: Math.round(acc || 0),
+      address,
+      timestamp: new Date().toISOString(),
+      consumed: false,
+    };
+
+    try {
+      const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
+      pickups.push(pickup);
+      // 最新100件のみ保持
+      if (pickups.length > 100) pickups.splice(0, pickups.length - 100);
+      localStorage.setItem(WATCH_PICKUPS_KEY, JSON.stringify(pickups));
+    } catch {}
+
+    setLastPickup(pickup);
+    setStatus('success');
+    setMessage(address);
+    if (navigator.vibrate) navigator.vibrate(200);
+
+    // 3秒後にリセット
+    setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
+  }, [status, reverseGeocode]);
+
+  // スタイル
+  const containerStyle = {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    background: status === 'success' ? '#1b5e20' : status === 'error' ? '#b71c1c' : '#1a1a2e',
+    transition: 'background 0.3s',
+    fontFamily: '"Noto Sans JP", sans-serif',
+    color: '#fff',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+    touchAction: 'manipulation',
+    overflow: 'hidden',
+  };
+
+  const timeStyle = {
+    position: 'absolute', top: '8px', left: 0, right: 0,
+    textAlign: 'center', fontSize: '14px', opacity: 0.7,
+  };
+
+  const btnSize = Math.min(window.innerWidth, window.innerHeight) * 0.55;
+  const buttonStyle = {
+    width: btnSize + 'px', height: btnSize + 'px',
+    borderRadius: '50%',
+    border: status === 'success' ? '4px solid #a5d6a7' : status === 'error' ? '4px solid #ef9a9a' : '4px solid #64b5f6',
+    background: status === 'loading' ? '#37474f'
+      : status === 'success' ? '#2e7d32'
+      : status === 'error' ? '#c62828'
+      : 'linear-gradient(135deg, #1565c0, #0d47a1)',
+    color: '#fff',
+    fontSize: Math.max(btnSize * 0.22, 20) + 'px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+    transition: 'all 0.2s',
+    WebkitTapHighlightColor: 'transparent',
+  };
+
+  const msgStyle = {
+    marginTop: '12px', fontSize: '12px', textAlign: 'center',
+    padding: '0 12px', maxWidth: '90%',
+    opacity: message ? 1 : 0,
+    minHeight: '18px',
+  };
+
+  const lastStyle = {
+    position: 'absolute', bottom: '8px', left: 0, right: 0,
+    textAlign: 'center', fontSize: '10px', opacity: 0.5,
+    padding: '0 8px',
+  };
+
+  const btnLabel = status === 'loading' ? '...' : status === 'success' ? 'OK' : status === 'error' ? '!' : '乗車';
+
+  return React.createElement('div', { style: containerStyle },
+    React.createElement('div', { style: timeStyle }, time),
+    React.createElement('button', {
+      style: buttonStyle,
+      onClick: handlePickup,
+      disabled: status === 'loading',
+    }, btnLabel),
+    React.createElement('div', { style: msgStyle }, message),
+    lastPickup && React.createElement('div', { style: lastStyle },
+      '前回: ' + (lastPickup.address || '').substring(0, 20) + ' (' +
+      new Date(lastPickup.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ')'
+    )
+  );
+};
+
+})();
+
+// ============================================================
 // FILE: src/App.jsx
 // ============================================================
 (function() {
@@ -20418,20 +20798,26 @@ window.App = () => {
 
   const root = ReactDOM.createRoot(document.getElementById('root'));
 
-  root.render(
-    React.createElement(ErrorBoundary, null,
-      React.createElement(AppProvider, null,
-        React.createElement(MapProvider, null,
-          React.createElement(LogProvider, null,
-            React.createElement(App)
+  // ?mode=watch の場合はスマートウォッチ専用の軽量UIを表示
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('mode') === 'watch') {
+    AppLogger.info('ウォッチモードで起動');
+    root.render(React.createElement(WatchPage));
+  } else {
+    root.render(
+      React.createElement(ErrorBoundary, null,
+        React.createElement(AppProvider, null,
+          React.createElement(MapProvider, null,
+            React.createElement(LogProvider, null,
+              React.createElement(App)
+            )
           )
         )
       )
-    )
-  );
-
-  AppLogger.info('アプリケーション起動完了');
-  AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
+    );
+    AppLogger.info('アプリケーション起動完了');
+    AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
+  }
   if (window.GpsLogService) GpsLogService.cleanup();
 })();
 
