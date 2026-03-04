@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     }
 
     const type = req.query.type; // 'revenue' | 'rival' | 'workstatus'
-    if (!['revenue', 'rival', 'workstatus', 'gathering'].includes(type)) {
+    if (!['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks', 'watchpickups'].includes(type)) {
       return res.status(400).json({ error: '無効なデータタイプ' });
     }
 
@@ -61,6 +61,9 @@ export default async function handler(req, res) {
       rival: '他社乗車/latest.json',
       workstatus: '勤務状態/latest.json',
       gathering: '集客メモ/latest.json',
+      shifts: 'シフト/latest.json',
+      breaks: '休憩/latest.json',
+      watchpickups: 'ウォッチ乗車地/latest.json',
     };
     const blobPath = blobPathMap[type];
     const blobPrefix = blobPath.split('/')[0] + '/';
