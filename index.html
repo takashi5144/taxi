@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '1.8.1',
+  VERSION: '2.0.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -984,11 +984,13 @@ window.APP_CONSTANTS = {
     TRANSIT_INFO: 'taxi_app_transit_info',
     NOTIFICATION_ENABLED: 'taxi_app_notification_enabled',
     SHIFTS: 'taxi_app_shifts',
+    BREAKS: 'taxi_app_breaks',
     DAILY_DEMAND_PLAN: 'taxi_app_daily_demand_plan',
     WORK_STATUS: 'taxi_app_work_status',
     HOTEL_PRICES: 'taxi_app_hotel_prices',
     GATHERING_MEMOS: 'taxi_app_gathering_memos',
     TRASH: 'taxi_app_trash',
+    GPS_LOG: 'taxi_app_gps_log',
   },
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -2452,8 +2454,9 @@ window.DataService = (() => {
     const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
-    // 稼働時間の計算（シフト始業〜終業の合計、未終業は現在時刻まで）
+    // 稼働時間の計算（シフト始業〜終業の合計 − 休憩時間、未終業は現在時刻まで）
     let workMinutes = 0;
+    let breakMinutes = 0;
     try {
       const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
       shifts.forEach(s => {
@@ -2463,6 +2466,16 @@ window.DataService = (() => {
         const end = s.endTime ? new Date(s.endTime) : new Date();
         workMinutes += Math.round((end - start) / 60000);
       });
+      // 休憩時間を差し引く
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      breaks.forEach(b => {
+        if (!b.startTime) return;
+        if (toDateStr(b.startTime) !== today) return;
+        const bStart = new Date(b.startTime);
+        const bEnd = b.endTime ? new Date(b.endTime) : new Date();
+        breakMinutes += Math.round((bEnd - bStart) / 60000);
+      });
+      workMinutes = Math.max(0, workMinutes - breakMinutes);
     } catch(e) {}
     const workHours = Math.floor(workMinutes / 60);
     const workMins = workMinutes % 60;
@@ -6020,6 +6033,516 @@ ${hotelList}
 })();
 
 // ============================================================
+// FILE: src/utils/gpsLogService.js
+// ============================================================
+(function() {
+// gpsLogService.js - シフト中GPS追跡 + 実車/空車分類サービス
+//
+// 始業〜終業の間、GPSを1秒間隔で記録（IndexedDB保存）。
+// 売上記録の乗車時間〜降車時間と照合して実車/空車を自動分類する。
+
+window.GpsLogService = (() => {
+  const THROTTLE_MS = 1000;       // 1秒
+  const FLUSH_INTERVAL_MS = 10000; // 10秒ごとにIndexedDBへフラッシュ
+  // 保存期間: 無期限（自動削除なし）
+  const DB_NAME = 'taxi_app_gps_db';
+  const STORE_NAME = 'gps_log';
+
+  let _lastRecordTime = 0;
+  let _buffer = {};    // { dateStr: [entry, ...] }
+  let _db = null;
+  let _flushTimer = null;
+
+  // --- IndexedDB ---
+  function _openDB() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+      req.onsuccess = () => { _db = req.result; resolve(_db); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _idbGet(key) {
+    const db = await _openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _idbPut(key, value) {
+    const db = await _openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function _idbDelete(key) {
+    const db = await _openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function _idbAllKeys() {
+    const db = await _openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).getAllKeys();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function _idbClear() {
+    const db = await _openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // --- メモリバッファ → IndexedDBフラッシュ ---
+  async function _flush() {
+    const dates = Object.keys(_buffer);
+    if (dates.length === 0) return;
+    const snapshot = _buffer;
+    _buffer = {};
+    for (const dateStr of dates) {
+      try {
+        const existing = (await _idbGet(dateStr)) || [];
+        await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
+      } catch (e) {
+        // フラッシュ失敗時はバッファに戻す
+        if (!_buffer[dateStr]) _buffer[dateStr] = [];
+        _buffer[dateStr] = snapshot[dateStr].concat(_buffer[dateStr]);
+      }
+    }
+  }
+
+  function _startFlushTimer() {
+    if (_flushTimer) return;
+    _flushTimer = setInterval(() => _flush(), FLUSH_INTERVAL_MS);
+  }
+
+  function _stopFlushTimer() {
+    if (_flushTimer) { clearInterval(_flushTimer); _flushTimer = null; }
+  }
+
+  // ページアンロード時にフラッシュ
+  window.addEventListener('beforeunload', () => {
+    _stopFlushTimer();
+    // beforeunloadではasyncが使えないのでベストエフォートで同期的にトランザクション開始
+    const dates = Object.keys(_buffer);
+    if (dates.length === 0 || !_db) return;
+    try {
+      const tx = _db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      for (const dateStr of dates) {
+        // getしてconcatする余裕がないので、既存データを取得せず追記用に一旦put
+        // → 実際にはbeforeunloadでgetは間に合わないため、バッファ分だけ書き込む
+        // これはflushで後から結合されるか、ページが本当に閉じるなら最大10秒分のロス
+        const entries = _buffer[dateStr];
+        const getReq = store.get(dateStr);
+        getReq.onsuccess = () => {
+          const existing = getReq.result || [];
+          store.put(existing.concat(entries), dateStr);
+        };
+      }
+    } catch { /* best effort */ }
+    _buffer = {};
+  });
+
+  // --- ヘルパー ---
+  function _todayStr() {
+    return getLocalDateString();
+  }
+
+  function _isShiftActive() {
+    try {
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      return shifts.some(s => !s.endTime);
+    } catch { return false; }
+  }
+
+  function _isOnBreak() {
+    try {
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      return breaks.some(b => !b.endTime);
+    } catch { return false; }
+  }
+
+  // localStorageからの一括マイグレーション
+  async function _migrateFromLocalStorage() {
+    const STORAGE_KEY = APP_CONSTANTS.STORAGE_KEYS.GPS_LOG;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      const dates = Object.keys(data);
+      if (dates.length === 0) return;
+      for (const dateStr of dates) {
+        if (data[dateStr] && data[dateStr].length > 0) {
+          const existing = (await _idbGet(dateStr)) || [];
+          if (existing.length === 0) {
+            await _idbPut(dateStr, data[dateStr]);
+          }
+        }
+      }
+      localStorage.removeItem(STORAGE_KEY);
+    } catch { /* ignore migration errors */ }
+  }
+
+  // 初期化: DB接続 + マイグレーション + フラッシュタイマー開始
+  _openDB().then(() => _migrateFromLocalStorage()).then(() => _startFlushTimer()).catch(() => {});
+
+  // --- 公開API ---
+
+  /** 1秒スロットル記録（同期・バッファ書き込み）- 休憩中は記録しない */
+  function maybeRecord(lat, lng, accuracy, speed) {
+    const now = Date.now();
+    if (now - _lastRecordTime < THROTTLE_MS) return false;
+    if (_isOnBreak()) return false;
+    if (lat == null || lng == null) return false;
+
+    _lastRecordTime = now;
+    const dateStr = _todayStr();
+    if (!_buffer[dateStr]) _buffer[dateStr] = [];
+    _buffer[dateStr].push({
+      t: new Date(now).toISOString(),
+      lat: Math.round(lat * 1e6) / 1e6,
+      lng: Math.round(lng * 1e6) / 1e6,
+      acc: accuracy != null ? Math.round(accuracy) : null,
+      spd: speed != null ? Math.round(speed * 10) / 10 : null,
+    });
+    return true;
+  }
+
+  /** 日付指定でGPSログ取得 (async) - IndexedDB + バッファ結合 */
+  async function getLogForDate(dateStr) {
+    const stored = (await _idbGet(dateStr)) || [];
+    const buffered = _buffer[dateStr] || [];
+    return stored.concat(buffered);
+  }
+
+  /** ログがある日付一覧（降順）(async) */
+  async function getLogDates() {
+    const keys = await _idbAllKeys();
+    const bufferKeys = Object.keys(_buffer).filter(k => _buffer[k].length > 0);
+    const allKeys = [...new Set([...keys, ...bufferKeys])];
+    // 空のエントリを除外するためにキーごとにチェック
+    const validKeys = [];
+    for (const k of allKeys) {
+      if (_buffer[k] && _buffer[k].length > 0) { validKeys.push(k); continue; }
+      const data = await _idbGet(k);
+      if (data && data.length > 0) validKeys.push(k);
+    }
+    return validKeys.sort().reverse();
+  }
+
+  /** 売上記録とGPSを照合し、各ポイントに occupied/vacant を付与 (async) */
+  async function classifyEntries(dateStr) {
+    const log = await getLogForDate(dateStr);
+    if (log.length === 0) return [];
+
+    const entries = DataService.getEntries();
+    const ranges = [];
+    for (const e of entries) {
+      if (e.date !== dateStr) continue;
+      if (!e.pickupTime || !e.dropoffTime) continue;
+      const pickup = new Date(dateStr + 'T' + e.pickupTime + ':00').getTime();
+      const dropoff = new Date(dateStr + 'T' + e.dropoffTime + ':00').getTime();
+      if (!isNaN(pickup) && !isNaN(dropoff) && dropoff > pickup) {
+        ranges.push({ from: pickup, to: dropoff });
+      }
+    }
+
+    return log.map(p => {
+      const ts = new Date(p.t).getTime();
+      const occupied = ranges.some(r => ts >= r.from && ts <= r.to);
+      return { ...p, status: occupied ? 'occupied' : 'vacant' };
+    });
+  }
+
+  /** 実車時間/空車時間/実車率のサマリー (async) */
+  async function getDaySummary(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return { total: 0, occupied: 0, vacant: 0, rate: 0, points: 0, firstTime: null, lastTime: null };
+
+    let occupiedCount = 0;
+    let vacantCount = 0;
+    for (const p of classified) {
+      if (p.status === 'occupied') occupiedCount++;
+      else vacantCount++;
+    }
+
+    const intervalSec = THROTTLE_MS / 1000;
+    const occupiedMin = Math.round(occupiedCount * intervalSec / 60);
+    const vacantMin = Math.round(vacantCount * intervalSec / 60);
+    const totalMin = occupiedMin + vacantMin;
+    const rate = totalMin > 0 ? Math.round(occupiedMin / totalMin * 100) : 0;
+
+    return {
+      total: totalMin,
+      occupied: occupiedMin,
+      vacant: vacantMin,
+      rate,
+      points: classified.length,
+      firstTime: classified[0].t,
+      lastTime: classified[classified.length - 1].t,
+    };
+  }
+
+  /** 指定日のデータ削除 (async) */
+  async function deleteDate(dateStr) {
+    delete _buffer[dateStr];
+    await _idbDelete(dateStr);
+  }
+
+  /** 全GPS記録削除 (async) */
+  async function clearAll() {
+    _buffer = {};
+    _lastRecordTime = 0;
+    await _idbClear();
+  }
+
+  /** cleanup - 保存期間無期限のため何もしない */
+  async function cleanup() {
+    // 無期限保存: 自動削除なし
+  }
+
+  /** CSV出力 (async) */
+  async function exportCsv(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return null;
+
+    const header = '時刻,緯度,経度,精度(m),速度(m/s),状態';
+    const rows = classified.map(p => {
+      const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const status = p.status === 'occupied' ? '実車' : '空車';
+      return `${time},${p.lat},${p.lng},${p.acc ?? ''},${p.spd ?? ''},${status}`;
+    });
+
+    const csv = '\uFEFF' + header + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gps_log_${dateStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return true;
+  }
+
+  // --- 分析API ---
+
+  /** Haversine距離(メートル) */
+  function _haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /** 空車走行ヒートマップ用データ (async) - 複数日対応 */
+  async function getVacantHeatmapData(dateStrs) {
+    const allPoints = [];
+    for (const d of dateStrs) {
+      const classified = await classifyEntries(d);
+      for (const p of classified) {
+        if (p.status === 'vacant') {
+          allPoints.push({ lat: p.lat, lng: p.lng });
+        }
+      }
+    }
+    if (allPoints.length === 0) return [];
+
+    // グリッド集約（0.001° ≒ 100m）
+    const CELL = 0.001;
+    const grid = {};
+    for (const p of allPoints) {
+      const key = `${Math.round(p.lat / CELL)}_${Math.round(p.lng / CELL)}`;
+      if (!grid[key]) grid[key] = { lat: 0, lng: 0, count: 0 };
+      grid[key].lat += p.lat;
+      grid[key].lng += p.lng;
+      grid[key].count++;
+    }
+    return Object.values(grid).map(g => ({
+      lat: g.lat / g.count,
+      lng: g.lng / g.count,
+      weight: g.count,
+    }));
+  }
+
+  /** 時間帯×エリア別 実車率マトリクス (async) */
+  async function getAreaTimeMatrix(dateStrs) {
+    const allClassified = [];
+    for (const d of dateStrs) {
+      const classified = await classifyEntries(d);
+      allClassified.push(...classified);
+    }
+    if (allClassified.length === 0) return { cells: [], areas: [], hours: [] };
+
+    // エリア分割: GPS範囲を5×5グリッドに分割
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+    for (const p of allClassified) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+    }
+    const GRID = 5;
+    const latStep = Math.max((maxLat - minLat) / GRID, 0.001);
+    const lngStep = Math.max((maxLng - minLng) / GRID, 0.001);
+
+    // 24時間のうち営業時間帯のみ
+    const hourBuckets = [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2];
+
+    // セル集約
+    const matrix = {}; // "areaIdx_hour" => { occupied, total }
+    const areaNames = [];
+    const usedAreas = new Set();
+
+    for (const p of allClassified) {
+      const hr = new Date(p.t).getHours();
+      const areaRow = Math.min(Math.floor((p.lat - minLat) / latStep), GRID - 1);
+      const areaCol = Math.min(Math.floor((p.lng - minLng) / lngStep), GRID - 1);
+      const areaIdx = areaRow * GRID + areaCol;
+      usedAreas.add(areaIdx);
+      const key = `${areaIdx}_${hr}`;
+      if (!matrix[key]) matrix[key] = { occupied: 0, total: 0 };
+      matrix[key].total++;
+      if (p.status === 'occupied') matrix[key].occupied++;
+    }
+
+    // エリア名生成（中心座標から簡易ラベル）
+    const areas = [...usedAreas].sort((a, b) => a - b).map(idx => {
+      const row = Math.floor(idx / GRID);
+      const col = idx % GRID;
+      const cLat = (minLat + (row + 0.5) * latStep).toFixed(3);
+      const cLng = (minLng + (col + 0.5) * lngStep).toFixed(3);
+      return { idx, label: `${cLat},${cLng}`, centerLat: parseFloat(cLat), centerLng: parseFloat(cLng) };
+    });
+
+    // マトリクスデータ
+    const cells = [];
+    for (const area of areas) {
+      for (const hr of hourBuckets) {
+        const key = `${area.idx}_${hr}`;
+        const d = matrix[key];
+        if (d && d.total >= 2) {
+          cells.push({
+            areaIdx: area.idx,
+            hour: hr,
+            rate: Math.round(d.occupied / d.total * 100),
+            total: d.total,
+          });
+        }
+      }
+    }
+
+    return { cells, areas, hours: hourBuckets };
+  }
+
+  /** 日次走行トレンド (async) - 1日分の距離・速度統計 */
+  async function getDailyTrend(dateStr) {
+    const log = await getLogForDate(dateStr);
+    if (log.length < 2) return { date: dateStr, distance: 0, avgSpeed: 0, maxSpeed: 0, points: log.length, duration: 0 };
+
+    let totalDist = 0;
+    let maxSpd = 0;
+    let spdSum = 0;
+    let spdCount = 0;
+
+    for (let i = 1; i < log.length; i++) {
+      const prev = log[i - 1];
+      const curr = log[i];
+      totalDist += _haversine(prev.lat, prev.lng, curr.lat, curr.lng);
+      if (curr.spd != null && curr.spd >= 0) {
+        spdSum += curr.spd;
+        spdCount++;
+        if (curr.spd > maxSpd) maxSpd = curr.spd;
+      }
+    }
+
+    const firstT = new Date(log[0].t).getTime();
+    const lastT = new Date(log[log.length - 1].t).getTime();
+    const durationMin = Math.round((lastT - firstT) / 60000);
+
+    return {
+      date: dateStr,
+      distance: Math.round(totalDist),            // meters
+      distanceKm: Math.round(totalDist / 100) / 10, // km (1桁)
+      avgSpeed: spdCount > 0 ? Math.round(spdSum / spdCount * 3.6 * 10) / 10 : 0, // km/h
+      maxSpeed: Math.round(maxSpd * 3.6 * 10) / 10,  // km/h
+      points: log.length,
+      duration: durationMin,  // minutes
+    };
+  }
+
+  /** 全日次トレンド取得 (async) */
+  async function getAllDailyTrends() {
+    const dates = await getLogDates();
+    const trends = [];
+    for (const d of dates) {
+      trends.push(await getDailyTrend(d));
+    }
+    return trends; // 降順（最新が先頭）
+  }
+
+  /** プレイバック用トラックデータ (async) - 分類済み + 累積距離 */
+  async function getTrackData(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return [];
+
+    let cumDist = 0;
+    return classified.map((p, i) => {
+      if (i > 0) {
+        cumDist += _haversine(classified[i - 1].lat, classified[i - 1].lng, p.lat, p.lng);
+      }
+      return { ...p, distM: Math.round(cumDist), index: i };
+    });
+  }
+
+  return {
+    maybeRecord,
+    getLogForDate,
+    getLogDates,
+    classifyEntries,
+    getDaySummary,
+    deleteDate,
+    clearAll,
+    cleanup,
+    exportCsv,
+    // 分析API
+    getVacantHeatmapData,
+    getAreaTimeMatrix,
+    getDailyTrend,
+    getAllDailyTrends,
+    getTrackData,
+  };
+})();
+})();
+
+// ============================================================
 // FILE: src/context/LogContext.jsx
 // ============================================================
 (function() {
@@ -6081,6 +6604,9 @@ window.MapProvider = ({ children }) => {
     setSpeed(position.coords.speed);
     setHeading(position.coords.heading);
     setGpsError(null);
+    if (window.GpsLogService) {
+      GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+    }
   }, []);
 
   const value = {
@@ -6998,102 +7524,92 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     trafficLayerRef.current.setMap(showTraffic ? mapInstanceRef.current : null);
   }, [showTraffic]);
 
-  // ヒートマップレイヤーの表示/非表示（時間帯対応スマートヒートマップ）
+  // ヒートマップレイヤーの表示/非表示（時間帯対応スマートヒートマップ + 空車GPS）
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google || !window.google.maps.visualization) return;
     const map = mapInstanceRef.current;
+    let cancelled = false;
+    let zoomListener = null;
 
-    if (showHeatmap) {
-      const result = DataService.getSmartHeatmapData(heatmapMode);
-      const points = result.points;
-      setHeatmapStats(result.stats);
-      if (points.length === 0) {
-        // データなしでもフォールバック：従来のgetHeatmapDataを試行
-        const fallback = DataService.getHeatmapData();
-        if (fallback.length === 0) return;
-        const heatData = fallback.map(p => ({
-          location: new google.maps.LatLng(p.lat, p.lng),
-          weight: p.weight,
-        }));
-        if (heatmapLayerRef.current) heatmapLayerRef.current.setMap(null);
-        const calcRadius = () => {
-          const z = map.getZoom() || 13;
-          const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
-          return Math.max(10, Math.round(350 / metersPerPx));
-        };
-        heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
-          data: heatData, map: map, radius: calcRadius(), opacity: 0.85, dissipating: true, maxIntensity: 8,
-          gradient: [
-            'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
-            'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
-          ],
-        });
-        const zoomListener = map.addListener('zoom_changed', () => {
-          if (heatmapLayerRef.current) heatmapLayerRef.current.setOptions({ radius: calcRadius() });
-        });
-        return () => {
-          google.maps.event.removeListener(zoomListener);
-          if (heatmapLayerRef.current) { heatmapLayerRef.current.setMap(null); heatmapLayerRef.current = null; }
-        };
-      }
+    const calcRadius = () => {
+      const z = map.getZoom() || 13;
+      const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
+      return Math.max(10, Math.round(350 / metersPerPx));
+    };
 
+    const renderLayer = (points, gradient, stats) => {
+      if (cancelled) return;
+      if (heatmapLayerRef.current) heatmapLayerRef.current.setMap(null);
+      if (points.length === 0) return;
       const heatData = points.map(p => ({
         location: new google.maps.LatLng(p.lat, p.lng),
         weight: p.weight,
       }));
-      if (heatmapLayerRef.current) heatmapLayerRef.current.setMap(null);
-
-      const calcRadius = () => {
-        const z = map.getZoom() || 13;
-        const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
-        return Math.max(10, Math.round(350 / metersPerPx));
-      };
-
-      // モード別グラデーション（より多い色ステップで滑らかに）
-      const gradients = {
-        timeAware: [
-          'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
-          'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
-        ],
-        all: [
-          'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
-          'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
-        ],
-        transit: [
-          'rgba(0,0,0,0)', 'rgba(200,50,150,0.12)', 'rgba(236,72,153,0.3)', 'rgba(255,100,180,0.5)',
-          'rgba(255,140,200,0.65)', 'rgba(255,180,220,0.78)', 'rgba(255,100,150,0.88)', 'rgba(220,40,100,0.95)', 'rgba(180,20,60,1)',
-        ],
-        combined: [
-          'rgba(0,0,0,0)', 'rgba(80,40,180,0.12)', 'rgba(124,58,237,0.3)', 'rgba(140,80,255,0.5)',
-          'rgba(180,120,255,0.65)', 'rgba(220,180,255,0.75)', 'rgba(255,150,100,0.85)', 'rgba(255,80,40,0.93)', 'rgba(200,30,30,1)',
-        ],
-      };
-      const gradient = gradients[heatmapMode] || gradients.all;
-
       heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
-        data: heatData,
-        map: map,
-        radius: calcRadius(),
-        opacity: 0.85,
-        dissipating: true,
-        maxIntensity: 8,
-        gradient: gradient,
+        data: heatData, map, radius: calcRadius(), opacity: 0.85, dissipating: true, maxIntensity: 8, gradient,
       });
-
-      const zoomListener = map.addListener('zoom_changed', () => {
+      zoomListener = map.addListener('zoom_changed', () => {
         if (heatmapLayerRef.current) heatmapLayerRef.current.setOptions({ radius: calcRadius() });
       });
+      if (stats) setHeatmapStats(stats);
+    };
 
-      return () => {
-        google.maps.event.removeListener(zoomListener);
-        if (heatmapLayerRef.current) { heatmapLayerRef.current.setMap(null); heatmapLayerRef.current = null; }
-      };
+    if (showHeatmap) {
+      // 空車GPSヒートマップモード（非同期）
+      if (heatmapMode === 'gpsVacant') {
+        if (!window.GpsLogService) return;
+        const vacantGradient = [
+          'rgba(0,0,0,0)', 'rgba(255,152,0,0.15)', 'rgba(255,183,77,0.3)', 'rgba(255,167,38,0.5)',
+          'rgba(255,143,0,0.65)', 'rgba(255,111,0,0.78)', 'rgba(244,81,30,0.88)', 'rgba(230,50,20,0.95)', 'rgba(183,28,28,1)',
+        ];
+        GpsLogService.getLogDates().then(async dates => {
+          if (cancelled) return;
+          const target = dates.slice(0, 30); // 直近30日
+          const points = await GpsLogService.getVacantHeatmapData(target);
+          const totalPts = points.reduce((s, p) => s + p.weight, 0);
+          renderLayer(points, vacantGradient, { totalRides: totalPts, timeFiltered: points.length, mode: 'gpsVacant' });
+        });
+      } else {
+        // 既存の同期モード
+        const result = DataService.getSmartHeatmapData(heatmapMode);
+        const points = result.points;
+        setHeatmapStats(result.stats);
+
+        const gradients = {
+          timeAware: [
+            'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
+            'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
+          ],
+          all: [
+            'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
+            'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
+          ],
+          transit: [
+            'rgba(0,0,0,0)', 'rgba(200,50,150,0.12)', 'rgba(236,72,153,0.3)', 'rgba(255,100,180,0.5)',
+            'rgba(255,140,200,0.65)', 'rgba(255,180,220,0.78)', 'rgba(255,100,150,0.88)', 'rgba(220,40,100,0.95)', 'rgba(180,20,60,1)',
+          ],
+          combined: [
+            'rgba(0,0,0,0)', 'rgba(80,40,180,0.12)', 'rgba(124,58,237,0.3)', 'rgba(140,80,255,0.5)',
+            'rgba(180,120,255,0.65)', 'rgba(220,180,255,0.75)', 'rgba(255,150,100,0.85)', 'rgba(255,80,40,0.93)', 'rgba(200,30,30,1)',
+          ],
+        };
+        const gradient = gradients[heatmapMode] || gradients.all;
+
+        if (points.length === 0) {
+          const fallback = DataService.getHeatmapData();
+          if (fallback.length > 0) renderLayer(fallback, gradient);
+        } else {
+          renderLayer(points, gradient);
+        }
+      }
     } else {
       if (heatmapLayerRef.current) { heatmapLayerRef.current.setMap(null); heatmapLayerRef.current = null; }
       setHeatmapStats(null);
     }
 
     return () => {
+      cancelled = true;
+      if (zoomListener) google.maps.event.removeListener(zoomListener);
       if (heatmapLayerRef.current) { heatmapLayerRef.current.setMap(null); heatmapLayerRef.current = null; }
     };
   }, [showHeatmap, heatmapMode]);
@@ -7310,37 +7826,41 @@ window.GoogleMapView = ({ fullscreen = false }) => {
 
       // ヒートマップ再描画（スマートヒートマップ対応）
       if (showHeatmap && window.google.maps.visualization) {
-        const result = DataService.getSmartHeatmapData(heatmapMode);
-        setHeatmapStats(result.stats);
-        const points = result.points;
-        if (points.length > 0) {
-          const heatData = points.map(p => ({
-            location: new google.maps.LatLng(p.lat, p.lng),
-            weight: p.weight,
-          }));
-          if (heatmapLayerRef.current) {
-            heatmapLayerRef.current.setData(heatData);
-          } else {
-            const z = map.getZoom() || 13;
-            const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
-            const radius = Math.max(10, Math.round(350 / metersPerPx));
-            const grads = {
-              timeAware: [
-                'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
-                'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
-              ],
-              all: [
-                'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
-                'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
-              ],
-            };
-            heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
-              data: heatData, map: map, radius: radius, opacity: 0.85, dissipating: true, maxIntensity: 8,
-              gradient: grads[heatmapMode] || grads.all,
-            });
+        if (heatmapMode === 'gpsVacant') {
+          // 空車GPSモードはデータ変更時に自動リフレッシュしない（非同期のため）
+        } else {
+          const result = DataService.getSmartHeatmapData(heatmapMode);
+          setHeatmapStats(result.stats);
+          const points = result.points;
+          if (points.length > 0) {
+            const heatData = points.map(p => ({
+              location: new google.maps.LatLng(p.lat, p.lng),
+              weight: p.weight,
+            }));
+            if (heatmapLayerRef.current) {
+              heatmapLayerRef.current.setData(heatData);
+            } else {
+              const z = map.getZoom() || 13;
+              const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
+              const radius = Math.max(10, Math.round(350 / metersPerPx));
+              const grads = {
+                timeAware: [
+                  'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
+                  'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
+                ],
+                all: [
+                  'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
+                  'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
+                ],
+              };
+              heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
+                data: heatData, map: map, radius: radius, opacity: 0.85, dissipating: true, maxIntensity: 8,
+                gradient: grads[heatmapMode] || grads.all,
+              });
+            }
+          } else if (heatmapLayerRef.current) {
+            heatmapLayerRef.current.setData([]);
           }
-        } else if (heatmapLayerRef.current) {
-          heatmapLayerRef.current.setData([]);
         }
       }
 
@@ -7628,6 +8148,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             { id: 'all', label: '全件', icon: 'public', color: '#78909C' },
             { id: 'transit', label: '交通', icon: 'directions_transit', color: '#ec4899' },
             { id: 'combined', label: '統合', icon: 'merge_type', color: '#7c3aed' },
+            { id: 'gpsVacant', label: '空車GPS', icon: 'directions_car', color: '#ff9800' },
           ].map(m => React.createElement('button', {
             key: m.id,
             onClick: () => setHeatmapMode(m.id),
@@ -7731,12 +8252,13 @@ window.GoogleMapView = ({ fullscreen = false }) => {
 
       // ヒートマップ情報パネル
       showHeatmap && heatmapStats && (() => {
-        const modeColor = { timeAware: '#2196F3', all: '#FF9800', transit: '#ec4899', combined: '#7c3aed' }[heatmapMode] || '#FF9800';
+        const modeColor = { timeAware: '#2196F3', all: '#FF9800', transit: '#ec4899', combined: '#7c3aed', gpsVacant: '#ff9800' }[heatmapMode] || '#FF9800';
         const modeDesc = {
           timeAware: '現在時間帯(±2h)・曜日・鮮度で重み付け',
           all: '全期間の乗車データを均等表示',
           transit: 'バス・JR到着 + 病院ピークの需要分布',
           combined: '乗車実績 + 交通需要の統合',
+          gpsVacant: 'GPS軌跡の空車走行エリアを可視化（直近30日）',
         }[heatmapMode];
         return React.createElement('div', {
           style: {
@@ -7750,7 +8272,10 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           },
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: '15px', color: modeColor } }, 'info'),
             React.createElement('span', { style: { color: 'var(--text-secondary)', flex: 1 } }, modeDesc),
-            heatmapMode !== 'transit' && React.createElement('span', {
+            heatmapMode === 'gpsVacant' && React.createElement('span', {
+              style: { fontWeight: 700, color: modeColor, fontSize: '12px', whiteSpace: 'nowrap' },
+            }, `${heatmapStats.totalRides}点`),
+            heatmapMode !== 'transit' && heatmapMode !== 'gpsVacant' && React.createElement('span', {
               style: { fontWeight: 700, color: 'var(--text-primary)', fontSize: '12px', whiteSpace: 'nowrap' },
             }, `${heatmapStats.totalRides}件`),
             heatmapMode === 'transit' && React.createElement('span', {
@@ -7769,6 +8294,8 @@ window.GoogleMapView = ({ fullscreen = false }) => {
                   ? 'linear-gradient(to right, rgba(200,50,150,0.2), #ec4899, #b4143c)'
                   : heatmapMode === 'combined'
                   ? 'linear-gradient(to right, rgba(124,58,237,0.2), #7c3aed, #c83028)'
+                  : heatmapMode === 'gpsVacant'
+                  ? 'linear-gradient(to right, rgba(255,152,0,0.2), #ff9800, #e65100, #b71c1c)'
                   : 'linear-gradient(to right, rgba(0,100,255,0.3), #00d278, #ffdc1e, #ffa000, #dc1e1e)',
               },
             }),
@@ -8565,12 +9092,19 @@ window.DashboardPage = () => {
 
   // 始業/終業シフト管理
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
+  // 休憩管理
+  const [breakInfo, setBreakInfo] = useState({ active: false, startTime: null });
 
   useEffect(() => {
     const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
     const activeShift = shifts.find(s => !s.endTime);
     if (activeShift) {
       setShiftInfo({ active: true, startTime: activeShift.startTime });
+    }
+    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    const activeBreak = breaks.find(b => !b.endTime);
+    if (activeBreak) {
+      setBreakInfo({ active: true, startTime: activeBreak.startTime });
     }
   }, []);
 
@@ -8581,15 +9115,31 @@ window.DashboardPage = () => {
     if (activeShift) {
       activeShift.endTime = now.toISOString();
     }
+    // 休憩中なら終了させる
+    if (breakInfo.active) {
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const ab = breaks.find(b => !b.endTime);
+      if (ab) ab.endTime = now.toISOString();
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      setBreakInfo({ active: false, startTime: null });
+    }
     const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
     shifts.push(newShift);
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
     setShiftInfo({ active: true, startTime: now.toISOString() });
     AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
-  }, []);
+  }, [breakInfo.active]);
 
   const handleShiftEnd = useCallback(() => {
     const now = new Date();
+    // 休憩中なら終了させる
+    if (breakInfo.active) {
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const ab = breaks.find(b => !b.endTime);
+      if (ab) ab.endTime = now.toISOString();
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      setBreakInfo({ active: false, startTime: null });
+    }
     const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
     const activeShift = shifts.find(s => !s.endTime);
     if (activeShift) {
@@ -8598,6 +9148,29 @@ window.DashboardPage = () => {
       AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     }
     setShiftInfo({ active: false, startTime: null });
+  }, [breakInfo.active]);
+
+  const handleBreakStart = useCallback(() => {
+    if (!shiftInfo.active) return;
+    const now = new Date();
+    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
+    breaks.push(newBreak);
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+    setBreakInfo({ active: true, startTime: now.toISOString() });
+    AppLogger.info(`休憩開始: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+  }, [shiftInfo.active]);
+
+  const handleBreakEnd = useCallback(() => {
+    const now = new Date();
+    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    const activeBreak = breaks.find(b => !b.endTime);
+    if (activeBreak) {
+      activeBreak.endTime = now.toISOString();
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      AppLogger.info(`休憩終了: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    }
+    setBreakInfo({ active: false, startTime: null });
   }, []);
 
   // 営業プラン関連
@@ -8674,6 +9247,7 @@ window.DashboardPage = () => {
     React.createElement(Card, {
       style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
     },
+      // 始業・終業行
       React.createElement('div', { style: { display: 'flex', gap: '8px' } },
         // 始業ボタン
         React.createElement('button', {
@@ -8715,8 +9289,66 @@ window.DashboardPage = () => {
           '終業'
         )
       ),
-      // 勤務中の経過時間表示
-      shiftInfo.active && React.createElement('div', {
+      // 休憩開始・休憩終了行（始業中のみ表示）
+      shiftInfo.active && React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } },
+        // 休憩開始ボタン（休憩中でないとき）
+        !breakInfo.active && React.createElement('button', {
+          type: 'button',
+          onClick: handleBreakStart,
+          style: {
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '10px 12px', borderRadius: '10px',
+            fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+            border: '2px solid #78909c',
+            background: 'rgba(120,144,156,0.1)',
+            color: '#78909c',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'free_breakfast'),
+          '休憩開始'
+        ),
+        // 休憩中表示 + 休憩終了ボタン（休憩中のとき）
+        breakInfo.active && React.createElement('button', {
+          type: 'button',
+          onClick: handleBreakEnd,
+          style: {
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '10px 12px', borderRadius: '10px',
+            fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+            border: '2px solid #42a5f5',
+            background: 'rgba(66,165,245,0.12)',
+            color: '#42a5f5',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'play_arrow'),
+          '休憩終了'
+        )
+      ),
+      // 休憩中の表示
+      breakInfo.active && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '8px 12px', borderRadius: '8px',
+          background: 'rgba(66,165,245,0.06)', border: '1px solid rgba(66,165,245,0.2)',
+          fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#42a5f5' } }, 'free_breakfast'),
+        `${new Date(breakInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} から休憩中`,
+        (() => {
+          const elapsed = Date.now() - new Date(breakInfo.startTime).getTime();
+          const mins = Math.floor(elapsed / 60000);
+          return React.createElement('span', {
+            style: { fontWeight: '600', color: '#42a5f5', padding: '1px 8px', borderRadius: '4px', background: 'rgba(66,165,245,0.12)' },
+          }, `${mins}分`);
+        })()
+      ),
+      // 勤務中の経過時間表示（休憩中でないとき）
+      shiftInfo.active && !breakInfo.active && React.createElement('div', {
         style: {
           marginTop: '8px', padding: '8px 12px', borderRadius: '8px',
           background: 'rgba(0,200,83,0.06)', border: '1px solid rgba(0,200,83,0.15)',
@@ -16412,6 +17044,582 @@ window.SettingsPage = () => {
 // ============================================================
 (function() {
 // DataManage.jsx - データ管理ページ（売上・他社・交通情報の編集・削除）
+
+// GPS記録タブ（サブコンポーネント）
+const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
+  const { useState, useEffect } = React;
+  const [gpsDates, setGpsDates] = useState([]);
+  const [gpsDate, setGpsDate] = useState('');
+  const [classified, setClassified] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [gpsConfirmClear, setGpsConfirmClear] = useState(false);
+  const [gpsConfirmDelete, setGpsConfirmDelete] = useState(false);
+
+  // 日付一覧の非同期取得
+  useEffect(() => {
+    if (!window.GpsLogService) { setLoading(false); return; }
+    setLoading(true);
+    GpsLogService.getLogDates().then(dates => {
+      setGpsDates(dates);
+      setGpsDate(prev => dates.includes(prev) ? prev : (dates[0] || ''));
+      setLoading(false);
+    });
+  }, [refreshKey]);
+
+  // 分類・サマリーの非同期取得
+  useEffect(() => {
+    if (!gpsDate || !window.GpsLogService) { setClassified([]); setSummary(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      GpsLogService.classifyEntries(gpsDate),
+      GpsLogService.getDaySummary(gpsDate),
+    ]).then(([cls, sum]) => {
+      if (cancelled) return;
+      setClassified(cls);
+      setSummary(sum);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [gpsDate, refreshKey]);
+
+  if (loading) {
+    return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' } },
+      React.createElement('div', { style: { fontSize: '14px' } }, '読み込み中...')
+    );
+  }
+
+  if (gpsDates.length === 0) {
+    return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' } },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', display: 'block', marginBottom: '12px', opacity: 0.4 } }, 'location_off'),
+      React.createElement('div', { style: { fontSize: '14px' } }, 'GPS記録がありません'),
+      React.createElement('div', { style: { fontSize: '12px', marginTop: '8px' } }, 'GPS追跡中は1秒間隔で自動記録されます')
+    );
+  }
+
+  return React.createElement(React.Fragment, null,
+    // 日付セレクタ
+    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-secondary)' } }, 'calendar_today'),
+      React.createElement('select', {
+        value: gpsDate,
+        onChange: e => { setGpsDate(e.target.value); setGpsConfirmDelete(false); },
+        style: { flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px' }
+      },
+        ...gpsDates.map(d => React.createElement('option', { key: d, value: d }, d))
+      )
+    ),
+
+    // サマリーカード
+    summary && React.createElement(Card, { style: { marginBottom: '12px' } },
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' } },
+        ...[
+          { label: '記録件数', value: summary.points + '件', color: 'var(--text-primary)' },
+          { label: '記録時間', value: summary.total + '分', color: 'var(--text-primary)' },
+          { label: '実車率', value: summary.rate + '%', color: summary.rate > 0 ? 'var(--color-accent)' : 'var(--text-secondary)' },
+          { label: '実車時間', value: summary.occupied + '分', color: 'var(--color-accent)' },
+          { label: '空車時間', value: summary.vacant + '分', color: 'var(--text-secondary)' },
+          { label: '記録期間', value: summary.firstTime && summary.lastTime
+            ? new Date(summary.firstTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ' - ' + new Date(summary.lastTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+            : '-', color: 'var(--text-secondary)' },
+        ].map((item, i) => React.createElement('div', { key: i },
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
+          React.createElement('div', { style: { fontSize: '16px', fontWeight: 600, color: item.color } }, item.value)
+        ))
+      )
+    ),
+
+    // 操作ボタン
+    React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' } },
+      React.createElement('button', {
+        onClick: async () => { await GpsLogService.exportCsv(gpsDate); },
+        style: { padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'download'),
+        'CSV出力'
+      ),
+      React.createElement('button', {
+        onClick: async () => {
+          if (gpsConfirmDelete) {
+            await GpsLogService.deleteDate(gpsDate);
+            setGpsConfirmDelete(false);
+            const newDates = await GpsLogService.getLogDates();
+            setGpsDate(newDates[0] || '');
+            setRefreshKey(k => k + 1);
+          } else {
+            setGpsConfirmDelete(true);
+            setTimeout(() => setGpsConfirmDelete(false), 3000);
+          }
+        },
+        style: { padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: gpsConfirmDelete ? 'var(--color-danger)' : 'var(--bg-secondary)', color: gpsConfirmDelete ? '#fff' : 'var(--text-primary)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'delete'),
+        gpsConfirmDelete ? 'もう一度押して削除' : 'この日を削除'
+      ),
+      React.createElement('button', {
+        onClick: async () => {
+          if (gpsConfirmClear) {
+            await GpsLogService.clearAll();
+            setGpsConfirmClear(false);
+            setGpsDate('');
+            setRefreshKey(k => k + 1);
+          } else {
+            setGpsConfirmClear(true);
+            setTimeout(() => setGpsConfirmClear(false), 3000);
+          }
+        },
+        style: { padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: gpsConfirmClear ? 'var(--color-danger)' : 'var(--bg-secondary)', color: gpsConfirmClear ? '#fff' : 'var(--color-danger)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'delete_forever'),
+        gpsConfirmClear ? 'もう一度押して全削除' : '全GPS記録削除'
+      )
+    ),
+
+    // ログ一覧テーブル
+    React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' } }, classified.length + '件のGPSポイント'),
+    React.createElement('div', { style: { overflowX: 'auto', maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' } },
+      React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } },
+        React.createElement('thead', null,
+          React.createElement('tr', { style: { background: 'var(--bg-secondary)', position: 'sticky', top: 0 } },
+            ...['時刻', '緯度', '経度', '精度', '速度', '状態'].map((h, i) =>
+              React.createElement('th', { key: i, style: { padding: '6px 8px', textAlign: 'left', fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap' } }, h)
+            )
+          )
+        ),
+        React.createElement('tbody', null,
+          ...classified.map((p, i) => {
+            const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const spdKmh = p.spd != null ? (p.spd * 3.6).toFixed(1) + ' km/h' : '-';
+            const isOccupied = p.status === 'occupied';
+            return React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+              React.createElement('td', { style: { padding: '4px 8px', whiteSpace: 'nowrap' } }, time),
+              React.createElement('td', { style: { padding: '4px 8px' } }, p.lat.toFixed(6)),
+              React.createElement('td', { style: { padding: '4px 8px' } }, p.lng.toFixed(6)),
+              React.createElement('td', { style: { padding: '4px 8px' } }, p.acc != null ? p.acc + 'm' : '-'),
+              React.createElement('td', { style: { padding: '4px 8px' } }, spdKmh),
+              React.createElement('td', { style: { padding: '4px 8px' } },
+                React.createElement('span', { style: {
+                  display: 'inline-block', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
+                  background: isOccupied ? 'rgba(0,200,83,0.15)' : 'rgba(255,255,255,0.08)',
+                  color: isOccupied ? 'var(--color-accent)' : 'var(--text-secondary)'
+                } }, isOccupied ? '実車' : '空車')
+              )
+            );
+          })
+        )
+      )
+    )
+  );
+};
+
+// GPS分析タブ（サブコンポーネント）
+const GpsAnalysisTab = ({ refreshKey }) => {
+  const { useState, useEffect, useRef, useCallback } = React;
+  const [subTab, setSubTab] = useState('trend');  // trend | matrix | playback
+  const [loading, setLoading] = useState(false);
+
+  // --- 走行トレンド ---
+  const [trends, setTrends] = useState([]);
+  useEffect(() => {
+    if (subTab !== 'trend' || !window.GpsLogService) return;
+    setLoading(true);
+    GpsLogService.getAllDailyTrends().then(t => { setTrends(t); setLoading(false); });
+  }, [subTab, refreshKey]);
+
+  // --- エリア×時間帯マトリクス ---
+  const [matrix, setMatrix] = useState(null);
+  const [matrixDays, setMatrixDays] = useState(7);
+  useEffect(() => {
+    if (subTab !== 'matrix' || !window.GpsLogService) return;
+    setLoading(true);
+    GpsLogService.getLogDates().then(async dates => {
+      const target = dates.slice(0, matrixDays);
+      if (target.length === 0) { setMatrix(null); setLoading(false); return; }
+      const m = await GpsLogService.getAreaTimeMatrix(target);
+      setMatrix(m);
+      setLoading(false);
+    });
+  }, [subTab, matrixDays, refreshKey]);
+
+  // --- 軌跡プレイバック ---
+  const [playDates, setPlayDates] = useState([]);
+  const [playDate, setPlayDate] = useState('');
+  const [trackData, setTrackData] = useState([]);
+  const [playIdx, setPlayIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(10);
+  const playTimerRef = useRef(null);
+  const playMapRef = useRef(null);
+  const playMapInstanceRef = useRef(null);
+  const playPolylineRef = useRef(null);
+  const playMarkerRef = useRef(null);
+  const playTrailRef = useRef(null);
+
+  useEffect(() => {
+    if (subTab !== 'playback' || !window.GpsLogService) return;
+    GpsLogService.getLogDates().then(dates => {
+      setPlayDates(dates);
+      if (dates.length > 0 && !playDate) setPlayDate(dates[0]);
+    });
+  }, [subTab, refreshKey]);
+
+  useEffect(() => {
+    if (!playDate || subTab !== 'playback') return;
+    setLoading(true);
+    setPlaying(false);
+    if (playTimerRef.current) clearInterval(playTimerRef.current);
+    GpsLogService.getTrackData(playDate).then(data => {
+      setTrackData(data);
+      setPlayIdx(0);
+      setLoading(false);
+    });
+  }, [playDate, subTab]);
+
+  // プレイバック地図の初期化
+  useEffect(() => {
+    if (subTab !== 'playback' || !playMapRef.current || !window.google) return;
+    if (playMapInstanceRef.current) return;
+    playMapInstanceRef.current = new google.maps.Map(playMapRef.current, {
+      center: { lat: 43.77, lng: 142.365 },
+      zoom: 13,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      styles: [{ elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
+        { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
+        { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
+        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }],
+    });
+  }, [subTab]);
+
+  // トラックデータ変更時に地図更新
+  useEffect(() => {
+    if (!playMapInstanceRef.current || trackData.length === 0) return;
+    const map = playMapInstanceRef.current;
+
+    // 既存のオーバーレイをクリア
+    if (playPolylineRef.current) playPolylineRef.current.setMap(null);
+    if (playMarkerRef.current) playMarkerRef.current.setMap(null);
+    if (playTrailRef.current) playTrailRef.current.setMap(null);
+
+    // 全ルートのポリライン（薄いライン）
+    const path = trackData.map(p => ({ lat: p.lat, lng: p.lng }));
+    playPolylineRef.current = new google.maps.Polyline({
+      path, map, strokeColor: 'rgba(255,255,255,0.2)', strokeWeight: 2,
+    });
+
+    // 走行済みトレイル（色付き）
+    playTrailRef.current = new google.maps.Polyline({
+      path: [], map, strokeWeight: 4,
+    });
+
+    // 現在位置マーカー
+    playMarkerRef.current = new google.maps.Marker({
+      position: path[0], map,
+      icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: '#00e676', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2, scale: 8 },
+      zIndex: 100,
+    });
+
+    // 全体が見えるようにフィット
+    const bounds = new google.maps.LatLngBounds();
+    path.forEach(p => bounds.extend(p));
+    map.fitBounds(bounds, 40);
+  }, [trackData]);
+
+  // プレイバック位置更新
+  useEffect(() => {
+    if (!playMapInstanceRef.current || !playMarkerRef.current || trackData.length === 0) return;
+    const idx = Math.min(playIdx, trackData.length - 1);
+    const p = trackData[idx];
+    const pos = { lat: p.lat, lng: p.lng };
+    playMarkerRef.current.setPosition(pos);
+
+    // 走行済みトレイルを更新（色は実車/空車で変化）
+    if (playTrailRef.current) {
+      const trailPath = trackData.slice(0, idx + 1).map(pt => ({ lat: pt.lat, lng: pt.lng }));
+      playTrailRef.current.setPath(trailPath);
+      playTrailRef.current.setOptions({
+        strokeColor: p.status === 'occupied' ? '#00e676' : '#ff9800',
+      });
+    }
+  }, [playIdx, trackData]);
+
+  // 再生タイマー
+  useEffect(() => {
+    if (playTimerRef.current) clearInterval(playTimerRef.current);
+    if (!playing || trackData.length === 0) return;
+    playTimerRef.current = setInterval(() => {
+      setPlayIdx(prev => {
+        if (prev >= trackData.length - 1) { setPlaying(false); return prev; }
+        return prev + 1;
+      });
+    }, 1000 / playSpeed);
+    return () => clearInterval(playTimerRef.current);
+  }, [playing, playSpeed, trackData.length]);
+
+  // クリーンアップ
+  useEffect(() => {
+    return () => { if (playTimerRef.current) clearInterval(playTimerRef.current); };
+  }, []);
+
+  const subTabs = [
+    { id: 'trend', label: '走行トレンド', icon: 'trending_up' },
+    { id: 'matrix', label: 'エリア分析', icon: 'grid_on' },
+    { id: 'playback', label: '軌跡プレイバック', icon: 'play_circle' },
+  ];
+
+  // --- レンダリング ---
+  return React.createElement(React.Fragment, null,
+    // サブタブ
+    React.createElement('div', { style: { display: 'flex', gap: '4px', marginBottom: '16px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '4px' } },
+      ...subTabs.map(st => React.createElement('button', {
+        key: st.id,
+        onClick: () => setSubTab(st.id),
+        style: {
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+          padding: '8px 4px', borderRadius: '8px', border: 'none',
+          fontSize: '12px', fontWeight: subTab === st.id ? 700 : 500, cursor: 'pointer',
+          background: subTab === st.id ? 'var(--color-accent)' : 'transparent',
+          color: subTab === st.id ? '#fff' : 'var(--text-secondary)',
+          transition: 'all 0.2s',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, st.icon),
+        st.label
+      ))
+    ),
+
+    // ローディング
+    loading && React.createElement('div', { style: { textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' } }, '分析中...'),
+
+    // === 走行トレンド ===
+    !loading && subTab === 'trend' && (() => {
+      if (trends.length === 0) {
+        return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', display: 'block', marginBottom: '12px', opacity: 0.4 } }, 'show_chart'),
+          'GPSデータがありません'
+        );
+      }
+      const maxDist = Math.max(...trends.map(t => t.distanceKm), 1);
+      return React.createElement(React.Fragment, null,
+        // サマリーカード（全日合計）
+        React.createElement(Card, { style: { marginBottom: '12px' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' } },
+            ...[
+              { label: '記録日数', value: trends.length + '日', color: 'var(--text-primary)' },
+              { label: '総走行距離', value: trends.reduce((s, t) => s + t.distanceKm, 0).toFixed(1) + ' km', color: 'var(--color-accent)' },
+              { label: '平均速度', value: (trends.reduce((s, t) => s + t.avgSpeed, 0) / trends.length).toFixed(1) + ' km/h', color: 'var(--text-primary)' },
+            ].map((item, i) => React.createElement('div', { key: i },
+              React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
+              React.createElement('div', { style: { fontSize: '16px', fontWeight: 600, color: item.color } }, item.value)
+            ))
+          )
+        ),
+        // 日別バーチャート
+        React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' } }, '日別走行距離'),
+        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+          ...trends.slice(0, 30).map(t => React.createElement('div', { key: t.date, style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' } },
+            React.createElement('span', { style: { width: '78px', flexShrink: 0, color: 'var(--text-secondary)' } }, t.date),
+            React.createElement('div', { style: { flex: 1, height: '16px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden', position: 'relative' } },
+              React.createElement('div', { style: {
+                height: '100%', borderRadius: '4px', transition: 'width 0.3s',
+                width: `${Math.max((t.distanceKm / maxDist) * 100, 1)}%`,
+                background: t.distanceKm > 50 ? 'var(--color-accent)' : t.distanceKm > 20 ? '#2196F3' : 'rgba(255,255,255,0.2)',
+              } })
+            ),
+            React.createElement('span', { style: { width: '55px', textAlign: 'right', flexShrink: 0, fontWeight: 600 } }, t.distanceKm + ' km'),
+            React.createElement('span', { style: { width: '60px', textAlign: 'right', flexShrink: 0, color: 'var(--text-secondary)' } }, t.avgSpeed + ' km/h'),
+            React.createElement('span', { style: { width: '40px', textAlign: 'right', flexShrink: 0, color: 'var(--text-secondary)' } }, t.duration + '分')
+          ))
+        ),
+        // 速度トレンド
+        React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginTop: '16px', marginBottom: '8px' } }, '最高速度トレンド'),
+        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+          ...trends.slice(0, 30).map(t => {
+            const maxSpdAll = Math.max(...trends.map(x => x.maxSpeed), 1);
+            return React.createElement('div', { key: t.date + '_spd', style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' } },
+              React.createElement('span', { style: { width: '78px', flexShrink: 0, color: 'var(--text-secondary)' } }, t.date),
+              React.createElement('div', { style: { flex: 1, height: '12px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' } },
+                React.createElement('div', { style: {
+                  height: '100%', borderRadius: '4px',
+                  width: `${Math.max((t.maxSpeed / maxSpdAll) * 100, 1)}%`,
+                  background: t.maxSpeed > 80 ? '#f44336' : t.maxSpeed > 50 ? '#ff9800' : '#4caf50',
+                } })
+              ),
+              React.createElement('span', { style: { width: '65px', textAlign: 'right', flexShrink: 0, fontWeight: 500, color: t.maxSpeed > 80 ? '#f44336' : 'var(--text-primary)' } }, t.maxSpeed + ' km/h')
+            );
+          })
+        )
+      );
+    })(),
+
+    // === エリア×時間帯マトリクス ===
+    !loading && subTab === 'matrix' && (() => {
+      if (!matrix || matrix.cells.length === 0) {
+        return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', display: 'block', marginBottom: '12px', opacity: 0.4 } }, 'grid_off'),
+          'データが不足しています（複数日のGPS記録が必要）'
+        );
+      }
+      // 期間選択
+      const dayOptions = [7, 14, 30];
+      // マトリクスをテーブルとして表示
+      const rateColor = (rate) => {
+        if (rate >= 70) return '#00e676';
+        if (rate >= 50) return '#66bb6a';
+        if (rate >= 30) return '#ffa726';
+        if (rate >= 10) return '#ef5350';
+        return 'rgba(255,255,255,0.1)';
+      };
+      const cellMap = {};
+      matrix.cells.forEach(c => { cellMap[`${c.areaIdx}_${c.hour}`] = c; });
+      // 使用する時間帯を絞る（データがある時間帯のみ）
+      const usedHours = [...new Set(matrix.cells.map(c => c.hour))].sort((a, b) => a - b);
+
+      return React.createElement(React.Fragment, null,
+        // 期間セレクタ
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+          React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '分析期間:'),
+          ...dayOptions.map(d => React.createElement('button', {
+            key: d,
+            onClick: () => setMatrixDays(d),
+            style: {
+              padding: '4px 12px', borderRadius: '6px', border: 'none', fontSize: '12px', cursor: 'pointer',
+              background: matrixDays === d ? 'var(--color-accent)' : 'rgba(255,255,255,0.08)',
+              color: matrixDays === d ? '#fff' : 'var(--text-secondary)',
+            },
+          }, d + '日'))
+        ),
+        // 凡例
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontSize: '11px' } },
+          React.createElement('span', { style: { color: 'var(--text-secondary)' } }, '実車率:'),
+          ...[[70, '#00e676', '70%+'], [50, '#66bb6a', '50%+'], [30, '#ffa726', '30%+'], [10, '#ef5350', '10%+'], [0, 'rgba(255,255,255,0.15)', '<10%']].map(([, c, l]) =>
+            React.createElement('span', { key: l, style: { display: 'inline-flex', alignItems: 'center', gap: '3px' } },
+              React.createElement('span', { style: { width: '10px', height: '10px', borderRadius: '2px', background: c, display: 'inline-block' } }),
+              l
+            )
+          )
+        ),
+        // ヒートマップテーブル
+        React.createElement('div', { style: { overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' } },
+          React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+            React.createElement('thead', null,
+              React.createElement('tr', { style: { background: 'var(--bg-secondary)' } },
+                React.createElement('th', { style: { padding: '4px 6px', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '10px', whiteSpace: 'nowrap' } }, 'エリア'),
+                ...usedHours.map(h => React.createElement('th', { key: h, style: { padding: '4px 3px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '10px', minWidth: '28px' } }, h + '時'))
+              )
+            ),
+            React.createElement('tbody', null,
+              ...matrix.areas.map(area => React.createElement('tr', { key: area.idx },
+                React.createElement('td', { style: { padding: '3px 6px', fontSize: '10px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis' } }, area.label),
+                ...usedHours.map(h => {
+                  const cell = cellMap[`${area.idx}_${h}`];
+                  return React.createElement('td', { key: h, style: { padding: '2px', textAlign: 'center' } },
+                    cell ? React.createElement('div', {
+                      style: {
+                        background: rateColor(cell.rate), borderRadius: '3px', padding: '2px 0',
+                        color: cell.rate >= 30 ? '#000' : '#fff', fontWeight: 600, fontSize: '10px',
+                      },
+                      title: `実車率${cell.rate}% (${cell.total}点)`,
+                    }, cell.rate + '%') : React.createElement('div', { style: { color: 'rgba(255,255,255,0.1)', fontSize: '10px' } }, '-')
+                  );
+                })
+              ))
+            )
+          )
+        ),
+        // エリア座標の説明
+        React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' } },
+          '* エリアはGPS範囲を5x5グリッドに分割。座標は各エリアの中心点。'
+        )
+      );
+    })(),
+
+    // === 軌跡プレイバック ===
+    !loading && subTab === 'playback' && (() => {
+      const current = trackData[Math.min(playIdx, trackData.length - 1)];
+      return React.createElement(React.Fragment, null,
+        // 日付選択
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-secondary)' } }, 'calendar_today'),
+          React.createElement('select', {
+            value: playDate,
+            onChange: e => setPlayDate(e.target.value),
+            style: { flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px' },
+          },
+            ...playDates.map(d => React.createElement('option', { key: d, value: d }, d))
+          )
+        ),
+
+        // 地図
+        React.createElement('div', {
+          ref: playMapRef,
+          style: { width: '100%', height: '300px', borderRadius: '12px', marginBottom: '12px', background: '#1a1a2e' },
+        }),
+
+        // コントロール
+        trackData.length > 0 && React.createElement(React.Fragment, null,
+          // 再生バー
+          React.createElement('div', { style: { marginBottom: '8px' } },
+            React.createElement('input', {
+              type: 'range', min: 0, max: Math.max(trackData.length - 1, 0), value: playIdx,
+              onChange: e => { setPlayIdx(parseInt(e.target.value)); setPlaying(false); },
+              style: { width: '100%', accentColor: 'var(--color-accent)' },
+            })
+          ),
+          // ボタン
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+            React.createElement('button', {
+              onClick: () => setPlayIdx(0),
+              style: { padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '12px', cursor: 'pointer' },
+            }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'skip_previous')),
+            React.createElement('button', {
+              onClick: () => {
+                if (playIdx >= trackData.length - 1) setPlayIdx(0);
+                setPlaying(prev => !prev);
+              },
+              style: { padding: '8px 20px', borderRadius: '8px', border: 'none', background: playing ? '#f44336' : 'var(--color-accent)', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, playing ? 'pause' : 'play_arrow'),
+              playing ? '停止' : '再生'
+            ),
+            // 速度
+            React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '速度:'),
+            ...[1, 5, 10, 30, 60].map(s => React.createElement('button', {
+              key: s,
+              onClick: () => setPlaySpeed(s),
+              style: {
+                padding: '4px 8px', borderRadius: '4px', border: 'none', fontSize: '11px', cursor: 'pointer',
+                background: playSpeed === s ? 'var(--color-accent)' : 'rgba(255,255,255,0.08)',
+                color: playSpeed === s ? '#fff' : 'var(--text-secondary)',
+              },
+            }, s + 'x'))
+          ),
+          // 現在位置情報
+          current && React.createElement(Card, { style: { padding: '10px 12px' } },
+            React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center', fontSize: '12px' } },
+              ...[
+                { label: '時刻', value: new Date(current.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
+                { label: '状態', value: current.status === 'occupied' ? '実車' : '空車', color: current.status === 'occupied' ? '#00e676' : '#ff9800' },
+                { label: '累積距離', value: (current.distM / 1000).toFixed(1) + ' km' },
+                { label: '速度', value: current.spd != null ? (current.spd * 3.6).toFixed(1) + ' km/h' : '-' },
+                { label: '精度', value: current.acc != null ? current.acc + 'm' : '-' },
+                { label: '進捗', value: `${playIdx + 1} / ${trackData.length}` },
+              ].map((item, i) => React.createElement('div', { key: i },
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '1px' } }, item.label),
+                React.createElement('div', { style: { fontWeight: 600, color: item.color || 'var(--text-primary)' } }, item.value)
+              ))
+            )
+          )
+        ),
+        trackData.length === 0 && !loading && React.createElement('div', { style: { textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '13px' } }, 'この日のGPSデータはありません')
+      );
+    })()
+  );
+};
+
 window.DataManagePage = () => {
   const { useState, useEffect, useCallback, useMemo } = React;
   const [tab, setTab] = useState('revenue');
@@ -16441,6 +17649,8 @@ window.DataManagePage = () => {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'rival', label: '他社記録', icon: 'local_taxi' },
     { id: 'transit', label: '交通情報', icon: 'directions_transit' },
+    { id: 'gps', label: 'GPS記録', icon: 'location_on' },
+    { id: 'gps-analysis', label: 'GPS分析', icon: 'analytics' },
     { id: 'trash', label: 'ゴミ箱', icon: 'delete_outline' },
   ];
 
@@ -17466,6 +18676,12 @@ window.DataManagePage = () => {
         }, '全削除')
       )
     ),
+
+    // === GPS記録タブ ===
+    tab === 'gps' && React.createElement(GpsLogTab, { refreshKey, setRefreshKey }),
+
+    // === GPS分析タブ ===
+    tab === 'gps-analysis' && React.createElement(GpsAnalysisTab, { refreshKey }),
 
     // === ゴミ箱タブ ===
     tab === 'trash' && React.createElement(React.Fragment, null,
@@ -19136,6 +20352,7 @@ window.App = () => {
   T.utils.logger = AppLogger;
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
+  T.utils.gpsLogService = GpsLogService;
   T.utils.geminiService = GeminiService;
 
   // Contexts
@@ -19209,6 +20426,7 @@ window.App = () => {
 
   AppLogger.info('アプリケーション起動完了');
   AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
+  if (window.GpsLogService) GpsLogService.cleanup();
 })();
 
 })();
