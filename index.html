@@ -6937,6 +6937,7 @@ window.useGeolocation = () => {
       setWatchId(null);
     }
     mapCtx.setIsTracking(false);
+    mapCtx.setCurrentPosition(null);
     AppLogger.info('GPS追跡を停止');
   }, [mapCtx]);
 
@@ -10674,8 +10675,8 @@ window.RevenuePage = () => {
   }, [apiKey]);
 
   // GPS現在地を取得して住所に変換
-  // バックグラウンドのwatchPositionキャッシュ（mapCtx.currentPosition）を優先使用し、
-  // 位置情報の確認ダイアログを毎回出さないようにする
+  // GPS追跡中はwatchPositionの最新位置を即座に使用（高速＆確認ダイアログなし）
+  // 追跡していない場合はgetAccuratePositionで新規取得
   const getGpsLocation = useCallback((field) => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -10685,17 +10686,17 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
-    // バックグラウンドGPS追跡から最新位置が取得済みならそれを即座に使用（確認ダイアログなし）
-    if (mapCtx.currentPosition && mapCtx.currentPosition.lat && mapCtx.currentPosition.lng) {
+    // GPS追跡が有効で最新位置がある場合のみキャッシュを使用
+    if (mapCtx.isTracking && mapCtx.currentPosition && mapCtx.currentPosition.lat && mapCtx.currentPosition.lng) {
       const lat = mapCtx.currentPosition.lat;
       const lng = mapCtx.currentPosition.lng;
       const acc = Math.round(mapCtx.accuracy || 0);
-      AppLogger.info(`GPS(キャッシュ使用): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
+      AppLogger.info(`GPS(追跡中・即時取得): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
       _reverseGeocodeAndSetForm(lat, lng, acc, field);
       return;
     }
 
-    // キャッシュがない場合のみgetAccuratePositionで新規取得（初回のみ確認ダイアログが出る）
+    // 追跡していない場合はgetAccuratePositionで新規取得
     getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
       .then((position) => {
         const lat = position.coords.latitude;
@@ -10713,7 +10714,7 @@ window.RevenuePage = () => {
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
         AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
       });
-  }, [apiKey, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
+  }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
 
   // Geocoding結果から簡潔な住所を抽出
   function _formatAddress(result) {
