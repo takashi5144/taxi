@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.7.8',
+  VERSION: '2.7.9',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -7123,11 +7123,11 @@ window.AppProvider = ({ children }) => {
         DataService.consumeWatchPickupOnCloud(latest.id);
         // 売上記録ページに遷移
         navigate('revenue');
-        // カスタムイベントでデータを渡す
+        // GPSトリガーイベントを発火（スマホ側でGPS取得を実行）
         setTimeout(() => {
-          document.dispatchEvent(new CustomEvent('watch-pickup-received', { detail: latest }));
+          document.dispatchEvent(new CustomEvent('watch-gps-trigger'));
         }, 300);
-        AppLogger.info('ウォッチ乗車地受信 → 売上記録に遷移: ' + (latest.address || ''));
+        AppLogger.info('ウォッチGPSトリガー受信 → 売上記録に遷移');
       } catch {}
     };
     pollWatch();
@@ -10828,48 +10828,6 @@ window.RevenuePage = () => {
     fetchWeather();
   }, []);
 
-  // ウォッチ乗車地の適用（ローカル or カスタムイベント経由）
-  const applyWatchPickup = useCallback((pickup) => {
-    if (!pickup || !pickup.lat) return;
-    setForm(prev => ({
-      ...prev,
-      pickup: pickup.address || (pickup.lat.toFixed(5) + ', ' + pickup.lng.toFixed(5)),
-      pickupTime: new Date(pickup.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-    }));
-    setGpsInfo(prev => ({ ...prev, pickup: { lat: pickup.lat, lng: pickup.lng, accuracy: pickup.accuracy, address: pickup.address } }));
-    AppLogger.info('ウォッチ乗車地GPS自動取り込み: ' + (pickup.address || ''));
-  }, []);
-
-  // ローカルlocalStorageからの取り込み
-  const consumeWatchPickupLocal = useCallback(() => {
-    try {
-      const pickups = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS) || '[]');
-      const unconsumed = pickups.filter(p => !p.consumed);
-      if (unconsumed.length === 0) return;
-      const latest = unconsumed[unconsumed.length - 1];
-      applyWatchPickup(latest);
-      const updated = pickups.map(p => p.id === latest.id ? { ...p, consumed: true } : p);
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS, JSON.stringify(updated));
-    } catch {}
-  }, [applyWatchPickup]);
-
-  // 初回ローカルチェック + storageイベント + クラウド経由カスタムイベント
-  useEffect(() => {
-    consumeWatchPickupLocal();
-    const onStorage = (e) => {
-      if (e.key === APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS) consumeWatchPickupLocal();
-    };
-    const onWatchPickup = (e) => {
-      if (e.detail) applyWatchPickup(e.detail);
-    };
-    window.addEventListener('storage', onStorage);
-    document.addEventListener('watch-pickup-received', onWatchPickup);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      document.removeEventListener('watch-pickup-received', onWatchPickup);
-    };
-  }, [consumeWatchPickupLocal, applyWatchPickup]);
-
   // データは常にDataServiceから取得（単一のデータソース）
   const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
 
@@ -11026,6 +10984,16 @@ window.RevenuePage = () => {
         AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
       });
   }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
+
+  // ウォッチからのGPSトリガー受信 → スマホ側でGPS取得を実行
+  useEffect(() => {
+    const onWatchGpsTrigger = () => {
+      AppLogger.info('ウォッチGPSトリガー受信 → 乗車地GPS取得開始');
+      getGpsLocation('pickup');
+    };
+    document.addEventListener('watch-gps-trigger', onWatchGpsTrigger);
+    return () => document.removeEventListener('watch-gps-trigger', onWatchGpsTrigger);
+  }, [getGpsLocation]);
 
   // Geocoding結果から簡潔な住所を抽出
   function _formatAddress(result) {
@@ -21390,15 +21358,12 @@ window.GatheringMemoPage = () => {
 const WATCH_PICKUPS_KEY = APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS;
 
 window.WatchPage = () => {
-  const { useState, useEffect, useRef, useCallback } = React;
+  const { useState, useEffect, useCallback } = React;
   const [status, setStatus] = useState('ready'); // ready | loading | success | error
   const [message, setMessage] = useState('');
-  const [lastPickup, setLastPickup] = useState(null);
   const [time, setTime] = useState('');
-  const watchIdRef = useRef(null);
-  const cachedPosRef = useRef(null);
 
-  // 時刻表示を毎秒更新
+  // 時刻表示を更新
   useEffect(() => {
     const tick = () => {
       const now = new Date();
@@ -21409,125 +21374,40 @@ window.WatchPage = () => {
     return () => clearInterval(id);
   }, []);
 
-  // GPS状態表示
-  const [gpsReady, setGpsReady] = useState(false);
-
-  // ページ読み込み時にGPS取得（許可ダイアログはここで1回だけ）
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    const updateCache = (pos) => {
-      cachedPosRef.current = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        accuracy: pos.coords.accuracy,
-        timestamp: pos.timestamp || Date.now(),
-      };
-      setGpsReady(true);
-    };
-    // 初回即時取得（キャッシュ許容で高速）
-    navigator.geolocation.getCurrentPosition(updateCache, () => {}, {
-      enableHighAccuracy: false, timeout: 10000, maximumAge: 60000
-    });
-    // 高精度でも並行取得
-    navigator.geolocation.getCurrentPosition(updateCache, () => {}, {
-      enableHighAccuracy: true, timeout: 20000, maximumAge: 30000
-    });
-    // 継続的な位置更新
-    const id = navigator.geolocation.watchPosition(updateCache, () => {}, {
-      enableHighAccuracy: true, timeout: 30000, maximumAge: 10000
-    });
-    watchIdRef.current = id;
-    return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
-  }, []);
-
-  // 直近の記録を読み込み
-  useEffect(() => {
-    try {
-      const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
-      if (pickups.length > 0) setLastPickup(pickups[pickups.length - 1]);
-    } catch {}
-  }, []);
-
-  // 逆ジオコーディング（Nominatim、軽量）
-  const reverseGeocode = useCallback(async (lat, lng) => {
-    try {
-      const url = TaxiApp.utils.nominatimUrl(lat, lng, 18);
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data && data.address) {
-        const a = data.address;
-        const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
-        return parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
-      }
-    } catch {}
-    return lat.toFixed(5) + ', ' + lng.toFixed(5);
-  }, []);
-
-  // 乗車ボタン押下
+  // 乗車ボタン押下 — スマホのGPSボタンをリモートで押すトリガーを送信
   const handlePickup = useCallback(async () => {
     if (status === 'loading') return;
     setStatus('loading');
-    setMessage('位置取得中...');
+    setMessage('送信中...');
 
-    // バイブレーション（対応デバイスのみ）
     if (navigator.vibrate) navigator.vibrate(50);
 
-    let lat, lng, acc;
-
-    // キャッシュされたGPS位置を使用
-    // キャッシュが無い場合は最大15秒待つ
-    if (!cachedPosRef.current) {
-      setMessage('GPS取得待ち...');
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 500));
-        if (cachedPosRef.current) break;
-      }
-    }
-    if (cachedPosRef.current) {
-      lat = cachedPosRef.current.lat;
-      lng = cachedPosRef.current.lng;
-      acc = cachedPosRef.current.accuracy;
-    } else {
-      setStatus('error');
-      setMessage('GPS未取得');
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
-      return;
-    }
-
-    // 逆ジオコーディング
-    setMessage('住所変換中...');
-    const address = await reverseGeocode(lat, lng);
-
-    // 記録を保存
-    const pickup = {
+    // トリガー信号をクラウドに送信（GPS座標は不要、スマホ側で取得する）
+    const trigger = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      lat, lng,
-      accuracy: Math.round(acc || 0),
-      address,
+      type: 'gps_trigger',
       timestamp: new Date().toISOString(),
       consumed: false,
     };
 
     try {
       const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
-      pickups.push(pickup);
-      // 最新100件のみ保持
+      pickups.push(trigger);
       if (pickups.length > 100) pickups.splice(0, pickups.length - 100);
       localStorage.setItem(WATCH_PICKUPS_KEY, JSON.stringify(pickups));
-    } catch {}
+      DataService.syncWatchPickupsToCloud();
 
-    // クラウド同期（スマホ側で受信するため）
-    try { DataService.syncWatchPickupsToCloud(); } catch {}
+      setStatus('success');
+      setMessage('スマホに送信しました');
+      if (navigator.vibrate) navigator.vibrate(200);
+    } catch (e) {
+      setStatus('error');
+      setMessage('送信失敗');
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    }
 
-    setLastPickup(pickup);
-    setStatus('success');
-    setMessage(address);
-    if (navigator.vibrate) navigator.vibrate(200);
-
-    // 3秒後にリセット
     setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
-  }, [status, reverseGeocode]);
+  }, [status]);
 
   // スタイル
   const containerStyle = {
@@ -21578,37 +21458,16 @@ window.WatchPage = () => {
     minHeight: '18px',
   };
 
-  const lastStyle = {
-    position: 'absolute', bottom: '8px', left: 0, right: 0,
-    textAlign: 'center', fontSize: '10px', opacity: 0.5,
-    padding: '0 8px',
-  };
-
   const btnLabel = status === 'loading' ? '...' : status === 'success' ? 'OK' : status === 'error' ? '!' : '乗車';
-
-  const gpsIndicatorStyle = {
-    position: 'absolute', top: '8px', right: '8px',
-    width: '10px', height: '10px', borderRadius: '50%',
-    background: gpsReady ? '#4caf50' : '#ff9800',
-    boxShadow: gpsReady ? '0 0 6px #4caf50' : '0 0 6px #ff9800',
-    animation: gpsReady ? 'none' : 'pulse 1.5s ease-in-out infinite',
-  };
 
   return React.createElement('div', { style: containerStyle },
     React.createElement('div', { style: timeStyle }, time),
-    React.createElement('div', { style: gpsIndicatorStyle }),
     React.createElement('button', {
       style: buttonStyle,
       onClick: handlePickup,
       disabled: status === 'loading',
     }, btnLabel),
-    React.createElement('div', { style: msgStyle },
-      message || (status === 'ready' && !gpsReady ? 'GPS取得中...' : '')
-    ),
-    lastPickup && React.createElement('div', { style: lastStyle },
-      '前回: ' + (lastPickup.address || '').substring(0, 20) + ' (' +
-      new Date(lastPickup.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ')'
-    )
+    React.createElement('div', { style: msgStyle }, message)
   );
 };
 
