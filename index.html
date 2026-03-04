@@ -1059,8 +1059,6 @@ window.APP_CONSTANTS = {
     GATHERING_MEMOS: 'taxi_app_gathering_memos',
     TRASH: 'taxi_app_trash',
     GPS_LOG: 'taxi_app_gps_log',
-    WATCH_PICKUPS: 'taxi_watch_pickups',
-    WATCH_UID: 'taxi_watch_uid',
     GPS_BG_ENABLED: 'taxi_gps_bg_enabled',
   },
 
@@ -2606,65 +2604,6 @@ window.DataService = (() => {
     return { merged };
   }
 
-  // ウォッチ乗車地をクラウドにアップロード（成功/失敗を返す）
-  async function syncWatchPickupsToCloud() {
-    try {
-      const secret = _getSyncSecret();
-      if (!secret) {
-        AppLogger.warn('ウォッチ同期: SYNC_SECRETが未設定');
-        return { ok: false, error: 'シークレット未設定' };
-      }
-      const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS) || '[]');
-      const params = new URLSearchParams({ type: 'watchpickups' });
-      const res = await fetch('/api/data?' + params, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + secret,
-        },
-        body: JSON.stringify({
-          version: APP_CONSTANTS.VERSION,
-          syncedAt: new Date().toISOString(),
-          count: entries.length,
-          entries,
-        }),
-      });
-      if (res.ok) {
-        AppLogger.info('ウォッチトリガー クラウド送信成功');
-        return { ok: true };
-      }
-      const errText = await res.text().catch(() => '');
-      AppLogger.warn('ウォッチ同期失敗: ' + res.status + ' ' + errText.substring(0, 100));
-      return { ok: false, error: 'サーバー応答 ' + res.status };
-    } catch (e) {
-      AppLogger.warn('ウォッチ乗車地クラウド同期エラー: ' + e.message);
-      return { ok: false, error: e.message };
-    }
-  }
-
-  // クラウドからウォッチ乗車地を取得（未消費のもののみ返す）
-  async function loadWatchPickupsFromCloud() {
-    try {
-      const cloudEntries = await loadFromCloud('watchpickups');
-      if (!cloudEntries || cloudEntries.length === 0) return [];
-      return cloudEntries.filter(p => !p.consumed);
-    } catch (e) {
-      AppLogger.warn('ウォッチ乗車地クラウド読込エラー: ' + e.message);
-      return [];
-    }
-  }
-
-  // クラウド上のウォッチ乗車地を消費済みにする
-  async function consumeWatchPickupOnCloud(pickupId) {
-    try {
-      const cloudEntries = await loadFromCloud('watchpickups');
-      if (!cloudEntries || cloudEntries.length === 0) return;
-      const updated = cloudEntries.map(p => p.id === pickupId ? { ...p, consumed: true } : p);
-      await _syncToCloud('watchpickups', updated);
-    } catch (e) {
-      AppLogger.warn('ウォッチ乗車地消費更新エラー: ' + e.message);
-    }
-  }
 
   // ============================================================
   // 日付ヘルパー
@@ -5862,9 +5801,6 @@ window.DataService = (() => {
     syncBreaksToCloud,
     syncShiftsFromCloud,
     syncBreaksFromCloud,
-    syncWatchPickupsToCloud,
-    loadWatchPickupsFromCloud,
-    consumeWatchPickupOnCloud,
 
     // イベント
     getEvents,
@@ -7489,50 +7425,6 @@ window.AppProvider = ({ children }) => {
     };
   }, []);
 
-  // ── ウォッチ乗車地クラウド監視（全ページ共通） ──
-  useEffect(() => {
-    const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-    if (!secret) return;
-    let active = true;
-    let processing = false;
-    const processedIds = new Set(); // 処理済みID（同一IDの再処理防止）
-    const pollWatch = async () => {
-      if (!active || processing) return;
-      // 既にこのセッションで乗車地GPS取得トリガー済みなら再処理しない
-      if (window.__watchPickupConsumedThisSession) return;
-      processing = true;
-      try {
-        const unconsumed = await DataService.loadWatchPickupsFromCloud();
-        if (!unconsumed || unconsumed.length === 0) { processing = false; return; }
-        const latest = unconsumed[unconsumed.length - 1];
-        // 同一IDは再処理しない（consume API失敗で残っている場合）
-        if (processedIds.has(latest.id)) { processing = false; return; }
-        processedIds.add(latest.id);
-        AppLogger.info('ウォッチトリガー検出: id=' + latest.id + ' type=' + (latest.type || '?'));
-        // 消費済みにマーク（失敗しても再トリガーしない）
-        try {
-          await DataService.consumeWatchPickupOnCloud(latest.id);
-        } catch (ce) {
-          AppLogger.warn('ウォッチ消費マーク失敗（再トリガーなし）: ' + ce.message);
-        }
-        // グローバルフラグをセット（RevenuePage がマウント時に検知）
-        window.__watchGpsTriggerPending = true;
-        window.__watchPickupConsumedThisSession = true;
-        // 売上記録ページに遷移
-        navigate('revenue');
-        AppLogger.info('ウォッチGPSトリガー受信 → 売上記録に遷移');
-      } catch (e) {
-        AppLogger.warn('ウォッチポーリングエラー: ' + e.message);
-      }
-      processing = false;
-    };
-    pollWatch();
-    const id = setInterval(pollWatch, 5000);
-    // スリープ復帰時にも即ポーリング
-    const onVisible = () => { if (document.visibilityState === 'visible') pollWatch(); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => { active = false; clearInterval(id); document.removeEventListener('visibilitychange', onVisible); };
-  }, [navigate]);
 
   // ── 需要通知サービス ──
   useEffect(() => {
@@ -11171,7 +11063,6 @@ window.RevenuePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
-  const pickupGpsDone = useRef(false); // 乗車地GPS取得済みフラグ（手動/自動問わず、1回取得したら以降の自動取得を抑止）
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
@@ -11266,8 +11157,6 @@ window.RevenuePage = () => {
 
   // GPS座標から逆ジオコーディングして住所をフォームに反映
   const _reverseGeocodeAndSetForm = useCallback((lat, lng, acc, field) => {
-    // 乗車地GPS取得済みフラグを立てる（以降の自動取得を抑止）
-    if (field === 'pickup') pickupGpsDone.current = true;
     setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
 
     if (apiKey && window.google && window.google.maps) {
@@ -11387,27 +11276,6 @@ window.RevenuePage = () => {
       });
   }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
 
-  // ウォッチからのGPSトリガー受信 → スマホ側でGPS取得を実行
-  useEffect(() => {
-    const checkPending = () => {
-      if (window.__watchGpsTriggerPending) {
-        window.__watchGpsTriggerPending = false;
-        if (pickupGpsDone.current) {
-          AppLogger.info('ウォッチGPSトリガー検知 → 乗車地GPS取得済みのためスキップ');
-          return false;
-        }
-        AppLogger.info('ウォッチGPSトリガー検知 → 乗車地GPS取得開始');
-        getGpsLocation('pickup');
-        return true;
-      }
-      return false;
-    };
-    // マウント直後は少し待ってからチェック（コンポーネント初期化完了を待つ）
-    const initTimer = setTimeout(() => checkPending(), 500);
-    // 継続監視（既にページが開いている場合、または初回チェックが早すぎた場合）
-    const id = setInterval(checkPending, 1500);
-    return () => { clearTimeout(initTimer); clearInterval(id); };
-  }, [getGpsLocation]);
 
   // Geocoding結果から簡潔な住所を抽出
   function _formatAddress(result) {
@@ -11435,85 +11303,6 @@ window.RevenuePage = () => {
     return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
   }
 
-  // ウォッチGPSポーリング（スマートウォッチからの乗車地GPS自動取得）
-  useEffect(() => {
-    const watchUid = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_UID);
-    if (!watchUid) return;
-    let cancelled = false;
-    let consuming = false;
-    const poll = async () => {
-      if (cancelled || consuming) return;
-      if (pickupGpsDone.current) return; // 乗車地GPS取得済みなら自動取得しない
-      try {
-        const res = await fetch('/api/gps?uid=' + encodeURIComponent(watchUid));
-        if (cancelled) return;
-        const data = await res.json();
-        if (data.empty || cancelled) return;
-        consuming = true;
-        pickupGpsDone.current = true; // ウォッチGPS取得済みフラグ
-        const lat = data.lat, lng = data.lng, acc = data.accuracy;
-        const d = new Date(data.timestamp);
-        const pickupTime = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-        setGpsLoading(prev => ({ ...prev, pickup: true }));
-        setGpsInfo(prev => ({ ...prev, pickup: { ...((prev && prev.pickup) || {}), lat, lng, accuracy: acc } }));
-        if (apiKey && window.google && window.google.maps) {
-          const geocoder = new google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            setGpsLoading(prev => ({ ...prev, pickup: false }));
-            if (status === 'OK' && results && results.length > 0) {
-              const preferred = results.find(r => r.types.includes('street_address'))
-                || results.find(r => r.types.includes('premise'))
-                || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
-                || results.find(r => r.types.includes('route'))
-                || results[0];
-              const address = TaxiApp.utils.extractAddress(preferred);
-              const fullAddress = preferred.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-              setForm(prev => ({ ...prev, pickup: address, pickupTime }));
-              setGpsInfo(prev => ({ ...prev, pickup: { ...(prev.pickup || {}), lat, lng, address: fullAddress } }));
-              AppLogger.info('ウォッチGPS (Google): ' + address);
-            } else {
-              fetch(TaxiApp.utils.nominatimUrl(lat, lng, 18)).then(r => r.json()).then(nd => {
-                if (nd && nd.address) {
-                  const a = nd.address;
-                  const parts = [a.city||a.town||a.village||a.county||'', a.suburb||a.neighbourhood||a.quarter||'', a.road||''].filter(Boolean);
-                  const addr = parts.join(' ') || nd.display_name.split(',').slice(0,3).join(' ');
-                  setForm(prev => ({ ...prev, pickup: addr, pickupTime }));
-                  setGpsInfo(prev => ({ ...prev, pickup: { ...(prev.pickup || {}), lat, lng, address: nd.display_name || addr } }));
-                } else {
-                  setForm(prev => ({ ...prev, pickup: lat.toFixed(6) + ', ' + lng.toFixed(6), pickupTime }));
-                }
-              }).catch(() => {
-                setForm(prev => ({ ...prev, pickup: lat.toFixed(6) + ', ' + lng.toFixed(6), pickupTime }));
-              });
-            }
-          });
-        } else {
-          fetch(TaxiApp.utils.nominatimUrl(lat, lng, 18)).then(r => r.json()).then(nd => {
-            setGpsLoading(prev => ({ ...prev, pickup: false }));
-            if (nd && nd.address) {
-              const a = nd.address;
-              const parts = [a.city||a.town||a.village||a.county||'', a.suburb||a.neighbourhood||a.quarter||'', a.road||''].filter(Boolean);
-              const addr = parts.join(' ') || nd.display_name.split(',').slice(0,3).join(' ');
-              setForm(prev => ({ ...prev, pickup: addr, pickupTime }));
-              setGpsInfo(prev => ({ ...prev, pickup: { ...(prev.pickup || {}), lat, lng, address: nd.display_name || addr } }));
-              AppLogger.info('ウォッチGPS (Nominatim): ' + addr);
-            } else {
-              setForm(prev => ({ ...prev, pickup: lat.toFixed(6) + ', ' + lng.toFixed(6), pickupTime }));
-            }
-          }).catch(() => {
-            setGpsLoading(prev => ({ ...prev, pickup: false }));
-            setForm(prev => ({ ...prev, pickup: lat.toFixed(6) + ', ' + lng.toFixed(6), pickupTime }));
-          });
-        }
-        fetch('/api/gps?uid=' + encodeURIComponent(watchUid), { method: 'DELETE' }).catch(() => {});
-        AppLogger.info('ウォッチからGPS取得: ' + lat.toFixed(6) + ', ' + lng.toFixed(6) + ' (精度: ' + acc + 'm)');
-        consuming = false;
-      } catch (e) { consuming = false; }
-    };
-    const interval = setInterval(poll, 5000);
-    poll();
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [apiKey]);
 
   // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
   useEffect(() => {
@@ -11605,8 +11394,6 @@ window.RevenuePage = () => {
 
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
-    pickupGpsDone.current = false; // 新規記録用にGPSフラグリセット
-    window.__watchPickupConsumedThisSession = false; // グローバルフラグもリセット（次のウォッチトリガーを受付可能に）
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -17631,15 +17418,6 @@ window.SettingsPage = () => {
   });
   const [goalSaved, setGoalSaved] = useState(false);
 
-  const [watchUid] = useState(() => {
-    let uid = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_UID);
-    if (!uid) {
-      uid = Math.random().toString(36).substr(2, 8);
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_UID, uid);
-    }
-    return uid;
-  });
-  const [watchUrlCopied, setWatchUrlCopied] = useState(false);
 
   // GPS設定state - MapContextから取得（独自watchPositionは不要）
   const { useEffect, useCallback } = React;
@@ -18203,68 +17981,6 @@ window.SettingsPage = () => {
       )
     ),
 
-    // スマートウォッチ連携
-    React.createElement(Card, { title: 'スマートウォッチ連携', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('p', {
-        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, 'Galaxy Watchなどのスマートウォッチから乗車ボタンを押すと、スマホのGPSで乗車地を自動取得します。'),
-
-      React.createElement('div', { className: 'form-group' },
-        React.createElement('label', { className: 'form-label' }, 'ウォッチ用URL'),
-        React.createElement('div', {
-          style: {
-            padding: '10px 12px', borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.15)',
-            background: 'rgba(255,255,255,0.06)',
-            fontSize: 'var(--font-size-xs)',
-            fontFamily: 'monospace',
-            color: 'var(--text-primary)',
-            wordBreak: 'break-all',
-            lineHeight: 1.5,
-          },
-        }, (() => {
-          const base = location.origin + location.pathname + '?mode=watch';
-          const s = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-          return s ? base + '&secret=' + encodeURIComponent(s) : base;
-        })())
-      ),
-
-      React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: 'var(--space-md)' } },
-        React.createElement(Button, {
-          variant: 'primary',
-          icon: watchUrlCopied ? 'check' : 'content_copy',
-          onClick: () => {
-            const base = location.origin + location.pathname + '?mode=watch';
-            const s = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-            const url = s ? base + '&secret=' + encodeURIComponent(s) : base;
-            navigator.clipboard.writeText(url);
-            setWatchUrlCopied(true);
-            setTimeout(() => setWatchUrlCopied(false), 2000);
-          },
-        }, watchUrlCopied ? 'コピーしました' : 'URLをコピー')
-      ),
-
-      React.createElement('div', {
-        style: {
-          padding: 'var(--space-md)', borderRadius: '8px',
-          background: 'rgba(26, 115, 232, 0.08)',
-          border: '1px solid rgba(26, 115, 232, 0.2)',
-          fontSize: 'var(--font-size-xs)',
-          color: 'var(--text-secondary)',
-          lineHeight: 1.8,
-        },
-      },
-        React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--color-primary-light)' } }, '使い方'),
-        React.createElement('p', null, '1. 上のURLをウォッチのブラウザで開く'),
-        React.createElement('p', null, '2. シークレット入力画面が出たら、下の値を入力'),
-        React.createElement('p', null, '3. 乗車時に「乗車」ボタンをワンタップ'),
-        React.createElement('p', null, '4. スマホが自動でGPS取得し、売上記録に乗車地が入ります'),
-        React.createElement('p', { style: { marginTop: '8px', color: 'var(--text-secondary)' } }, '※ ウォッチ側のGPSは不要です。スマホのGPSで位置を取得します'),
-        React.createElement('div', {
-          style: { marginTop: '8px', padding: '6px 8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', fontSize: 'var(--font-size-xs)', fontFamily: 'monospace', wordBreak: 'break-all' },
-        }, 'シークレット: ' + ((localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim() || '(未設定)'))
-      )
-    ),
 
     // アプリをインストール（PWA）
     React.createElement(Card, { title: 'アプリをインストール', style: { marginBottom: 'var(--space-lg)' } },
@@ -21908,220 +21624,6 @@ window.GatheringMemoPage = () => {
 
 })();
 
-// ============================================================
-// FILE: src/pages/WatchPage.jsx
-// ============================================================
-(function() {
-// WatchPage.jsx - スマートウォッチ専用の乗車GPS記録ページ
-// ?mode=watch でアクセスする超シンプルなワンタップ記録UI
-
-const WATCH_PICKUPS_KEY = APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS;
-
-// シークレット取得: URL → cookie → localStorage の順でフォールバック
-function _getWatchSecret() {
-  // 1. URLクエリパラメータ（正規表現で取得）
-  try {
-    var m = (window.location.href || '').match(/[?&]secret=([^&#]*)/);
-    if (m && m[1]) return decodeURIComponent(m[1]);
-  } catch(e) {}
-  // 2. URLハッシュ
-  try {
-    var h = (window.location.hash || '').replace(/^#/, '');
-    if (h && h.length > 3) return decodeURIComponent(h);
-  } catch(e) {}
-  // 3. Cookie
-  try {
-    var cm = (document.cookie || '').match(/watchSecret=([^;]*)/);
-    if (cm && cm[1]) return decodeURIComponent(cm[1]);
-  } catch(e) {}
-  // 4. localStorage
-  try {
-    var ls = localStorage.getItem('taxi_app_sync_secret');
-    if (ls) return ls.trim();
-  } catch(e) {}
-  return '';
-}
-
-// シークレットをcookieに保存（1年間有効）
-function _saveWatchSecret(s) {
-  try { document.cookie = 'watchSecret=' + encodeURIComponent(s) + ';max-age=31536000;path=/;SameSite=Strict'; } catch(e) {}
-  try { localStorage.setItem('taxi_app_sync_secret', s); } catch(e) {}
-}
-
-// ページ読み込み時に確定
-var _watchSecret = _getWatchSecret();
-if (_watchSecret) _saveWatchSecret(_watchSecret);
-
-window.WatchPage = () => {
-  const { useState, useEffect, useCallback } = React;
-  const [status, setStatus] = useState(_watchSecret ? 'ready' : 'setup');
-  const [message, setMessage] = useState('');
-  const [time, setTime] = useState('');
-  const [secretInput, setSecretInput] = useState('');
-
-  // 時刻表示を更新
-  useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      setTime(String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'));
-    };
-    tick();
-    const id = setInterval(tick, 10000);
-    return () => clearInterval(id);
-  }, []);
-
-  // シークレット手動保存
-  const saveSecret = useCallback(() => {
-    var s = (secretInput || '').trim();
-    if (!s) return;
-    _watchSecret = s;
-    _saveWatchSecret(s);
-    setStatus('ready');
-    setMessage('設定完了');
-    setTimeout(() => setMessage(''), 2000);
-  }, [secretInput]);
-
-  // 乗車ボタン押下
-  const handlePickup = useCallback(async () => {
-    if (status === 'loading') return;
-    if (!_watchSecret) { setStatus('setup'); return; }
-    setStatus('loading');
-    setMessage('送信中...');
-    if (navigator.vibrate) navigator.vibrate(50);
-
-    const trigger = {
-      id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      type: 'gps_trigger',
-      timestamp: new Date().toISOString(),
-      consumed: false,
-    };
-
-    try {
-      const res = await fetch('/api/data?type=watchpickups', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + _watchSecret,
-        },
-        body: JSON.stringify({
-          version: APP_CONSTANTS.VERSION,
-          syncedAt: new Date().toISOString(),
-          count: 1,
-          entries: [trigger],
-        }),
-      });
-
-      if (res.ok) {
-        setStatus('success');
-        setMessage('送信OK');
-        if (navigator.vibrate) navigator.vibrate(200);
-      } else {
-        setStatus('error');
-        setMessage('失敗(' + res.status + ')');
-        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      }
-    } catch (e) {
-      setStatus('error');
-      setMessage('通信エラー');
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-    }
-
-    setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
-  }, [status]);
-
-  // ── セットアップ画面（シークレット未設定時） ──
-  if (status === 'setup') {
-    return React.createElement('div', {
-      style: {
-        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        background: '#1a1a2e', color: '#fff', padding: '16px',
-        fontFamily: '"Noto Sans JP", sans-serif',
-      },
-    },
-      React.createElement('div', {
-        style: { fontSize: '13px', marginBottom: '12px', textAlign: 'center', lineHeight: 1.6 },
-      }, 'スマホの設定画面の「クラウド同期シークレット」を入力してください'),
-      React.createElement('input', {
-        type: 'text',
-        value: secretInput,
-        onChange: function(e) { setSecretInput(e.target.value); },
-        placeholder: 'シークレットを入力',
-        style: {
-          width: '90%', padding: '10px', borderRadius: '8px',
-          border: '1px solid #555', background: '#2a2a3e', color: '#fff',
-          fontSize: '14px', marginBottom: '12px', textAlign: 'center',
-        },
-      }),
-      React.createElement('button', {
-        onClick: saveSecret,
-        style: {
-          padding: '10px 24px', borderRadius: '8px', border: 'none',
-          background: '#1565c0', color: '#fff', fontSize: '14px', fontWeight: 'bold',
-        },
-      }, '保存')
-    );
-  }
-
-  // ── 乗車ボタン画面 ──
-  const containerStyle = {
-    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    background: status === 'success' ? '#1b5e20' : status === 'error' ? '#b71c1c' : '#1a1a2e',
-    transition: 'background 0.3s',
-    fontFamily: '"Noto Sans JP", sans-serif',
-    color: '#fff',
-    userSelect: 'none',
-    WebkitUserSelect: 'none',
-    touchAction: 'manipulation',
-    overflow: 'hidden',
-  };
-
-  const timeStyle = {
-    position: 'absolute', top: '8px', left: 0, right: 0,
-    textAlign: 'center', fontSize: '14px', opacity: 0.7,
-  };
-
-  const btnSize = Math.min(window.innerWidth, window.innerHeight) * 0.55;
-  const buttonStyle = {
-    width: btnSize + 'px', height: btnSize + 'px',
-    borderRadius: '50%',
-    border: status === 'success' ? '4px solid #a5d6a7' : status === 'error' ? '4px solid #ef9a9a' : '4px solid #64b5f6',
-    background: status === 'loading' ? '#37474f'
-      : status === 'success' ? '#2e7d32'
-      : status === 'error' ? '#c62828'
-      : 'linear-gradient(135deg, #1565c0, #0d47a1)',
-    color: '#fff',
-    fontSize: Math.max(btnSize * 0.22, 20) + 'px',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-    transition: 'all 0.2s',
-    WebkitTapHighlightColor: 'transparent',
-  };
-
-  const msgStyle = {
-    marginTop: '12px', fontSize: '12px', textAlign: 'center',
-    padding: '0 12px', maxWidth: '90%',
-    opacity: message ? 1 : 0,
-    minHeight: '18px',
-  };
-
-  const btnLabel = status === 'loading' ? '...' : status === 'success' ? 'OK' : status === 'error' ? '!' : '乗車';
-
-  return React.createElement('div', { style: containerStyle },
-    React.createElement('div', { style: timeStyle }, time),
-    React.createElement('button', {
-      style: buttonStyle,
-      onClick: handlePickup,
-      disabled: status === 'loading',
-    }, btnLabel),
-    React.createElement('div', { style: msgStyle }, message)
-  );
-};
-
-})();
 
 // ============================================================
 // FILE: src/App.jsx
@@ -22243,31 +21745,19 @@ window.App = () => {
 
   const root = ReactDOM.createRoot(document.getElementById('root'));
 
-  // ?mode=watch の場合はスマートウォッチ専用の軽量UIを表示
-  const urlParams = new URLSearchParams(window.location.search);
-  // URLパラメータからSYNC_SECRETを自動設定（ウォッチ用）
-  const urlSecret = urlParams.get('secret');
-  if (urlSecret) {
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, urlSecret);
-  }
-  if (urlParams.get('mode') === 'watch') {
-    AppLogger.info('ウォッチモードで起動');
-    root.render(React.createElement(WatchPage));
-  } else {
-    root.render(
-      React.createElement(ErrorBoundary, null,
-        React.createElement(AppProvider, null,
-          React.createElement(MapProvider, null,
-            React.createElement(LogProvider, null,
-              React.createElement(App)
-            )
+  root.render(
+    React.createElement(ErrorBoundary, null,
+      React.createElement(AppProvider, null,
+        React.createElement(MapProvider, null,
+          React.createElement(LogProvider, null,
+            React.createElement(App)
           )
         )
       )
-    );
-    AppLogger.info('アプリケーション起動完了');
-    AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
-  }
+    )
+  );
+  AppLogger.info('アプリケーション起動完了');
+  AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
   if (window.GpsLogService) GpsLogService.cleanup();
 })();
 
