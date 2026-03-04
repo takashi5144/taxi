@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.8.0',
+  VERSION: '2.8.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2596,15 +2596,39 @@ window.DataService = (() => {
     return { merged };
   }
 
-  // ウォッチ乗車地をクラウドにアップロード
+  // ウォッチ乗車地をクラウドにアップロード（成功/失敗を返す）
   async function syncWatchPickupsToCloud() {
     try {
       const secret = _getSyncSecret();
-      if (!secret) return;
+      if (!secret) {
+        AppLogger.warn('ウォッチ同期: SYNC_SECRETが未設定');
+        return { ok: false, error: 'シークレット未設定' };
+      }
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS) || '[]');
-      await _syncToCloud('watchpickups', entries);
+      const params = new URLSearchParams({ type: 'watchpickups' });
+      const res = await fetch('/api/data?' + params, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + secret,
+        },
+        body: JSON.stringify({
+          version: APP_CONSTANTS.VERSION,
+          syncedAt: new Date().toISOString(),
+          count: entries.length,
+          entries,
+        }),
+      });
+      if (res.ok) {
+        AppLogger.info('ウォッチトリガー クラウド送信成功');
+        return { ok: true };
+      }
+      const errText = await res.text().catch(() => '');
+      AppLogger.warn('ウォッチ同期失敗: ' + res.status + ' ' + errText.substring(0, 100));
+      return { ok: false, error: 'サーバー応答 ' + res.status };
     } catch (e) {
       AppLogger.warn('ウォッチ乗車地クラウド同期エラー: ' + e.message);
+      return { ok: false, error: e.message };
     }
   }
 
@@ -7113,20 +7137,26 @@ window.AppProvider = ({ children }) => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
     if (!secret) return;
     let active = true;
+    let processing = false;
     const pollWatch = async () => {
-      if (!active) return;
+      if (!active || processing) return;
+      processing = true;
       try {
         const unconsumed = await DataService.loadWatchPickupsFromCloud();
-        if (!unconsumed || unconsumed.length === 0) return;
+        if (!unconsumed || unconsumed.length === 0) { processing = false; return; }
         const latest = unconsumed[unconsumed.length - 1];
-        // 消費済みにマーク（先にやることで二重取り込み防止）
-        DataService.consumeWatchPickupOnCloud(latest.id);
+        AppLogger.info('ウォッチトリガー検出: id=' + latest.id + ' type=' + (latest.type || '?'));
+        // 消費済みにマーク（awaitして確実に完了させる）
+        await DataService.consumeWatchPickupOnCloud(latest.id);
         // グローバルフラグをセット（RevenuePage がマウント時に検知）
         window.__watchGpsTriggerPending = true;
         // 売上記録ページに遷移
         navigate('revenue');
         AppLogger.info('ウォッチGPSトリガー受信 → 売上記録に遷移');
-      } catch {}
+      } catch (e) {
+        AppLogger.warn('ウォッチポーリングエラー: ' + e.message);
+      }
+      processing = false;
     };
     pollWatch();
     const id = setInterval(pollWatch, 5000);
@@ -10987,20 +11017,21 @@ window.RevenuePage = () => {
   }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
 
   // ウォッチからのGPSトリガー受信 → スマホ側でGPS取得を実行
-  // マウント時にグローバルフラグをチェック（ページ遷移完了後に確実に検知）
   useEffect(() => {
     const checkPending = () => {
       if (window.__watchGpsTriggerPending) {
         window.__watchGpsTriggerPending = false;
         AppLogger.info('ウォッチGPSトリガー検知 → 乗車地GPS取得開始');
         getGpsLocation('pickup');
+        return true;
       }
+      return false;
     };
-    // マウント直後にチェック
-    checkPending();
-    // 既にページが開いている場合に備え、定期チェック（5秒間隔で監視）
-    const id = setInterval(checkPending, 2000);
-    return () => clearInterval(id);
+    // マウント直後は少し待ってからチェック（コンポーネント初期化完了を待つ）
+    const initTimer = setTimeout(() => checkPending(), 500);
+    // 継続監視（既にページが開いている場合、または初回チェックが早すぎた場合）
+    const id = setInterval(checkPending, 1500);
+    return () => { clearTimeout(initTimer); clearInterval(id); };
   }, [getGpsLocation]);
 
   // Geocoding結果から簡潔な住所を抽出
@@ -21403,14 +21434,21 @@ window.WatchPage = () => {
       pickups.push(trigger);
       if (pickups.length > 100) pickups.splice(0, pickups.length - 100);
       localStorage.setItem(WATCH_PICKUPS_KEY, JSON.stringify(pickups));
-      DataService.syncWatchPickupsToCloud();
 
-      setStatus('success');
-      setMessage('スマホに送信しました');
-      if (navigator.vibrate) navigator.vibrate(200);
+      // クラウド送信を待ち、結果を表示
+      const result = await DataService.syncWatchPickupsToCloud();
+      if (result && result.ok) {
+        setStatus('success');
+        setMessage('スマホに送信しました');
+        if (navigator.vibrate) navigator.vibrate(200);
+      } else {
+        setStatus('error');
+        setMessage('送信失敗: ' + (result ? result.error : '不明なエラー'));
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      }
     } catch (e) {
       setStatus('error');
-      setMessage('送信失敗');
+      setMessage('送信失敗: ' + e.message);
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     }
 
