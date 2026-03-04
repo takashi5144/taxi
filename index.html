@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.8.2',
+  VERSION: '2.8.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -21396,20 +21396,27 @@ window.GatheringMemoPage = () => {
 
 const WATCH_PICKUPS_KEY = APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS;
 
+// URLからパラメータを取得（URLSearchParamsに依存しない）
+function _getUrlParam(name) {
+  var url = window.location.href || '';
+  var regex = new RegExp('[?&]' + name + '=([^&#]*)');
+  var match = url.match(regex);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+// ページ読み込み時点でシークレットを確定（グローバル変数で保持）
+var _watchSecret = _getUrlParam('secret');
+
 window.WatchPage = () => {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback } = React;
   const [status, setStatus] = useState('ready'); // ready | loading | success | error
   const [message, setMessage] = useState('');
   const [time, setTime] = useState('');
+  const [debugUrl, setDebugUrl] = useState('');
 
-  // URLパラメータからシークレットを直接取得（localStorageに依存しない）
-  const secretRef = useRef('');
+  // デバッグ: 現在のURLを取得（初回のみ）
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const s = params.get('secret') || '';
-    secretRef.current = s;
-    // localStorageにも保存を試みる（フォールバック用）
-    if (s) { try { localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, s); } catch(e) {} }
+    setDebugUrl(window.location.href || '(不明)');
   }, []);
 
   // 時刻表示を更新
@@ -21431,16 +21438,14 @@ window.WatchPage = () => {
 
     if (navigator.vibrate) navigator.vibrate(50);
 
-    // シークレット取得（URL → localStorage の優先順）
-    const secret = secretRef.current
-      || (new URLSearchParams(window.location.search)).get('secret')
-      || (function() { try { return localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || ''; } catch(e) { return ''; } })();
+    // シークレット取得
+    const secret = _watchSecret || _getUrlParam('secret');
 
     if (!secret) {
       setStatus('error');
-      setMessage('URLにsecretパラメータがありません');
+      setMessage('secret未検出。設定からURLを再コピーしてください');
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      setTimeout(() => { setStatus('ready'); setMessage(''); }, 5000);
+      setTimeout(() => { setStatus('ready'); setMessage(''); }, 8000);
       return;
     }
 
@@ -21452,16 +21457,7 @@ window.WatchPage = () => {
     };
 
     try {
-      // localStorageに記録（ローカルバックアップ）
-      try {
-        const pickups = JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]');
-        pickups.push(trigger);
-        if (pickups.length > 100) pickups.splice(0, pickups.length - 100);
-        localStorage.setItem(WATCH_PICKUPS_KEY, JSON.stringify(pickups));
-      } catch (e) { /* localStorage使えなくても続行 */ }
-
-      // クラウドに直接送信（DataServiceのlocalStorage依存を回避）
-      const allPickups = (function() { try { return JSON.parse(localStorage.getItem(WATCH_PICKUPS_KEY) || '[]'); } catch(e) { return [trigger]; } })();
+      // クラウドに直接送信（トリガー1件のみ送信、localStorage不要）
       const res = await fetch('/api/data?type=watchpickups', {
         method: 'POST',
         headers: {
@@ -21471,8 +21467,8 @@ window.WatchPage = () => {
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
           syncedAt: new Date().toISOString(),
-          count: allPickups.length,
-          entries: allPickups,
+          count: 1,
+          entries: [trigger],
         }),
       });
 
@@ -21546,6 +21542,12 @@ window.WatchPage = () => {
 
   const btnLabel = status === 'loading' ? '...' : status === 'success' ? 'OK' : status === 'error' ? '!' : '乗車';
 
+  const urlDebugStyle = {
+    position: 'absolute', bottom: '4px', left: '4px', right: '4px',
+    textAlign: 'center', fontSize: '8px', opacity: 0.4,
+    wordBreak: 'break-all', lineHeight: 1.2, maxHeight: '32px', overflow: 'hidden',
+  };
+
   return React.createElement('div', { style: containerStyle },
     React.createElement('div', { style: timeStyle }, time),
     React.createElement('button', {
@@ -21553,7 +21555,9 @@ window.WatchPage = () => {
       onClick: handlePickup,
       disabled: status === 'loading',
     }, btnLabel),
-    React.createElement('div', { style: msgStyle }, message)
+    React.createElement('div', { style: msgStyle }, message),
+    React.createElement('div', { style: urlDebugStyle },
+      (_watchSecret ? 'secret:OK' : 'secret:NG') + ' | ' + (debugUrl || '').replace(/secret=[^&]*/, 'secret=***'))
   );
 };
 
