@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.7.3',
+  VERSION: '2.7.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17722,7 +17722,11 @@ window.SettingsPage = () => {
             wordBreak: 'break-all',
             lineHeight: 1.5,
           },
-        }, location.origin + location.pathname + '?mode=watch')
+        }, (() => {
+          const base = location.origin + location.pathname + '?mode=watch';
+          const s = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+          return s ? base + '&secret=' + encodeURIComponent(s) : base;
+        })())
       ),
 
       React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: 'var(--space-md)' } },
@@ -17730,7 +17734,10 @@ window.SettingsPage = () => {
           variant: 'primary',
           icon: watchUrlCopied ? 'check' : 'content_copy',
           onClick: () => {
-            navigator.clipboard.writeText(location.origin + location.pathname + '?mode=watch');
+            const base = location.origin + location.pathname + '?mode=watch';
+            const s = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+            const url = s ? base + '&secret=' + encodeURIComponent(s) : base;
+            navigator.clipboard.writeText(url);
             setWatchUrlCopied(true);
             setTimeout(() => setWatchUrlCopied(false), 2000);
           },
@@ -21695,6 +21702,11 @@ window.App = () => {
 
   // ?mode=watch の場合はスマートウォッチ専用の軽量UIを表示
   const urlParams = new URLSearchParams(window.location.search);
+  // URLパラメータからSYNC_SECRETを自動設定（ウォッチ用）
+  const urlSecret = urlParams.get('secret');
+  if (urlSecret) {
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, urlSecret);
+  }
   if (urlParams.get('mode') === 'watch') {
     AppLogger.info('ウォッチモードで起動');
     root.render(React.createElement(WatchPage));
