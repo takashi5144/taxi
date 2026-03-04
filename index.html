@@ -2452,14 +2452,18 @@ window.DataService = (() => {
     const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
-    // 稼働時間の計算（最初の記録〜最後の記録）
+    // 稼働時間の計算（シフト始業〜終業の合計、未終業は現在時刻まで）
     let workMinutes = 0;
-    if (todayEntries.length >= 2) {
-      const sorted = [...todayEntries].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      const first = new Date(sorted[0].timestamp);
-      const last = new Date(sorted[sorted.length - 1].timestamp);
-      workMinutes = Math.round((last - first) / 60000);
-    }
+    try {
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      shifts.forEach(s => {
+        if (!s.startTime) return;
+        const start = new Date(s.startTime);
+        if (toDateStr(s.startTime) !== today) return;
+        const end = s.endTime ? new Date(s.endTime) : new Date();
+        workMinutes += Math.round((end - start) / 60000);
+      });
+    } catch(e) {}
     const workHours = Math.floor(workMinutes / 60);
     const workMins = workMinutes % 60;
 
@@ -8541,7 +8545,7 @@ window.DashboardPage = () => {
   const overallSummary = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
 
   const hourlyRate = useMemo(() => {
-    if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 2) {
+    if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 1) {
       return Math.round(todaySummary.totalAmount / (todaySummary.workMinutes / 60));
     }
     return null;
