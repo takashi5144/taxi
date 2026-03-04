@@ -17797,7 +17797,10 @@ const GpsAnalysisTab = ({ refreshKey }) => {
   // プレイバック地図の初期化
   useEffect(() => {
     if (subTab !== 'playback' || !playMapRef.current || !window.google) return;
-    if (playMapInstanceRef.current) return;
+    // DOM要素が同じなら再生成不要
+    if (playMapInstanceRef.current) {
+      try { if (playMapInstanceRef.current.getDiv() === playMapRef.current) return; } catch(e) {}
+    }
     playMapInstanceRef.current = new google.maps.Map(playMapRef.current, {
       center: { lat: 43.77, lng: 142.365 },
       zoom: 13,
@@ -17810,7 +17813,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
         { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
         { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }],
     });
-  }, [subTab]);
+  }, [subTab, loading]);
 
   // トラックデータ変更時に地図更新
   useEffect(() => {
