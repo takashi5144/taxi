@@ -894,6 +894,64 @@ window.TaxiApp.utils.extractAddress = (result) => {
     .replace(/^日本\s*/, '');
 };
 
+// 逆ジオコーディング（メモリ+localStorageキャッシュ付き）
+window.TaxiApp.utils.reverseGeocode = (() => {
+  const CACHE_KEY = 'taxi_geocode_cache';
+  const MAX_CACHE = 500;
+  let memCache = null;
+  function _loadCache() {
+    if (memCache) return memCache;
+    try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { memCache = {}; }
+    return memCache;
+  }
+  function _saveCache(c) {
+    const keys = Object.keys(c);
+    if (keys.length > MAX_CACHE) {
+      const remove = keys.slice(0, keys.length - MAX_CACHE);
+      remove.forEach(k => delete c[k]);
+    }
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
+  }
+  function _roundKey(lat, lng) { return `${lat.toFixed(4)},${lng.toFixed(4)}`; }
+
+  return async function reverseGeocode(lat, lng) {
+    const cache = _loadCache();
+    const key = _roundKey(lat, lng);
+    if (cache[key]) return cache[key];
+
+    // Google Maps Geocoder優先
+    if (window.google && google.maps && google.maps.Geocoder) {
+      try {
+        const geocoder = new google.maps.Geocoder();
+        const res = await new Promise((resolve, reject) => {
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === 'OK' && results[0]) resolve(results[0]); else reject(status);
+          });
+        });
+        const name = TaxiApp.utils.extractAddress(res);
+        cache[key] = name;
+        memCache = cache;
+        _saveCache(cache);
+        return name;
+      } catch {}
+    }
+
+    // Nominatimフォールバック
+    try {
+      const url = TaxiApp.utils.nominatimUrl(lat, lng);
+      const res = await fetch(url);
+      const data = await res.json();
+      const name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      cache[key] = name;
+      memCache = cache;
+      _saveCache(cache);
+      return name;
+    } catch {
+      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    }
+  };
+})();
+
 // ローカル時間でYYYY-MM-DD形式の日付文字列を取得（UTC誤差回避）
 window.getLocalDateString = (date) => {
   const d = date || new Date();
@@ -902,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.4.0',
+  VERSION: '2.6.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3512,7 +3570,7 @@ window.DataService = (() => {
         const types = Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([t]) => t);
         return types.join(',');
       })(),
-      waitingTime: form.waitingTime || '',
+      waitingTime: '',
       timestamp: new Date().toISOString(),
     };
 
@@ -6651,6 +6709,71 @@ window.GpsLogService = (() => {
     });
   }
 
+  /** 待機クラスターを確定するヘルパー */
+  function _finalizeStandby(points, startIdx, endIdx) {
+    if (startIdx > endIdx || points.length === 0) return null;
+    const cluster = points.slice(startIdx, endIdx + 1);
+    const startTime = new Date(cluster[0].t).getTime();
+    const endTime = new Date(cluster[cluster.length - 1].t).getTime();
+    const durationMin = (endTime - startTime) / 60000;
+    if (durationMin < 3) return null; // 3分未満は破棄
+    const lat = cluster.reduce((s, p) => s + p.lat, 0) / cluster.length;
+    const lng = cluster.reduce((s, p) => s + p.lng, 0) / cluster.length;
+    return { startTime, endTime, durationMin: Math.round(durationMin * 10) / 10, lat, lng, pointCount: cluster.length };
+  }
+
+  /** GPS待機期間自動検出 (async) */
+  async function getStandbyPeriods(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return [];
+
+    const RADIUS_M = 50;
+    const GAP_MS = 60000; // 60秒のタイムギャップでリセット
+    const periods = [];
+    let anchorIdx = -1;
+
+    for (let i = 0; i < classified.length; i++) {
+      const p = classified[i];
+      // 実車中は即リセット
+      if (p.status === 'occupied') {
+        if (anchorIdx >= 0) {
+          const result = _finalizeStandby(classified, anchorIdx, i - 1);
+          if (result) periods.push(result);
+        }
+        anchorIdx = -1;
+        continue;
+      }
+      // 空車ポイント
+      if (anchorIdx < 0) {
+        anchorIdx = i;
+        continue;
+      }
+      // タイムギャップチェック
+      const prevTime = new Date(classified[i - 1].t).getTime();
+      const currTime = new Date(p.t).getTime();
+      if (currTime - prevTime > GAP_MS) {
+        const result = _finalizeStandby(classified, anchorIdx, i - 1);
+        if (result) periods.push(result);
+        anchorIdx = i;
+        continue;
+      }
+      // 距離チェック（アンカーからの距離）
+      const anchor = classified[anchorIdx];
+      const dist = _haversine(anchor.lat, anchor.lng, p.lat, p.lng);
+      if (dist > RADIUS_M) {
+        const result = _finalizeStandby(classified, anchorIdx, i - 1);
+        if (result) periods.push(result);
+        anchorIdx = i;
+      }
+    }
+    // 末尾処理
+    if (anchorIdx >= 0) {
+      const result = _finalizeStandby(classified, anchorIdx, classified.length - 1);
+      if (result) periods.push(result);
+    }
+    return periods;
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -6667,6 +6790,7 @@ window.GpsLogService = (() => {
     getDailyTrend,
     getAllDailyTrends,
     getTrackData,
+    getStandbyPeriods,
   };
 })();
 })();
@@ -10484,7 +10608,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', waitingTime: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -10903,7 +11027,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', waitingTime: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setMapPickerField(null);
     setSaved(true);
@@ -11011,7 +11135,6 @@ window.RevenuePage = () => {
       purpose: entry.purpose || '',
       memo: entry.memo || '',
       source: entry.source || '',
-      waitingTime: entry.waitingTime || '',
     });
     setEditingId(entry.id);
     setEditErrors([]);
@@ -11416,68 +11539,6 @@ window.RevenuePage = () => {
             )
           ),
 
-          // 待機乗車
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, '待機乗車'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-              React.createElement('input', {
-                className: 'form-input',
-                type: 'text',
-                placeholder: '待機時間（例: 5分）',
-                value: form.waitingTime,
-                onChange: (e) => setForm({ ...form, waitingTime: e.target.value }),
-                style: { flex: 1, minWidth: 0, background: form.waitingTime ? 'rgba(255,152,0,0.1)' : 'var(--bg-secondary)', color: form.waitingTime ? 'var(--color-warning)' : 'var(--text-primary)', fontWeight: form.waitingTime ? 600 : 400 },
-              }),
-              React.createElement('button', {
-                type: 'button',
-                disabled: !form.pickupTime,
-                onClick: () => {
-                  const now = getNowTime();
-                  const [ph, pm] = form.pickupTime.split(':').map(Number);
-                  const [nh, nm] = now.split(':').map(Number);
-                  let diff = (nh * 60 + nm) - (ph * 60 + pm);
-                  if (diff < 0) diff += 1440;
-                  const waitStr = diff >= 60 ? `${Math.floor(diff / 60)}時間${diff % 60}分` : `${diff}分`;
-                  setForm(prev => ({ ...prev, waitingTime: waitStr }));
-                },
-                style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-                  color: !form.pickupTime ? 'var(--text-muted)' : '#fff', cursor: !form.pickupTime ? 'not-allowed' : 'pointer',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: !form.pickupTime ? 'rgba(255,255,255,0.05)' : 'rgba(255,152,0,0.2)',
-                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
-                  opacity: !form.pickupTime ? 0.5 : 1,
-                },
-                title: form.pickupTime ? '乗車時間からの待機時間を計算' : '先に乗車時間を設定してください',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'hourglass_top'),
-                '待機乗車'
-              ),
-              form.waitingTime && React.createElement('button', {
-                type: 'button',
-                onClick: () => setForm(prev => ({ ...prev, waitingTime: '' })),
-                style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: '8px', borderRadius: '6px', fontSize: '11px',
-                  color: 'var(--text-muted)', cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'rgba(255,255,255,0.05)',
-                  transition: 'all 0.2s ease', flex: '0 0 auto',
-                },
-                title: '待機時間をクリア',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'close')
-              )
-            ),
-            !form.pickupTime && React.createElement('div', {
-              style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' },
-            }, '* 先に乗車時間を記録してから「待機乗車」を押してください'),
-            form.pickupTime && !form.waitingTime && React.createElement('div', {
-              style: { fontSize: '11px', color: 'var(--color-warning)', marginTop: '4px' },
-            }, `* 乗車時間 ${form.pickupTime} から待機中。お客様が乗車したら「待機乗車」を押してください`)
-          ),
-
           // 降車地（GPS付き）
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '降車地'),
@@ -11553,59 +11614,6 @@ window.RevenuePage = () => {
                 ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '300px', borderRadius: '8px', border: '2px solid rgba(156,39,176,0.5)', overflow: 'hidden' } })
                 : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '設定画面でGoogle Maps APIキーを入力してください')
             ),
-            // 待機乗車ボタン群（降車地GPS下）
-            React.createElement('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } },
-              ...[
-                { label: '駅待機乗車', location: '駅', icon: 'train' },
-                { label: '病院待機乗車', location: '病院', icon: 'local_hospital' },
-                { label: 'イオン前待機乗車', location: 'イオン前', icon: 'store' },
-                { label: '動物園待機乗車', location: '動物園', icon: 'park' },
-              ].map(btn => React.createElement('button', {
-                key: btn.label,
-                type: 'button',
-                onClick: () => {
-                  setErrors([]);
-                  const now = new Date();
-                  const hh = String(now.getHours()).padStart(2, '0');
-                  const mm = String(now.getMinutes()).padStart(2, '0');
-                  const dropoffTime = `${hh}:${mm}`;
-                  const coords = (gpsInfo.pickup && gpsInfo.pickup.lat != null)
-                    ? { lat: gpsInfo.pickup.lat, lng: gpsInfo.pickup.lng }
-                    : (gpsInfo.dropoff && gpsInfo.dropoff.lat != null)
-                      ? { lat: gpsInfo.dropoff.lat, lng: gpsInfo.dropoff.lng }
-                      : null;
-                  const memoData = {
-                    location: btn.location,
-                    locationCoords: coords,
-                    density: 'none',
-                    date: form.date,
-                    time: dropoffTime,
-                    weather: form.weather,
-                    memo: form.memo || btn.label,
-                    stayMinutes: form.waitingTime || '',
-                    source: 'manual',
-                    locationType: 'other',
-                  };
-                  const result = DataService.addGatheringMemo(memoData);
-                  if (result.success) {
-                    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', waitingTime: '' });
-                    setGpsInfo({ pickup: null, dropoff: null });
-                    setMapPickerField(null);
-                    setSaved(true);
-                    setTimeout(() => setSaved(false), 2000);
-                    setRefreshKey(k => k + 1);
-                  } else {
-                    setErrors(result.errors);
-                  }
-                },
-                style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', padding: '10px 4px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 700, background: '#d32f2f', color: '#fff' },
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, btn.icon),
-                btn.label
-              ))
-            )
-          ),
-
           // 降車時間
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '降車時間'),
@@ -12375,9 +12383,6 @@ window.RevenuePage = () => {
               entry.pickupTime && React.createElement('span', {
                 style: { fontSize: '11px', color: 'var(--color-primary-light)', fontWeight: '600', padding: '1px 6px', borderRadius: '3px', background: 'rgba(26,115,232,0.12)' },
               }, entry.pickupTime),
-              entry.waitingTime && React.createElement('span', {
-                style: { fontSize: '10px', color: 'var(--color-warning)', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.12)' },
-              }, `待機${entry.waitingTime}`),
               React.createElement('span', null, `${entry.pickup || '---'}`),
               React.createElement('span', { style: { color: 'var(--text-muted)', margin: '0 2px' } }, '→'),
               entry.dropoffTime && React.createElement('span', {
@@ -17772,6 +17777,16 @@ const GpsAnalysisTab = ({ refreshKey }) => {
   const pickupMarkersRef = useRef([]);
   const pickupInfoWindowRef = useRef(null);
 
+  // --- 待機分析 ---
+  const [standbyDates, setStandbyDates] = useState([]);
+  const [standbyDate, setStandbyDate] = useState('');
+  const [standbyPeriods, setStandbyPeriods] = useState([]);
+  const [standbyNames, setStandbyNames] = useState({});
+  const standbyMapRef = useRef(null);
+  const standbyMapInstanceRef = useRef(null);
+  const standbyMarkersRef = useRef([]);
+  const standbyInfoWindowRef = useRef(null);
+
   useEffect(() => {
     if (subTab !== 'playback' || !window.GpsLogService) return;
     let cancelled = false;
@@ -17965,10 +17980,122 @@ const GpsAnalysisTab = ({ refreshKey }) => {
     };
   }, []);
 
+  // --- 待機分析: 日付リスト取得 ---
+  useEffect(() => {
+    if (subTab !== 'standby' || !window.GpsLogService) return;
+    let cancelled = false;
+    GpsLogService.getLogDates().then(dates => {
+      if (!cancelled) {
+        setStandbyDates(dates);
+        if (dates.length > 0 && !dates.includes(standbyDate)) setStandbyDate(dates[0]);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [subTab, refreshKey]);
+
+  // --- 待機分析: 待機期間検出 + 逆ジオコーディング ---
+  useEffect(() => {
+    if (subTab !== 'standby' || !standbyDate || !window.GpsLogService) return;
+    let cancelled = false;
+    setLoading(true);
+    setStandbyPeriods([]);
+    setStandbyNames({});
+    GpsLogService.getStandbyPeriods(standbyDate).then(async periods => {
+      if (cancelled) return;
+      setStandbyPeriods(periods);
+      setLoading(false);
+      // 逆ジオコーディング（500ms間隔でレート制限）
+      if (window.TaxiApp && TaxiApp.utils.reverseGeocode) {
+        const names = {};
+        for (let i = 0; i < periods.length; i++) {
+          if (cancelled) break;
+          try {
+            const name = await TaxiApp.utils.reverseGeocode(periods[i].lat, periods[i].lng);
+            names[i] = name;
+            if (!cancelled) setStandbyNames(prev => ({ ...prev, [i]: name }));
+          } catch {}
+          if (i < periods.length - 1) await new Promise(r => setTimeout(r, 500));
+        }
+      }
+    });
+    return () => { cancelled = true; };
+  }, [standbyDate, subTab]);
+
+  // --- 待機分析: 地図初期化 ---
+  useEffect(() => {
+    if (subTab !== 'standby' || !standbyMapRef.current || !mapsLoaded || !window.google) return;
+    if (standbyMapInstanceRef.current) return;
+    standbyMapInstanceRef.current = new google.maps.Map(standbyMapRef.current, {
+      center: { lat: 43.77, lng: 142.365 },
+      zoom: 13,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      styles: [{ elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
+        { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
+        { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
+        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
+        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }],
+    });
+    standbyInfoWindowRef.current = new google.maps.InfoWindow();
+  }, [subTab, mapsLoaded]);
+
+  // --- 待機分析: マーカー更新 ---
+  useEffect(() => {
+    if (!standbyMapInstanceRef.current) return;
+    const map = standbyMapInstanceRef.current;
+    // 既存マーカークリア
+    standbyMarkersRef.current.forEach(m => m.setMap(null));
+    standbyMarkersRef.current = [];
+    if (standbyInfoWindowRef.current) standbyInfoWindowRef.current.close();
+
+    if (standbyPeriods.length === 0) return;
+
+    const bounds = new google.maps.LatLngBounds();
+    standbyPeriods.forEach((p, idx) => {
+      const pos = { lat: p.lat, lng: p.lng };
+      bounds.extend(pos);
+      const scale = Math.min(6 + p.durationMin * 0.5, 20); // 待機時間に応じたサイズ
+      const marker = new google.maps.Marker({
+        position: pos, map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: '#ff9800',
+          fillOpacity: 0.8,
+          strokeColor: '#fff',
+          strokeWeight: 1.5,
+          scale,
+        },
+        zIndex: 30,
+      });
+      marker.addListener('click', () => {
+        const name = standbyNames[idx] || '取得中...';
+        const start = new Date(p.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+        const end = new Date(p.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+        standbyInfoWindowRef.current.setContent(
+          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:140px"><b>${name}</b><br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機</div>`
+        );
+        standbyInfoWindowRef.current.open(map, marker);
+      });
+      standbyMarkersRef.current.push(marker);
+    });
+    map.fitBounds(bounds, 40);
+  }, [standbyPeriods, standbyNames]);
+
+  // --- 待機分析: クリーンアップ ---
+  useEffect(() => {
+    return () => {
+      standbyMarkersRef.current.forEach(m => m.setMap(null));
+      standbyMarkersRef.current = [];
+      if (standbyInfoWindowRef.current) standbyInfoWindowRef.current.close();
+    };
+  }, []);
+
   const subTabs = [
     { id: 'trend', label: '走行トレンド', icon: 'trending_up' },
     { id: 'matrix', label: 'エリア分析', icon: 'grid_on' },
     { id: 'playback', label: '軌跡プレイバック', icon: 'play_circle' },
+    { id: 'standby', label: '待機分析', icon: 'hourglass_top' },
   ];
 
   // --- レンダリング ---
@@ -18219,6 +18346,112 @@ const GpsAnalysisTab = ({ refreshKey }) => {
           )
         ),
         trackData.length === 0 && !loading && React.createElement('div', { style: { textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '13px' } }, 'この日のGPSデータはありません')
+      );
+    })(),
+
+    // === 待機分析 ===
+    subTab === 'standby' && (() => {
+      if (standbyDates.length === 0 && !loading) {
+        return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', display: 'block', marginBottom: '12px', opacity: 0.4 } }, 'hourglass_empty'),
+          'GPSデータがありません'
+        );
+      }
+
+      const totalMin = standbyPeriods.reduce((s, p) => s + p.durationMin, 0);
+      const avgMin = standbyPeriods.length > 0 ? Math.round(totalMin / standbyPeriods.length * 10) / 10 : 0;
+      const maxMin = standbyPeriods.length > 0 ? Math.max(...standbyPeriods.map(p => p.durationMin)) : 0;
+
+      // 頻出待機地点の集計（逆ジオコーディング名で集約）
+      const freqMap = {};
+      standbyPeriods.forEach((p, idx) => {
+        const name = standbyNames[idx] || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
+        if (!freqMap[name]) freqMap[name] = { name, count: 0, totalMin: 0 };
+        freqMap[name].count++;
+        freqMap[name].totalMin += p.durationMin;
+      });
+      const freqTop5 = Object.values(freqMap).sort((a, b) => b.count - a.count || b.totalMin - a.totalMin).slice(0, 5);
+
+      return React.createElement(React.Fragment, null,
+        // 日付選択
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-secondary)' } }, 'calendar_today'),
+          React.createElement('select', {
+            value: standbyDate,
+            onChange: e => setStandbyDate(e.target.value),
+            style: { flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '14px' },
+          },
+            ...standbyDates.map(d => React.createElement('option', { key: d, value: d }, d))
+          )
+        ),
+
+        // 地図
+        React.createElement('div', {
+          ref: standbyMapRef,
+          style: { width: '100%', height: '300px', borderRadius: '12px', marginBottom: '12px', background: '#1a1a2e' },
+        }),
+
+        // ローディング
+        loading && React.createElement('div', { style: { textAlign: 'center', padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' } }, '検出中...'),
+
+        // サマリーカード
+        !loading && standbyPeriods.length > 0 && React.createElement(Card, { style: { marginBottom: '12px' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', textAlign: 'center' } },
+            ...[
+              { label: '待機回数', value: standbyPeriods.length + '回', color: '#ff9800' },
+              { label: '合計待機', value: Math.round(totalMin) + '分', color: 'var(--text-primary)' },
+              { label: '平均待機', value: avgMin + '分', color: 'var(--text-primary)' },
+              { label: '最長待機', value: maxMin + '分', color: '#f44336' },
+            ].map((item, i) => React.createElement('div', { key: i },
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
+              React.createElement('div', { style: { fontSize: '15px', fontWeight: 600, color: item.color } }, item.value)
+            ))
+          )
+        ),
+
+        // 頻出待機地点TOP5
+        !loading && freqTop5.length > 0 && React.createElement(React.Fragment, null,
+          React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', marginTop: '4px' } }, '頻出待機地点 TOP5'),
+          React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' } },
+            ...freqTop5.map((f, i) => React.createElement(Card, { key: i, style: { padding: '8px 12px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                React.createElement('div', { style: { width: '24px', height: '24px', borderRadius: '50%', background: i === 0 ? '#ff9800' : i < 3 ? 'rgba(255,152,0,0.4)' : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, flexShrink: 0 } }, i + 1),
+                React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                  React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, f.name),
+                  React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, f.count + '回 / 合計' + Math.round(f.totalMin) + '分')
+                )
+              )
+            ))
+          )
+        ),
+
+        // 待機履歴リスト
+        !loading && standbyPeriods.length > 0 && React.createElement(React.Fragment, null,
+          React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' } }, '待機履歴'),
+          React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+            ...standbyPeriods.map((p, idx) => {
+              const start = new Date(p.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+              const end = new Date(p.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+              const name = standbyNames[idx] || '場所取得中...';
+              return React.createElement(Card, { key: idx, style: { padding: '8px 12px' } },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#ff9800' } }, 'hourglass_top'),
+                  React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
+                    React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, start + ' 〜 ' + end)
+                  ),
+                  React.createElement('div', { style: { fontSize: '15px', fontWeight: 700, color: p.durationMin >= 10 ? '#f44336' : '#ff9800', flexShrink: 0 } }, p.durationMin + '分')
+                )
+              );
+            })
+          )
+        ),
+
+        // データなし表示
+        !loading && standbyPeriods.length === 0 && standbyDate && React.createElement('div', { style: { textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '13px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '36px', display: 'block', marginBottom: '8px', opacity: 0.4 } }, 'check_circle'),
+          'この日は待機（3分以上の停車）は検出されませんでした'
+        )
       );
     })()
   );
@@ -18974,48 +19207,6 @@ window.DataManagePage = () => {
                     onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
                     style: { padding: '6px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px', background: mapPickerField === 'dropoff' ? 'var(--color-secondary)' : 'var(--bg-tertiary)', color: mapPickerField === 'dropoff' ? '#fff' : 'var(--text-secondary)', whiteSpace: 'nowrap' },
                   }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'), '地図')
-                ),
-                React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '4px' } },
-                  ...[
-                    { label: '駅待機乗車', location: '駅', icon: 'train' },
-                    { label: '病院待機乗車', location: '病院', icon: 'local_hospital' },
-                    { label: 'イオン前待機乗車', location: 'イオン前', icon: 'store' },
-                    { label: '動物園待機乗車', location: '動物園', icon: 'park' },
-                  ].map(btn => React.createElement('button', {
-                    key: btn.label,
-                    onClick: () => {
-                      const now = new Date();
-                      const hh = String(now.getHours()).padStart(2, '0');
-                      const mm = String(now.getMinutes()).padStart(2, '0');
-                      const dropoffTime = `${hh}:${mm}`;
-                      const coords = addCoords.pickupCoords || addCoords.dropoffCoords || null;
-                      const memoData = {
-                        location: btn.location,
-                        locationCoords: coords,
-                        density: 'none',
-                        date: addForm.date,
-                        time: dropoffTime,
-                        weather: addForm.weather,
-                        memo: addForm.memo || btn.label,
-                        stayMinutes: addForm.waitingTime || '',
-                        source: 'manual',
-                        locationType: 'other',
-                      };
-                      const result = DataService.addGatheringMemo(memoData);
-                      if (result.success) {
-                        setAddForm({ date: getLocalDateString(), weather: addForm.weather, amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discounts: {} });
-                        setAddCoords({ pickupCoords: null, dropoffCoords: null });
-                        setMapPickerField(null);
-                        setShowAddForm(false);
-                        setSaved(true);
-                        setTimeout(() => setSaved(false), 2000);
-                        setRefreshKey(k => k + 1);
-                      } else {
-                        setAddErrors(result.errors);
-                      }
-                    },
-                    style: { flex: 1, padding: '6px 4px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#d32f2f', color: '#fff', whiteSpace: 'nowrap' },
-                  }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, btn.icon), btn.label))
                 ),
                 addCoords.dropoffCoords && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', marginTop: '2px' } }, `${addCoords.dropoffCoords.lat.toFixed(5)}, ${addCoords.dropoffCoords.lng.toFixed(5)}`)
               ),
