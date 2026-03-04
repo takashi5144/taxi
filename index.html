@@ -17723,6 +17723,7 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
 // GPS分析タブ（サブコンポーネント）
 const GpsAnalysisTab = ({ refreshKey }) => {
   const { useState, useEffect, useRef, useCallback } = React;
+  const { isLoaded: mapsLoaded } = useGoogleMaps();
   const [subTab, setSubTab] = useState('trend');  // trend | matrix | playback
   const [loading, setLoading] = useState(false);
 
@@ -17796,7 +17797,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
 
   // プレイバック地図の初期化
   useEffect(() => {
-    if (subTab !== 'playback' || !playMapRef.current || !window.google) return;
+    if (subTab !== 'playback' || !playMapRef.current || !mapsLoaded || !window.google) return;
     // DOM要素が同じなら再生成不要
     if (playMapInstanceRef.current) {
       try { if (playMapInstanceRef.current.getDiv() === playMapRef.current) return; } catch(e) {}
@@ -17813,7 +17814,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
         { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
         { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] }],
     });
-  }, [subTab, loading]);
+  }, [subTab, loading, mapsLoaded]);
 
   // トラックデータ変更時に地図更新
   useEffect(() => {
