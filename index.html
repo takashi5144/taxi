@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.3.0',
+  VERSION: '2.3.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -14014,6 +14014,11 @@ window.CalendarPage = () => {
   }, [currentMonth, refreshKey]);
 
   // 時刻変換ヘルパー
+  const isoToLocalDate = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
   const isoToTimeStr = (iso) => {
     if (!iso) return '';
     const d = new Date(iso);
@@ -14021,7 +14026,7 @@ window.CalendarPage = () => {
   };
   const timeStrToIso = (dateStr, timeStr) => {
     if (!dateStr || !timeStr) return null;
-    return `${dateStr}T${timeStr}:00`;
+    return new Date(`${dateStr}T${timeStr}:00`).toISOString();
   };
 
   // カレンダーグリッド生成
@@ -14042,8 +14047,8 @@ window.CalendarPage = () => {
       const info = JapaneseHolidays.getDateInfo(dateStr);
       const rev = dailyRevenue[dateStr];
       // 勤務時間・休憩時間計算
-      const dayShifts = shifts.filter(s => s.startTime && s.startTime.split('T')[0] === dateStr);
-      const dayBreaks = breaks.filter(b => b.startTime && b.startTime.split('T')[0] === dateStr);
+      const dayShifts = shifts.filter(s => s.startTime && isoToLocalDate(s.startTime) === dateStr);
+      const dayBreaks = breaks.filter(b => b.startTime && isoToLocalDate(b.startTime) === dateStr);
       const shiftMin = dayShifts.reduce((sum, s) => {
         if (!s.startTime || !s.endTime) return sum;
         return sum + Math.max(0, (new Date(s.endTime) - new Date(s.startTime)) / 60000);
@@ -14104,15 +14109,13 @@ window.CalendarPage = () => {
     // シフト情報
     const dayShifts = shifts.filter(s => {
       if (!s.startTime) return false;
-      const sDate = s.startTime.split('T')[0];
-      return sDate === selectedDate;
+      return isoToLocalDate(s.startTime) === selectedDate;
     });
 
     // 休憩情報
     const dayBreaks = breaks.filter(b => {
       if (!b.startTime) return false;
-      const bDate = b.startTime.split('T')[0];
-      return bDate === selectedDate;
+      return isoToLocalDate(b.startTime) === selectedDate;
     });
 
     return { ...day, shifts: dayShifts, breaks: dayBreaks };
