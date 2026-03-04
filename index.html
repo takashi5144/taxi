@@ -7495,18 +7495,29 @@ window.AppProvider = ({ children }) => {
     if (!secret) return;
     let active = true;
     let processing = false;
+    const processedIds = new Set(); // 処理済みID（同一IDの再処理防止）
     const pollWatch = async () => {
       if (!active || processing) return;
+      // 既にこのセッションで乗車地GPS取得トリガー済みなら再処理しない
+      if (window.__watchPickupConsumedThisSession) return;
       processing = true;
       try {
         const unconsumed = await DataService.loadWatchPickupsFromCloud();
         if (!unconsumed || unconsumed.length === 0) { processing = false; return; }
         const latest = unconsumed[unconsumed.length - 1];
+        // 同一IDは再処理しない（consume API失敗で残っている場合）
+        if (processedIds.has(latest.id)) { processing = false; return; }
+        processedIds.add(latest.id);
         AppLogger.info('ウォッチトリガー検出: id=' + latest.id + ' type=' + (latest.type || '?'));
-        // 消費済みにマーク（awaitして確実に完了させる）
-        await DataService.consumeWatchPickupOnCloud(latest.id);
+        // 消費済みにマーク（失敗しても再トリガーしない）
+        try {
+          await DataService.consumeWatchPickupOnCloud(latest.id);
+        } catch (ce) {
+          AppLogger.warn('ウォッチ消費マーク失敗（再トリガーなし）: ' + ce.message);
+        }
         // グローバルフラグをセット（RevenuePage がマウント時に検知）
         window.__watchGpsTriggerPending = true;
+        window.__watchPickupConsumedThisSession = true;
         // 売上記録ページに遷移
         navigate('revenue');
         AppLogger.info('ウォッチGPSトリガー受信 → 売上記録に遷移');
@@ -11595,6 +11606,7 @@ window.RevenuePage = () => {
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     pickupGpsDone.current = false; // 新規記録用にGPSフラグリセット
+    window.__watchPickupConsumedThisSession = false; // グローバルフラグもリセット（次のウォッチトリガーを受付可能に）
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
