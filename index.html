@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.6.6',
+  VERSION: '2.7.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6226,6 +6226,71 @@ window.GpsLogService = (() => {
   let _db = null;
   let _flushTimer = null;
 
+  // --- 天気キャッシュ ---
+  const WEATHER_POLL_MS = 300000; // 5分間隔で天気取得
+  let _weatherCache = null;       // { w: '晴れ', tp: 5.2, wc: 1, ts: Date.now() }
+  let _weatherTimer = null;
+
+  // WMO天気コードを天候カテゴリに変換（IIFEスコープ内にローカルコピー）
+  function _wmoToWeather(code) {
+    if (code === undefined || code === null) return '曇り';
+    if (code <= 1) return '晴れ';
+    if (code <= 3 || code === 45 || code === 48) return '曇り';
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
+    return '曇り';
+  }
+
+  /** Open-Meteo APIから現在地の天気を取得しキャッシュ更新 */
+  function _fetchWeather() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia/Tokyo`;
+        fetch(url)
+          .then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(data => {
+            const cw = data.current_weather;
+            if (cw) {
+              _weatherCache = {
+                w: _wmoToWeather(cw.weathercode),
+                tp: Math.round(cw.temperature * 10) / 10,
+                wc: cw.weathercode,
+                ts: Date.now(),
+              };
+              AppLogger.info(`天気取得: ${_weatherCache.w} ${_weatherCache.tp}℃ (WMO:${_weatherCache.wc})`);
+            }
+          })
+          .catch(err => {
+            AppLogger.warn(`天気API取得失敗: ${err}（前回キャッシュを維持）`);
+          });
+      },
+      (err) => {
+        AppLogger.warn(`天気用位置取得失敗: ${err.message}（前回キャッシュを維持）`);
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
+  }
+
+  /** 天気ポーリング開始（即時1回 + 5分間隔） */
+  function startWeatherPolling() {
+    stopWeatherPolling();
+    _fetchWeather();
+    _weatherTimer = setInterval(_fetchWeather, WEATHER_POLL_MS);
+    AppLogger.info('天気ポーリング開始（5分間隔）');
+  }
+
+  /** 天気ポーリング停止 */
+  function stopWeatherPolling() {
+    if (_weatherTimer) {
+      clearInterval(_weatherTimer);
+      _weatherTimer = null;
+    }
+    _weatherCache = null;
+  }
+
   // --- IndexedDB ---
   function _openDB() {
     if (_db) return Promise.resolve(_db);
@@ -6418,6 +6483,8 @@ window.GpsLogService = (() => {
       lng: Math.round(lng * 1e6) / 1e6,
       acc: accuracy != null ? Math.round(accuracy) : null,
       spd: speed != null ? Math.round(speed * 10) / 10 : null,
+      w: _weatherCache ? _weatherCache.w : null,
+      tp: _weatherCache ? _weatherCache.tp : null,
     });
     return true;
   }
@@ -6520,11 +6587,11 @@ window.GpsLogService = (() => {
     const classified = await classifyEntries(dateStr);
     if (classified.length === 0) return null;
 
-    const header = '時刻,緯度,経度,精度(m),速度(m/s),状態';
+    const header = '時刻,緯度,経度,精度(m),速度(m/s),状態,天気,気温(℃)';
     const rows = classified.map(p => {
       const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const status = p.status === 'occupied' ? '実車' : '空車';
-      return `${time},${p.lat},${p.lng},${p.acc ?? ''},${p.spd ?? ''},${status}`;
+      return `${time},${p.lat},${p.lng},${p.acc ?? ''},${p.spd ?? ''},${status},${p.w || ''},${p.tp != null ? p.tp : ''}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n');
@@ -6784,6 +6851,9 @@ window.GpsLogService = (() => {
     clearAll,
     cleanup,
     exportCsv,
+    // 天気ポーリング
+    startWeatherPolling,
+    stopWeatherPolling,
     // 分析API
     getVacantHeatmapData,
     getAreaTimeMatrix,
@@ -7071,6 +7141,7 @@ window.useGeolocation = () => {
     const activeShift = shifts.find(s => !s.endTime);
     if (isSupported && !watchIdRef.current && activeShift) {
       AppLogger.info('GPS追跡を自動開始（始業中）');
+      GpsLogService.startWeatherPolling();
       mapCtx.setIsTracking(true);
       const id = navigator.geolocation.watchPosition(
         (position) => { mapCtx.updatePosition(position); },
@@ -9391,6 +9462,7 @@ window.DashboardPage = () => {
     setShiftInfo({ active: true, startTime: now.toISOString() });
     // GPS追跡を開始
     if (!geo.isTracking) geo.startTracking();
+    GpsLogService.startWeatherPolling();
     AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
   }, [breakInfo.active, geo]);
 
@@ -9416,6 +9488,7 @@ window.DashboardPage = () => {
     setShiftInfo({ active: false, startTime: null });
     // GPS追跡を停止
     if (geo.isTracking) geo.stopTracking();
+    GpsLogService.stopWeatherPolling();
     AppLogger.info('GPS追跡を停止（終業）');
   }, [breakInfo.active, geo]);
 
@@ -14184,6 +14257,27 @@ window.CalendarPage = () => {
     createElement('h1', { className: 'page-title' },
       createElement('span', { className: 'material-icons-round' }, 'calendar_month'),
       'カレンダー'
+    ),
+
+    // 給料予想額
+    createElement('div', {
+      style: {
+        background: 'var(--surface-color)',
+        borderRadius: 'var(--border-radius)',
+        padding: 'var(--space-sm) var(--space-md)',
+        marginBottom: 'var(--space-md)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        border: '1px solid var(--border-color)',
+      }
+    },
+      createElement('span', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+      }, '給料予想額'),
+      createElement('span', {
+        style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
+      }, `¥${Math.round(monthlySummary.totalRevenue * 0.5).toLocaleString()}`)
     ),
 
     // 月ナビゲーション
