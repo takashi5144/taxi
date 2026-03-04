@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.7.9',
+  VERSION: '2.8.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -7121,18 +7121,19 @@ window.AppProvider = ({ children }) => {
         const latest = unconsumed[unconsumed.length - 1];
         // 消費済みにマーク（先にやることで二重取り込み防止）
         DataService.consumeWatchPickupOnCloud(latest.id);
+        // グローバルフラグをセット（RevenuePage がマウント時に検知）
+        window.__watchGpsTriggerPending = true;
         // 売上記録ページに遷移
         navigate('revenue');
-        // GPSトリガーイベントを発火（スマホ側でGPS取得を実行）
-        setTimeout(() => {
-          document.dispatchEvent(new CustomEvent('watch-gps-trigger'));
-        }, 300);
         AppLogger.info('ウォッチGPSトリガー受信 → 売上記録に遷移');
       } catch {}
     };
     pollWatch();
     const id = setInterval(pollWatch, 5000);
-    return () => { active = false; clearInterval(id); };
+    // スリープ復帰時にも即ポーリング
+    const onVisible = () => { if (document.visibilityState === 'visible') pollWatch(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { active = false; clearInterval(id); document.removeEventListener('visibilitychange', onVisible); };
   }, [navigate]);
 
   // ── 需要通知サービス ──
@@ -10986,13 +10987,20 @@ window.RevenuePage = () => {
   }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
 
   // ウォッチからのGPSトリガー受信 → スマホ側でGPS取得を実行
+  // マウント時にグローバルフラグをチェック（ページ遷移完了後に確実に検知）
   useEffect(() => {
-    const onWatchGpsTrigger = () => {
-      AppLogger.info('ウォッチGPSトリガー受信 → 乗車地GPS取得開始');
-      getGpsLocation('pickup');
+    const checkPending = () => {
+      if (window.__watchGpsTriggerPending) {
+        window.__watchGpsTriggerPending = false;
+        AppLogger.info('ウォッチGPSトリガー検知 → 乗車地GPS取得開始');
+        getGpsLocation('pickup');
+      }
     };
-    document.addEventListener('watch-gps-trigger', onWatchGpsTrigger);
-    return () => document.removeEventListener('watch-gps-trigger', onWatchGpsTrigger);
+    // マウント直後にチェック
+    checkPending();
+    // 既にページが開いている場合に備え、定期チェック（5秒間隔で監視）
+    const id = setInterval(checkPending, 2000);
+    return () => clearInterval(id);
   }, [getGpsLocation]);
 
   // Geocoding結果から簡潔な住所を抽出
