@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.6.5',
+  VERSION: '2.6.6',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -10733,9 +10733,15 @@ window.RevenuePage = () => {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(prev => ({ ...prev, [field]: false }));
-        if (status === 'OK' && results[0]) {
-          const address = _formatAddress(results[0]);
-          const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+        if (status === 'OK' && results && results.length > 0) {
+          // 最も精度の高い結果を優先選択
+          const preferred = results.find(r => r.types.includes('street_address'))
+            || results.find(r => r.types.includes('premise'))
+            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
+            || results.find(r => r.types.includes('route'))
+            || results[0];
+          const address = TaxiApp.utils.extractAddress(preferred);
+          const fullAddress = preferred.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
           const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
           setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
           setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddress } }));
@@ -10889,9 +10895,14 @@ window.RevenuePage = () => {
           const geocoder = new google.maps.Geocoder();
           geocoder.geocode({ location: { lat, lng } }, (results, status) => {
             setGpsLoading(prev => ({ ...prev, pickup: false }));
-            if (status === 'OK' && results[0]) {
-              const address = _formatAddress(results[0]);
-              const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+            if (status === 'OK' && results && results.length > 0) {
+              const preferred = results.find(r => r.types.includes('street_address'))
+                || results.find(r => r.types.includes('premise'))
+                || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
+                || results.find(r => r.types.includes('route'))
+                || results[0];
+              const address = TaxiApp.utils.extractAddress(preferred);
+              const fullAddress = preferred.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
               setForm(prev => ({ ...prev, pickup: address, pickupTime }));
               setGpsInfo(prev => ({ ...prev, pickup: { ...(prev.pickup || {}), lat, lng, address: fullAddress } }));
               AppLogger.info('ウォッチGPS (Google): ' + address);
