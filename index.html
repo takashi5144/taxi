@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.7.4',
+  VERSION: '2.7.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -7108,6 +7108,33 @@ window.AppProvider = ({ children }) => {
     };
   }, []);
 
+  // ── ウォッチ乗車地クラウド監視（全ページ共通） ──
+  useEffect(() => {
+    const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+    if (!secret) return;
+    let active = true;
+    const pollWatch = async () => {
+      if (!active) return;
+      try {
+        const unconsumed = await DataService.loadWatchPickupsFromCloud();
+        if (!unconsumed || unconsumed.length === 0) return;
+        const latest = unconsumed[unconsumed.length - 1];
+        // 消費済みにマーク（先にやることで二重取り込み防止）
+        DataService.consumeWatchPickupOnCloud(latest.id);
+        // 売上記録ページに遷移
+        navigate('revenue');
+        // カスタムイベントでデータを渡す
+        setTimeout(() => {
+          document.dispatchEvent(new CustomEvent('watch-pickup-received', { detail: latest }));
+        }, 300);
+        AppLogger.info('ウォッチ乗車地受信 → 売上記録に遷移: ' + (latest.address || ''));
+      } catch {}
+    };
+    pollWatch();
+    const id = setInterval(pollWatch, 5000);
+    return () => { active = false; clearInterval(id); };
+  }, [navigate]);
+
   // ── 需要通知サービス ──
   useEffect(() => {
     DemandNotificationService.start();
@@ -10801,59 +10828,47 @@ window.RevenuePage = () => {
     fetchWeather();
   }, []);
 
-  // ウォッチから記録された未消費の乗車地GPSを自動取り込み（ローカル）
+  // ウォッチ乗車地の適用（ローカル or カスタムイベント経由）
+  const applyWatchPickup = useCallback((pickup) => {
+    if (!pickup || !pickup.lat) return;
+    setForm(prev => ({
+      ...prev,
+      pickup: pickup.address || (pickup.lat.toFixed(5) + ', ' + pickup.lng.toFixed(5)),
+      pickupTime: new Date(pickup.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+    }));
+    setGpsInfo(prev => ({ ...prev, pickup: { lat: pickup.lat, lng: pickup.lng, accuracy: pickup.accuracy, address: pickup.address } }));
+    AppLogger.info('ウォッチ乗車地GPS自動取り込み: ' + (pickup.address || ''));
+  }, []);
+
+  // ローカルlocalStorageからの取り込み
   const consumeWatchPickupLocal = useCallback(() => {
     try {
       const pickups = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS) || '[]');
       const unconsumed = pickups.filter(p => !p.consumed);
-      if (unconsumed.length === 0) return false;
+      if (unconsumed.length === 0) return;
       const latest = unconsumed[unconsumed.length - 1];
-      setForm(prev => ({
-        ...prev,
-        pickup: latest.address || (latest.lat.toFixed(5) + ', ' + latest.lng.toFixed(5)),
-        pickupTime: new Date(latest.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-      }));
-      setGpsInfo(prev => ({ ...prev, pickup: { lat: latest.lat, lng: latest.lng, accuracy: latest.accuracy, address: latest.address } }));
+      applyWatchPickup(latest);
       const updated = pickups.map(p => p.id === latest.id ? { ...p, consumed: true } : p);
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS, JSON.stringify(updated));
-      AppLogger.info('ウォッチ乗車地GPS自動取り込み(ローカル): ' + (latest.address || ''));
-      return true;
     } catch {}
-    return false;
-  }, []);
+  }, [applyWatchPickup]);
 
-  // ウォッチから記録された未消費の乗車地GPSをクラウドから取り込み
-  const consumeWatchPickupCloud = useCallback(async () => {
-    try {
-      const unconsumed = await DataService.loadWatchPickupsFromCloud();
-      if (!unconsumed || unconsumed.length === 0) return;
-      const latest = unconsumed[unconsumed.length - 1];
-      setForm(prev => ({
-        ...prev,
-        pickup: latest.address || (latest.lat.toFixed(5) + ', ' + latest.lng.toFixed(5)),
-        pickupTime: new Date(latest.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
-      }));
-      setGpsInfo(prev => ({ ...prev, pickup: { lat: latest.lat, lng: latest.lng, accuracy: latest.accuracy, address: latest.address } }));
-      // クラウド上で消費済みにマーク
-      DataService.consumeWatchPickupOnCloud(latest.id);
-      AppLogger.info('ウォッチ乗車地GPS自動取り込み(クラウド): ' + (latest.address || ''));
-    } catch {}
-  }, []);
-
-  // 初回チェック + storageイベント(ローカル) + 5秒ポーリング(クラウド)
+  // 初回ローカルチェック + storageイベント + クラウド経由カスタムイベント
   useEffect(() => {
     consumeWatchPickupLocal();
-    consumeWatchPickupCloud();
     const onStorage = (e) => {
       if (e.key === APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS) consumeWatchPickupLocal();
     };
+    const onWatchPickup = (e) => {
+      if (e.detail) applyWatchPickup(e.detail);
+    };
     window.addEventListener('storage', onStorage);
-    const cloudPollId = setInterval(consumeWatchPickupCloud, 5000);
+    document.addEventListener('watch-pickup-received', onWatchPickup);
     return () => {
       window.removeEventListener('storage', onStorage);
-      clearInterval(cloudPollId);
+      document.removeEventListener('watch-pickup-received', onWatchPickup);
     };
-  }, [consumeWatchPickupLocal, consumeWatchPickupCloud]);
+  }, [consumeWatchPickupLocal, applyWatchPickup]);
 
   // データは常にDataServiceから取得（単一のデータソース）
   const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
