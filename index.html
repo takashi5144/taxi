@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.6.0',
+  VERSION: '2.6.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6126,7 +6126,7 @@ JSONのみを返し、他のテキストは不要です。
     const body = {
       contents: [{
         parts: [
-          { text: 'このレシート画像から合計金額（税込）を読み取ってください。数値のみを返してください（単位や記号は不要）。合計金額が見つからない場合は「0」を返してください。' },
+          { text: 'このタクシーの領収書・レシート画像から「計」の行に記載されている合計金額を読み取ってください。「計」「合計」「総額」「お支払い」などの行の金額です。数値のみを返してください（円、¥、カンマなどの記号は不要）。金額が見つからない場合は「0」を返してください。' },
           { inlineData: { mimeType, data: base64Image } }
         ]
       }]
@@ -10620,6 +10620,7 @@ window.RevenuePage = () => {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const receiptInputRef = useRef(null);
 
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
@@ -11035,34 +11036,47 @@ window.RevenuePage = () => {
     setRefreshKey(k => k + 1);
   };
 
-  const handleReceiptCapture = async () => {
+  // レシート撮影ボタン → ネイティブカメラUIを起動
+  const handleReceiptCapture = () => {
+    if (receiptInputRef.current) {
+      receiptInputRef.current.value = '';
+      receiptInputRef.current.click();
+    }
+  };
+
+  // 撮影/選択された画像を処理
+  const handleReceiptFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     setReceiptLoading(true);
     setErrors([]);
-    let stream = null;
     try {
-      // 背面カメラを無音で起動
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
+      // 画像をリサイズしてbase64に変換（大きすぎるとAPI制限に引っかかる）
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const maxW = 1920, maxH = 1080;
+            let w = img.width, h = img.height;
+            if (w > maxW || h > maxH) {
+              const scale = Math.min(maxW / w, maxH / h);
+              w = Math.round(w * scale);
+              h = Math.round(h * scale);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            resolve(dataUrl.split(',')[1]);
+          };
+          img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+          img.src = reader.result;
+        };
+        reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+        reader.readAsDataURL(file);
       });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.setAttribute('playsinline', '');
-      video.muted = true;
-      await video.play();
-      // カメラ安定のため少し待つ
-      await new Promise(r => setTimeout(r, 500));
-      // canvasで即時キャプチャ
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      // ストリーム停止
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-      // base64に変換
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      const base64 = dataUrl.split(',')[1];
       // Gemini APIで金額読み取り
       const amount = await GeminiService.analyzeReceiptImage(geminiApiKey, base64, 'image/jpeg');
       if (amount > 0) {
@@ -11071,13 +11085,8 @@ window.RevenuePage = () => {
         setErrors(['レシートから金額を読み取れませんでした。手動で入力してください。']);
       }
     } catch (err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setErrors(['カメラの使用が許可されていません。ブラウザの設定を確認してください。']);
-      } else {
-        setErrors([`レシート読み取りエラー: ${err.message}`]);
-      }
+      setErrors([`レシート読み取りエラー: ${err.message}`]);
     } finally {
-      if (stream) stream.getTracks().forEach(t => t.stop());
       setReceiptLoading(false);
     }
   };
@@ -11795,7 +11804,16 @@ window.RevenuePage = () => {
                 receiptLoading
                   ? React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', animation: 'spin 1s linear infinite' } }, 'sync')
                   : React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'camera_alt')
-              )
+              ),
+              // 隠しファイル入力（ネイティブカメラUI用）
+              React.createElement('input', {
+                ref: receiptInputRef,
+                type: 'file',
+                accept: 'image/*',
+                capture: 'environment',
+                onChange: handleReceiptFile,
+                style: { display: 'none' },
+              })
             ),
             // 税内訳表示
             form.amount && parseInt(form.amount) > 0 && (() => {
