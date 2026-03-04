@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.7.7',
+  VERSION: '2.7.8',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -21409,21 +21409,33 @@ window.WatchPage = () => {
     return () => clearInterval(id);
   }, []);
 
-  // バックグラウンドGPS追跡を開始（許可は初回のみ）
+  // GPS状態表示
+  const [gpsReady, setGpsReady] = useState(false);
+
+  // ページ読み込み時にGPS取得（許可ダイアログはここで1回だけ）
   useEffect(() => {
     if (!navigator.geolocation) return;
-    const id = navigator.geolocation.watchPosition(
-      (pos) => {
-        cachedPosRef.current = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-          timestamp: pos.timestamp || Date.now(),
-        };
-      },
-      () => {},
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-    );
+    const updateCache = (pos) => {
+      cachedPosRef.current = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        timestamp: pos.timestamp || Date.now(),
+      };
+      setGpsReady(true);
+    };
+    // 初回即時取得（キャッシュ許容で高速）
+    navigator.geolocation.getCurrentPosition(updateCache, () => {}, {
+      enableHighAccuracy: false, timeout: 10000, maximumAge: 60000
+    });
+    // 高精度でも並行取得
+    navigator.geolocation.getCurrentPosition(updateCache, () => {}, {
+      enableHighAccuracy: true, timeout: 20000, maximumAge: 30000
+    });
+    // 継続的な位置更新
+    const id = navigator.geolocation.watchPosition(updateCache, () => {}, {
+      enableHighAccuracy: true, timeout: 30000, maximumAge: 10000
+    });
     watchIdRef.current = id;
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, []);
@@ -21462,10 +21474,11 @@ window.WatchPage = () => {
 
     let lat, lng, acc;
 
-    // キャッシュされたGPS位置のみ使用（確認ダイアログを出さない）
-    // キャッシュが無い場合は最大5秒待つ
+    // キャッシュされたGPS位置を使用
+    // キャッシュが無い場合は最大15秒待つ
     if (!cachedPosRef.current) {
-      for (let i = 0; i < 10; i++) {
+      setMessage('GPS取得待ち...');
+      for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 500));
         if (cachedPosRef.current) break;
       }
@@ -21573,14 +21586,25 @@ window.WatchPage = () => {
 
   const btnLabel = status === 'loading' ? '...' : status === 'success' ? 'OK' : status === 'error' ? '!' : '乗車';
 
+  const gpsIndicatorStyle = {
+    position: 'absolute', top: '8px', right: '8px',
+    width: '10px', height: '10px', borderRadius: '50%',
+    background: gpsReady ? '#4caf50' : '#ff9800',
+    boxShadow: gpsReady ? '0 0 6px #4caf50' : '0 0 6px #ff9800',
+    animation: gpsReady ? 'none' : 'pulse 1.5s ease-in-out infinite',
+  };
+
   return React.createElement('div', { style: containerStyle },
     React.createElement('div', { style: timeStyle }, time),
+    React.createElement('div', { style: gpsIndicatorStyle }),
     React.createElement('button', {
       style: buttonStyle,
       onClick: handlePickup,
       disabled: status === 'loading',
     }, btnLabel),
-    React.createElement('div', { style: msgStyle }, message),
+    React.createElement('div', { style: msgStyle },
+      message || (status === 'ready' && !gpsReady ? 'GPS取得中...' : '')
+    ),
     lastPickup && React.createElement('div', { style: lastStyle },
       '前回: ' + (lastPickup.address || '').substring(0, 20) + ' (' +
       new Date(lastPickup.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) + ')'
