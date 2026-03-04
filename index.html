@@ -17690,7 +17690,7 @@ window.SettingsPage = () => {
     React.createElement(Card, { title: 'スマートウォッチ連携', style: { marginBottom: 'var(--space-lg)' } },
       React.createElement('p', {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, 'Galaxy Watchなどのスマートウォッチから乗車地のGPSを取得できます。'),
+      }, 'Galaxy Watchなどのスマートウォッチから乗車ボタンを押すと、スマホのGPSで乗車地を自動取得します。'),
 
       React.createElement('div', { className: 'form-group' },
         React.createElement('label', { className: 'form-label' }, 'ウォッチ用URL'),
@@ -17740,8 +17740,8 @@ window.SettingsPage = () => {
         React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--color-primary-light)' } }, '使い方'),
         React.createElement('p', null, '1. 上のURLをウォッチのブラウザで開いてブックマーク'),
         React.createElement('p', null, '2. 乗車時に大きな「乗車」ボタンをワンタップ'),
-        React.createElement('p', null, '3. GPS位置情報が即座に記録されます'),
-        React.createElement('p', { style: { marginTop: '8px', color: 'var(--text-secondary)' } }, '※ 同じデバイスで売上記録を開くと乗車地が自動反映されます')
+        React.createElement('p', null, '3. スマホが自動でGPS取得し、売上記録に乗車地が入ります'),
+        React.createElement('p', { style: { marginTop: '8px', color: 'var(--text-secondary)' } }, '※ ウォッチ側のGPSは不要です。スマホのGPSで位置を取得します')
       )
     ),
 
