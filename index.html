@@ -10538,7 +10538,6 @@ window.RevenuePage = () => {
                 placeholder: '待機時間（例: 5分）',
                 value: form.waitingTime,
                 onChange: (e) => setForm({ ...form, waitingTime: e.target.value }),
-                readOnly: true,
                 style: { flex: 1, minWidth: 0, background: form.waitingTime ? 'rgba(255,152,0,0.1)' : 'var(--bg-secondary)', color: form.waitingTime ? 'var(--color-warning)' : 'var(--text-primary)', fontWeight: form.waitingTime ? 600 : 400 },
               }),
               React.createElement('button', {
