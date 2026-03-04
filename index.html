@@ -1080,6 +1080,79 @@ window.APP_CONSTANTS = {
           peakBoost: null, // ホテル需要ブーストで加算
         },
       ],
+      // 流しエリア定義（エリア別需要指数算出用）
+      cruisingAreas: [
+        {
+          id: 'downtown', name: '中心地方面', shortName: '中心地',
+          lat: 43.7710, lng: 142.3650,
+          keywords: ['中心|買物|3条|4条|5条|6条|7条|宮下|平和'],
+          basePatternWeekday: [0,0,0,0,0,0,3,10,25,40,50,55,60,55,50,45,50,55,60,55,40,25,10,3],
+          basePatternWeekend: [0,0,0,0,0,0,2,8,20,35,50,60,65,60,55,50,55,60,65,60,45,30,15,5],
+        },
+        {
+          id: 'toyooka', name: '豊岡方面', shortName: '豊岡',
+          lat: 43.7650, lng: 142.3900,
+          keywords: ['豊岡'],
+          basePatternWeekday: [0,0,0,0,0,0,5,15,30,35,25,20,15,15,20,25,30,35,30,20,10,5,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,10,20,25,20,18,15,15,18,22,25,30,25,18,8,3,0,0],
+        },
+        {
+          id: 'touko', name: '東光方面', shortName: '東光',
+          lat: 43.7530, lng: 142.3850,
+          keywords: ['東光'],
+          basePatternWeekday: [0,0,0,0,0,0,5,15,25,30,25,20,15,12,18,22,28,32,28,18,8,3,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,10,18,22,20,18,15,12,15,20,25,28,25,15,6,2,0,0],
+        },
+        {
+          id: 'idai', name: '医大方面', shortName: '医大方面',
+          lat: 43.7306, lng: 142.3857,
+          keywords: ['医大|医科大|西御料'],
+          basePatternWeekday: [0,0,0,0,0,0,5,20,45,55,50,40,25,15,10,8,5,3,2,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,5,10,15,12,10,8,5,3,2,0,0,0,0,0,0,0,0],
+        },
+        {
+          id: 'kagura', name: '神楽方面', shortName: '神楽',
+          lat: 43.7500, lng: 142.3700,
+          keywords: ['神楽'],
+          basePatternWeekday: [0,0,0,0,0,0,5,15,25,30,25,20,15,15,20,25,30,35,30,20,10,5,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,10,18,25,22,18,15,15,18,22,28,32,28,18,8,3,0,0],
+        },
+        {
+          id: 'chuwa', name: '忠和方面', shortName: '忠和',
+          lat: 43.7700, lng: 142.3350,
+          keywords: ['忠和'],
+          basePatternWeekday: [0,0,0,0,0,0,5,12,20,25,20,15,12,10,15,20,25,28,22,15,8,3,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,8,15,20,18,14,10,10,12,18,22,25,20,12,6,2,0,0],
+        },
+        {
+          id: 'midorimachi', name: '緑町方面', shortName: '緑町',
+          lat: 43.7780, lng: 142.3600,
+          keywords: ['緑町|緑が丘'],
+          basePatternWeekday: [0,0,0,0,0,0,5,12,22,28,22,18,14,12,16,22,28,30,25,15,8,3,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,8,16,22,20,16,12,12,14,20,25,28,22,14,6,2,0,0],
+        },
+        {
+          id: 'shunko', name: '春光方面', shortName: '春光',
+          lat: 43.7850, lng: 142.3500,
+          keywords: ['春光|花咲'],
+          basePatternWeekday: [0,0,0,0,0,0,5,15,25,30,22,18,14,12,16,22,28,32,25,15,8,3,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,10,18,22,18,15,12,12,14,20,25,28,22,13,6,2,0,0],
+        },
+        {
+          id: 'suehiro', name: '末広方面', shortName: '末広',
+          lat: 43.7900, lng: 142.3700,
+          keywords: ['末広'],
+          basePatternWeekday: [0,0,0,0,0,0,5,12,22,28,22,18,14,12,16,22,28,30,25,15,8,3,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,8,16,22,18,15,12,12,14,20,25,28,22,13,6,2,0,0],
+        },
+        {
+          id: 'nagayama', name: '永山方面', shortName: '永山',
+          lat: 43.8000, lng: 142.3800,
+          keywords: ['永山'],
+          basePatternWeekday: [0,0,0,0,0,0,5,15,28,35,28,22,18,15,20,28,35,38,30,20,10,5,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,3,10,20,28,25,20,15,15,18,25,30,35,28,18,8,3,0,0],
+        },
+      ],
     },
   },
 
@@ -4617,6 +4690,100 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 流しエリア需要指数を算出（全エリア×24時間）
+  // ============================================================
+  function getCruisingAreaDemandIndex() {
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const areas = locs.cruisingAreas || [];
+    if (areas.length === 0) return { areas: [], timestamp: new Date().toISOString() };
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const dayOfWeek = now.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    const dayFactor = (() => {
+      if (dayOfWeek === 5 && currentHour >= 17) return 1.2;
+      if (dayOfWeek === 6 && currentHour >= 10 && currentHour <= 18) return 1.15;
+      return 1.0;
+    })();
+
+    const weatherFactor = (() => {
+      const entries = getEntries();
+      const today = now.toISOString().slice(0, 10);
+      const todayEntries = entries.filter(e => e.date === today && e.weather);
+      let weather = '';
+      if (todayEntries.length > 0) weather = todayEntries[todayEntries.length - 1].weather;
+      if (weather === '雨') return 1.25;
+      if (weather === '雪') return 1.35;
+      return 1.0;
+    })();
+
+    // 履歴データ集計
+    const entries = getEntries();
+    const historyByArea = {};
+    areas.forEach(area => {
+      historyByArea[area.id] = new Array(24).fill(null).map(() => ({ total: 0, count: 0 }));
+    });
+    entries.forEach(e => {
+      if (!e.pickup || !e.pickupTime) return;
+      const hour = parseInt(e.pickupTime.split(':')[0], 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) return;
+      areas.forEach(area => {
+        let match = false;
+        const kw = area.keywords.join('|');
+        if (new RegExp(kw).test(e.pickup)) match = true;
+        if (!match && e.pickupCoords) {
+          const dist = Math.sqrt(Math.pow(e.pickupCoords.lat - area.lat, 2) + Math.pow(e.pickupCoords.lng - area.lng, 2));
+          if (dist < 0.015) match = true;
+        }
+        if (match) {
+          historyByArea[area.id][hour].total += (e.amount || 0);
+          historyByArea[area.id][hour].count += 1;
+        }
+      });
+    });
+
+    const result = areas.map(area => {
+      const hourlyIndex = [];
+      for (let h = 0; h < 24; h++) {
+        const basePattern = isWeekend ? area.basePatternWeekend : area.basePatternWeekday;
+        let base = basePattern[h] || 0;
+
+        const hist = historyByArea[area.id][h];
+        if (hist.count >= 3) {
+          const histAvg = Math.min(100, hist.count * 8);
+          base = histAvg * 0.6 + base * 0.4;
+        }
+
+        let index = base * dayFactor * weatherFactor;
+        index = Math.round(Math.max(0, Math.min(100, index)));
+        hourlyIndex.push({ hour: h, index: index });
+      }
+
+      return {
+        id: area.id,
+        name: area.name,
+        shortName: area.shortName,
+        lat: area.lat,
+        lng: area.lng,
+        hourlyIndex: hourlyIndex,
+        currentIndex: hourlyIndex[currentHour].index,
+      };
+    });
+
+    result.sort((a, b) => b.currentIndex - a.currentIndex);
+
+    return {
+      areas: result,
+      timestamp: now.toISOString(),
+      currentHour: currentHour,
+      weatherFactor: weatherFactor,
+      dayFactor: dayFactor,
+    };
+  }
+
+  // ============================================================
   // 待機スポット売上シミュレーション
   // ============================================================
   function getWaitingSpotRevenueForecast() {
@@ -5121,6 +5288,9 @@ window.DataService = (() => {
 
     // 待機スポット需要指数
     getWaitingSpotDemandIndex,
+
+    // 流しエリア需要指数
+    getCruisingAreaDemandIndex,
 
     // 待機スポット売上シミュレーション
     getWaitingSpotRevenueForecast,
@@ -8386,6 +8556,9 @@ window.DashboardPage = () => {
   const waitingSpotData = useMemo(() => DataService.getWaitingSpotDemandIndex(), [refreshKey]);
   const revenueForecast = useMemo(() => DataService.getWaitingSpotRevenueForecast(), [refreshKey]);
 
+  // 流しエリア需要指数
+  const cruisingAreaData = useMemo(() => DataService.getCruisingAreaDemandIndex(), [refreshKey]);
+
   // 営業プラン関連
   const dailySchedule = useMemo(() => DataService.getDailyDemandSchedule(), [refreshKey]);
   const [demandPlanLoading, setDemandPlanLoading] = useState(false);
@@ -9105,6 +9278,141 @@ window.DashboardPage = () => {
         `履歴データ${revenueForecast.assumptions.dataPoints}件に基づく推定値`,
         revenueForecast.assumptions.dayFactor !== 1.0 ? ` / 曜日係数${revenueForecast.assumptions.dayFactor}x` : '',
         revenueForecast.assumptions.weatherFactor !== 1.0 ? ` / 天気係数${revenueForecast.assumptions.weatherFactor}x` : ''
+      )
+    ),
+
+    // 流しエリア需要指数カード
+    cruisingAreaData.areas.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(168,85,247,0.10), rgba(236,72,153,0.06))',
+        border: '1px solid rgba(168,85,247,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#a855f7' } }, 'directions_car'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '流しエリア需要指数')
+        )
+      ),
+
+      // 今のおすすめ
+      (() => {
+        const best = cruisingAreaData.areas.find(a => a.currentIndex > 0);
+        if (!best) return null;
+        const indexColor = best.currentIndex >= 80 ? '#ef4444' : best.currentIndex >= 60 ? '#f59e0b' : best.currentIndex >= 40 ? '#10b981' : '#3b82f6';
+        return React.createElement('div', {
+          style: {
+            padding: '10px 14px', borderRadius: '8px', marginBottom: '12px',
+            background: `linear-gradient(135deg, ${indexColor}18, ${indexColor}08)`,
+            border: `1px solid ${indexColor}30`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          },
+        },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, '今のおすすめエリア'),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-md)', fontWeight: 700 } }, best.name)
+          ),
+          React.createElement('div', {
+            style: { fontSize: '24px', fontWeight: 800, color: indexColor },
+          }, String(best.currentIndex))
+        );
+      })(),
+
+      // 全エリア現在値（2列5行）
+      React.createElement('div', {
+        style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px', marginBottom: '12px' },
+      },
+        ...cruisingAreaData.areas.map(area => {
+          const idx = area.currentIndex;
+          const bg = idx >= 80 ? 'rgba(239,68,68,0.12)' : idx >= 60 ? 'rgba(245,158,11,0.12)' : idx >= 40 ? 'rgba(16,185,129,0.12)' : idx >= 20 ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.08)';
+          const color = idx >= 80 ? '#ef4444' : idx >= 60 ? '#f59e0b' : idx >= 40 ? '#10b981' : idx >= 20 ? '#3b82f6' : '#9ca3af';
+          return React.createElement('div', {
+            key: area.id,
+            style: { padding: '8px 10px', borderRadius: '8px', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+          },
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' } }, area.shortName),
+            React.createElement('span', { style: { fontSize: '18px', fontWeight: 800, color: color } }, String(idx))
+          );
+        })
+      ),
+
+      // 凡例
+      React.createElement('div', {
+        style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', justifyContent: 'center' },
+      },
+        ...[
+          { label: '80+ 最高', color: '#ef4444' },
+          { label: '60-79 高い', color: '#f59e0b' },
+          { label: '40-59 普通', color: '#10b981' },
+          { label: '20-39 低い', color: '#3b82f6' },
+          { label: '0-19 ---', color: '#9ca3af' },
+        ].map(leg => React.createElement('span', {
+          key: leg.label,
+          style: { fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' },
+        },
+          React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: leg.color, display: 'inline-block' } }),
+          leg.label
+        ))
+      ),
+
+      // 時間帯別マトリクス (6:00-23:00)
+      React.createElement('div', {
+        style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' },
+      },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '10px', width: 'max-content', minWidth: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              React.createElement('th', {
+                style: { position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' },
+              }, 'エリア'),
+              ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
+                const isCurrent = h === cruisingAreaData.currentHour;
+                return React.createElement('th', {
+                  key: h,
+                  style: {
+                    padding: '4px 5px', fontWeight: isCurrent ? 800 : 500, textAlign: 'center',
+                    borderBottom: '1px solid rgba(255,255,255,0.1)',
+                    background: isCurrent ? 'rgba(168,85,247,0.18)' : 'transparent',
+                    color: isCurrent ? '#a855f7' : 'var(--text-muted)',
+                  },
+                }, String(h));
+              })
+            )
+          ),
+          React.createElement('tbody', null,
+            ...cruisingAreaData.areas.map(area =>
+              React.createElement('tr', { key: area.id },
+                React.createElement('td', {
+                  style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                }, area.shortName),
+                ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
+                  const hd = area.hourlyIndex[h];
+                  const idx = hd ? hd.index : 0;
+                  const isCurrent = h === cruisingAreaData.currentHour;
+                  const cellBg = idx >= 80 ? 'rgba(239,68,68,0.25)' : idx >= 60 ? 'rgba(245,158,11,0.22)' : idx >= 40 ? 'rgba(16,185,129,0.18)' : idx >= 20 ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.06)';
+                  const cellColor = idx >= 80 ? '#fca5a5' : idx >= 60 ? '#fcd34d' : idx >= 40 ? '#6ee7b7' : idx >= 20 ? '#93c5fd' : '#6b7280';
+                  return React.createElement('td', {
+                    key: h,
+                    style: {
+                      padding: '3px 5px', textAlign: 'center', fontWeight: 600,
+                      background: isCurrent ? `linear-gradient(180deg, rgba(168,85,247,0.12), ${cellBg})` : cellBg,
+                      color: cellColor,
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      borderLeft: isCurrent ? '2px solid rgba(168,85,247,0.4)' : 'none',
+                      borderRight: isCurrent ? '2px solid rgba(168,85,247,0.4)' : 'none',
+                    },
+                  }, idx > 0 ? String(idx) : '');
+                })
+              )
+            )
+          )
+        )
       )
     ),
 
