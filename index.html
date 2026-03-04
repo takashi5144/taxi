@@ -902,7 +902,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.2.0',
+  VERSION: '2.3.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2269,7 +2269,7 @@ window.DataService = (() => {
     return (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
   }
 
-  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering'];
+  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
 
   async function _syncToCloud(type, entries, _retryCount) {
     if (!ALLOWED_SYNC_TYPES.includes(type)) { AppLogger.warn('不正な同期タイプ: ' + type); return; }
@@ -2348,19 +2348,21 @@ window.DataService = (() => {
 
   async function autoSync() {
     try {
-      const [r1, r2, r3, r4] = await Promise.all([
+      const [r1, r2, r3, r4, r5, r6] = await Promise.all([
         syncFromCloud('revenue'),
         syncFromCloud('rival'),
         syncWorkStatusFromCloud(),
         syncFromCloud('gathering'),
+        syncShiftsFromCloud(),
+        syncBreaksFromCloud(),
       ]);
-      const totalMerged = (r1.merged || 0) + (r2.merged || 0) + (r4.merged || 0);
+      const totalMerged = (r1.merged || 0) + (r2.merged || 0) + (r4.merged || 0) + (r5.merged || 0) + (r6.merged || 0);
       if (totalMerged > 0 || r3.merged) {
-        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, 他社+${r2.merged}件, 集客+${r4.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
+        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, 他社+${r2.merged}件, 集客+${r4.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
       } else {
         AppLogger.debug('自動同期: 新規データなし');
       }
-      return { revenue: r1, rival: r2, workStatus: r3, gathering: r4 };
+      return { revenue: r1, rival: r2, workStatus: r3, gathering: r4, shifts: r5, breaks: r6 };
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
@@ -2424,6 +2426,88 @@ window.DataService = (() => {
       AppLogger.info('勤務状態クラウド同期: ローカルを更新しました');
     }
     return { merged: changed, data: merged };
+  }
+
+  // ============================================================
+  // シフト・休憩クラウド同期
+  // ============================================================
+  async function syncShiftsToCloud() {
+    try {
+      const secret = _getSyncSecret();
+      if (!secret) return;
+      const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      await _syncToCloud('shifts', entries);
+    } catch (e) {
+      AppLogger.warn('シフトクラウド同期エラー: ' + e.message);
+    }
+  }
+
+  async function syncBreaksToCloud() {
+    try {
+      const secret = _getSyncSecret();
+      if (!secret) return;
+      const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      await _syncToCloud('breaks', entries);
+    } catch (e) {
+      AppLogger.warn('休憩クラウド同期エラー: ' + e.message);
+    }
+  }
+
+  async function syncShiftsFromCloud() {
+    const cloudEntries = await loadFromCloud('shifts');
+    if (!cloudEntries || cloudEntries.length === 0) return { merged: 0 };
+    const local = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const localIds = new Set(local.map(e => e.id));
+    let merged = 0;
+    cloudEntries.forEach(entry => {
+      if (!localIds.has(entry.id)) {
+        local.push(entry);
+        merged++;
+      } else {
+        // 既存エントリは最新で上書き（編集反映）
+        const idx = local.findIndex(e => e.id === entry.id);
+        if (idx !== -1) {
+          const localTime = new Date(local[idx].startTime || 0).getTime();
+          const cloudTime = new Date(entry.startTime || 0).getTime();
+          if (cloudTime !== localTime || local[idx].endTime !== entry.endTime) {
+            local[idx] = entry;
+          }
+        }
+      }
+    });
+    if (merged > 0 || cloudEntries.length > 0) {
+      local.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(local));
+    }
+    return { merged };
+  }
+
+  async function syncBreaksFromCloud() {
+    const cloudEntries = await loadFromCloud('breaks');
+    if (!cloudEntries || cloudEntries.length === 0) return { merged: 0 };
+    const local = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    const localIds = new Set(local.map(e => e.id));
+    let merged = 0;
+    cloudEntries.forEach(entry => {
+      if (!localIds.has(entry.id)) {
+        local.push(entry);
+        merged++;
+      } else {
+        const idx = local.findIndex(e => e.id === entry.id);
+        if (idx !== -1) {
+          const localTime = new Date(local[idx].startTime || 0).getTime();
+          const cloudTime = new Date(entry.startTime || 0).getTime();
+          if (cloudTime !== localTime || local[idx].endTime !== entry.endTime) {
+            local[idx] = entry;
+          }
+        }
+      }
+    });
+    if (merged > 0 || cloudEntries.length > 0) {
+      local.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(local));
+    }
+    return { merged };
   }
 
   // ============================================================
@@ -5306,6 +5390,10 @@ window.DataService = (() => {
     autoSync,
     syncWorkStatusToCloud,
     syncWorkStatusFromCloud,
+    syncShiftsToCloud,
+    syncBreaksToCloud,
+    syncShiftsFromCloud,
+    syncBreaksFromCloud,
 
     // イベント
     getEvents,
@@ -9165,11 +9253,13 @@ window.DashboardPage = () => {
       const ab = breaks.find(b => !b.endTime);
       if (ab) ab.endTime = now.toISOString();
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      DataService.syncBreaksToCloud();
       setBreakInfo({ active: false, startTime: null });
     }
     const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
     shifts.push(newShift);
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+    DataService.syncShiftsToCloud();
     setShiftInfo({ active: true, startTime: now.toISOString() });
     AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
   }, [breakInfo.active]);
@@ -9182,6 +9272,7 @@ window.DashboardPage = () => {
       const ab = breaks.find(b => !b.endTime);
       if (ab) ab.endTime = now.toISOString();
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      DataService.syncBreaksToCloud();
       setBreakInfo({ active: false, startTime: null });
     }
     const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
@@ -9189,6 +9280,7 @@ window.DashboardPage = () => {
     if (activeShift) {
       activeShift.endTime = now.toISOString();
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+      DataService.syncShiftsToCloud();
       AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     }
     setShiftInfo({ active: false, startTime: null });
@@ -9201,6 +9293,7 @@ window.DashboardPage = () => {
     const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
     breaks.push(newBreak);
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+    DataService.syncBreaksToCloud();
     setBreakInfo({ active: true, startTime: now.toISOString() });
     AppLogger.info(`休憩開始: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
   }, [shiftInfo.active]);
@@ -9212,6 +9305,7 @@ window.DashboardPage = () => {
     if (activeBreak) {
       activeBreak.endTime = now.toISOString();
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      DataService.syncBreaksToCloud();
       AppLogger.info(`休憩終了: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     }
     setBreakInfo({ active: false, startTime: null });
@@ -13847,6 +13941,8 @@ window.CalendarPage = () => {
     } catch { return {}; }
   });
   const [selectedDate, setSelectedDate] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [editingItem, setEditingItem] = useState(null); // { type: 'shift'|'break', id, startTime, endTime }
 
   // クラウドから勤務状態を同期（ページ表示時・タブ復帰時）
   useEffect(() => {
@@ -13854,20 +13950,28 @@ window.CalendarPage = () => {
     if (!secret) return;
 
     // カレンダーページ表示時にクラウドから最新を取得
-    DataService.syncWorkStatusFromCloud().then(result => {
-      if (result && result.merged && result.data) {
-        setWorkStatus(result.data);
-      }
-    });
+    const syncAll = () => {
+      DataService.syncWorkStatusFromCloud().then(result => {
+        if (result && result.merged && result.data) {
+          setWorkStatus(result.data);
+        }
+      });
+      // シフト・休憩もクラウドから同期
+      Promise.all([
+        DataService.syncShiftsFromCloud(),
+        DataService.syncBreaksFromCloud(),
+      ]).then(([sr, br]) => {
+        if ((sr && sr.merged > 0) || (br && br.merged > 0)) {
+          setRefreshKey(k => k + 1);
+        }
+      });
+    };
+    syncAll();
 
     // タブ復帰時にも再同期
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        DataService.syncWorkStatusFromCloud().then(result => {
-          if (result && result.merged && result.data) {
-            setWorkStatus(result.data);
-          }
-        });
+        syncAll();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -13900,7 +14004,25 @@ window.CalendarPage = () => {
     try {
       return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
     } catch { return []; }
-  }, [currentMonth]);
+  }, [currentMonth, refreshKey]);
+
+  // 休憩データ
+  const breaks = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    } catch { return []; }
+  }, [currentMonth, refreshKey]);
+
+  // 時刻変換ヘルパー
+  const isoToTimeStr = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  };
+  const timeStrToIso = (dateStr, timeStr) => {
+    if (!dateStr || !timeStr) return null;
+    return `${dateStr}T${timeStr}:00`;
+  };
 
   // カレンダーグリッド生成
   const calendarDays = useMemo(() => {
@@ -13919,6 +14041,17 @@ window.CalendarPage = () => {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const info = JapaneseHolidays.getDateInfo(dateStr);
       const rev = dailyRevenue[dateStr];
+      // 勤務時間・休憩時間計算
+      const dayShifts = shifts.filter(s => s.startTime && s.startTime.split('T')[0] === dateStr);
+      const dayBreaks = breaks.filter(b => b.startTime && b.startTime.split('T')[0] === dateStr);
+      const shiftMin = dayShifts.reduce((sum, s) => {
+        if (!s.startTime || !s.endTime) return sum;
+        return sum + Math.max(0, (new Date(s.endTime) - new Date(s.startTime)) / 60000);
+      }, 0);
+      const breakMin = dayBreaks.reduce((sum, b) => {
+        if (!b.startTime || !b.endTime) return sum;
+        return sum + Math.max(0, (new Date(b.endTime) - new Date(b.startTime)) / 60000);
+      }, 0);
       days.push({
         day: d,
         dateStr,
@@ -13930,10 +14063,12 @@ window.CalendarPage = () => {
         revenue: rev ? rev.total : 0,
         count: rev ? rev.count : 0,
         status: workStatus[dateStr] || null,
+        workMin: Math.round(shiftMin),
+        breakMin: Math.round(breakMin),
       });
     }
     return days;
-  }, [currentMonth, dailyRevenue, workStatus]);
+  }, [currentMonth, dailyRevenue, workStatus, shifts, breaks]);
 
   // 今日の日付文字列
   const todayStr = useMemo(() => getLocalDateString(), []);
@@ -13973,8 +14108,15 @@ window.CalendarPage = () => {
       return sDate === selectedDate;
     });
 
-    return { ...day, shifts: dayShifts };
-  }, [selectedDate, calendarDays, shifts]);
+    // 休憩情報
+    const dayBreaks = breaks.filter(b => {
+      if (!b.startTime) return false;
+      const bDate = b.startTime.split('T')[0];
+      return bDate === selectedDate;
+    });
+
+    return { ...day, shifts: dayShifts, breaks: dayBreaks };
+  }, [selectedDate, calendarDays, shifts, breaks]);
 
   // 月切替
   const goMonth = useCallback((delta) => {
@@ -14109,6 +14251,20 @@ window.CalendarPage = () => {
               lineHeight: 1.2,
             }
           }, shortAmount(d.revenue)),
+          // 勤務時間（実働）
+          (d.workMin - d.breakMin) > 0 && createElement('div', {
+            style: {
+              fontSize: 9,
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              lineHeight: 1.2,
+            }
+          }, (() => {
+            const net = d.workMin - d.breakMin;
+            const h = Math.floor(net / 60);
+            const m = net % 60;
+            return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`;
+          })()),
           // 休日マーク（休日のみ橙ドット表示）
           d.status === 'off' && createElement('div', {
             style: {
@@ -14178,7 +14334,37 @@ window.CalendarPage = () => {
         )
       ),
 
-      // シフト記録
+      // 稼働時間サマリー
+      (selectedDayData.workMin > 0 || selectedDayData.breakMin > 0) && createElement('div', {
+        style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }
+      },
+        createElement('div', {
+          style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-sm)', textAlign: 'center' }
+        },
+          createElement('div', null,
+            createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '稼働'),
+            createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
+              (() => { const h = Math.floor(selectedDayData.workMin / 60); const m = selectedDayData.workMin % 60; return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`; })()
+            )
+          ),
+          createElement('div', null,
+            createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '休憩'),
+            createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-warning)' } },
+              selectedDayData.breakMin > 0
+                ? (() => { const h = Math.floor(selectedDayData.breakMin / 60); const m = selectedDayData.breakMin % 60; return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`; })()
+                : '0h'
+            )
+          ),
+          createElement('div', null,
+            createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '実働'),
+            createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-accent)' } },
+              (() => { const net = Math.max(0, selectedDayData.workMin - selectedDayData.breakMin); const h = Math.floor(net / 60); const m = net % 60; return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`; })()
+            )
+          )
+        )
+      ),
+
+      // シフト記録（編集可能）
       selectedDayData.shifts.length > 0 && createElement('div', {
         style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)' }
       },
@@ -14186,14 +14372,136 @@ window.CalendarPage = () => {
           style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: 4 }
         }, 'シフト記録'),
         ...selectedDayData.shifts.map((s, i) => {
-          const start = s.startTime ? new Date(s.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '?';
-          const end = s.endTime ? new Date(s.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '勤務中';
+          const isEditing = editingItem && editingItem.type === 'shift' && editingItem.id === s.id;
+          if (isEditing) {
+            return createElement('div', {
+              key: 'shift-' + i,
+              style: { fontSize: 'var(--font-size-sm)', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }
+            },
+              createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'schedule'),
+              createElement('input', {
+                type: 'time',
+                value: editingItem.startTime,
+                onChange: (e) => setEditingItem(prev => ({ ...prev, startTime: e.target.value })),
+                style: { fontSize: 'var(--font-size-sm)', padding: '2px 4px', border: '1px solid var(--border-color)', borderRadius: 4, background: 'var(--bg-card)', color: 'var(--text-primary)' }
+              }),
+              ' 〜 ',
+              createElement('input', {
+                type: 'time',
+                value: editingItem.endTime,
+                onChange: (e) => setEditingItem(prev => ({ ...prev, endTime: e.target.value })),
+                style: { fontSize: 'var(--font-size-sm)', padding: '2px 4px', border: '1px solid var(--border-color)', borderRadius: 4, background: 'var(--bg-card)', color: 'var(--text-primary)' }
+              }),
+              createElement('button', {
+                className: 'btn btn--primary',
+                style: { padding: '2px 8px', fontSize: 'var(--font-size-sm)', minWidth: 'auto' },
+                onClick: () => {
+                  const allShifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+                  const idx = allShifts.findIndex(x => x.id === editingItem.id);
+                  if (idx !== -1) {
+                    allShifts[idx].startTime = timeStrToIso(selectedDate, editingItem.startTime);
+                    if (editingItem.endTime) allShifts[idx].endTime = timeStrToIso(selectedDate, editingItem.endTime);
+                    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(allShifts));
+                    DataService.syncShiftsToCloud();
+                    setRefreshKey(k => k + 1);
+                  }
+                  setEditingItem(null);
+                }
+              }, '保存'),
+              createElement('button', {
+                className: 'btn btn--secondary',
+                style: { padding: '2px 8px', fontSize: 'var(--font-size-sm)', minWidth: 'auto' },
+                onClick: () => setEditingItem(null)
+              }, '取消')
+            );
+          }
+          const start = s.startTime ? isoToTimeStr(s.startTime) : '?';
+          const end = s.endTime ? isoToTimeStr(s.endTime) : '勤務中';
           return createElement('div', {
-            key: i,
-            style: { fontSize: 'var(--font-size-sm)', padding: '2px 0' }
+            key: 'shift-' + i,
+            style: { fontSize: 'var(--font-size-sm)', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 4 }
           },
-            createElement('span', { className: 'material-icons-round', style: { fontSize: 14, verticalAlign: 'middle', marginRight: 4 } }, 'schedule'),
-            `${start} 〜 ${end}`
+            createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'schedule'),
+            `${start} 〜 ${end}`,
+            createElement('button', {
+              className: 'btn btn--secondary',
+              style: { padding: '1px 6px', fontSize: 11, minWidth: 'auto', marginLeft: 4 },
+              onClick: (e) => {
+                e.stopPropagation();
+                setEditingItem({ type: 'shift', id: s.id, startTime: isoToTimeStr(s.startTime), endTime: s.endTime ? isoToTimeStr(s.endTime) : '' });
+              }
+            }, '編集')
+          );
+        })
+      ),
+
+      // 休憩記録（編集可能）
+      selectedDayData.breaks.length > 0 && createElement('div', {
+        style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)' }
+      },
+        createElement('div', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: 4 }
+        }, '休憩記録'),
+        ...selectedDayData.breaks.map((b, i) => {
+          const isEditing = editingItem && editingItem.type === 'break' && editingItem.id === b.id;
+          if (isEditing) {
+            return createElement('div', {
+              key: 'break-' + i,
+              style: { fontSize: 'var(--font-size-sm)', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }
+            },
+              createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'free_breakfast'),
+              createElement('input', {
+                type: 'time',
+                value: editingItem.startTime,
+                onChange: (e) => setEditingItem(prev => ({ ...prev, startTime: e.target.value })),
+                style: { fontSize: 'var(--font-size-sm)', padding: '2px 4px', border: '1px solid var(--border-color)', borderRadius: 4, background: 'var(--bg-card)', color: 'var(--text-primary)' }
+              }),
+              ' 〜 ',
+              createElement('input', {
+                type: 'time',
+                value: editingItem.endTime,
+                onChange: (e) => setEditingItem(prev => ({ ...prev, endTime: e.target.value })),
+                style: { fontSize: 'var(--font-size-sm)', padding: '2px 4px', border: '1px solid var(--border-color)', borderRadius: 4, background: 'var(--bg-card)', color: 'var(--text-primary)' }
+              }),
+              createElement('button', {
+                className: 'btn btn--primary',
+                style: { padding: '2px 8px', fontSize: 'var(--font-size-sm)', minWidth: 'auto' },
+                onClick: () => {
+                  const allBreaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+                  const idx = allBreaks.findIndex(x => x.id === editingItem.id);
+                  if (idx !== -1) {
+                    allBreaks[idx].startTime = timeStrToIso(selectedDate, editingItem.startTime);
+                    if (editingItem.endTime) allBreaks[idx].endTime = timeStrToIso(selectedDate, editingItem.endTime);
+                    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(allBreaks));
+                    DataService.syncBreaksToCloud();
+                    setRefreshKey(k => k + 1);
+                  }
+                  setEditingItem(null);
+                }
+              }, '保存'),
+              createElement('button', {
+                className: 'btn btn--secondary',
+                style: { padding: '2px 8px', fontSize: 'var(--font-size-sm)', minWidth: 'auto' },
+                onClick: () => setEditingItem(null)
+              }, '取消')
+            );
+          }
+          const start = b.startTime ? isoToTimeStr(b.startTime) : '?';
+          const end = b.endTime ? isoToTimeStr(b.endTime) : '休憩中';
+          return createElement('div', {
+            key: 'break-' + i,
+            style: { fontSize: 'var(--font-size-sm)', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 4 }
+          },
+            createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'free_breakfast'),
+            `${start} 〜 ${end}`,
+            createElement('button', {
+              className: 'btn btn--secondary',
+              style: { padding: '1px 6px', fontSize: 11, minWidth: 'auto', marginLeft: 4 },
+              onClick: (e) => {
+                e.stopPropagation();
+                setEditingItem({ type: 'break', id: b.id, startTime: isoToTimeStr(b.startTime), endTime: b.endTime ? isoToTimeStr(b.endTime) : '' });
+              }
+            }, '編集')
           );
         })
       )
