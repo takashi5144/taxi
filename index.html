@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.4.0</title>
+  <title>タクシー売上サポート v1.4.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -10041,6 +10041,26 @@ window.DashboardPage = () => {
   }, [frequentSpots, spotsWithGeoNames]);
   // スポット詳細の展開状態
   const [expandedSpotIdx, setExpandedSpotIdx] = useState(null);
+  // 改善1: topAreas + frequentSpotsNow を統合した「今おすすめスポット」
+  const mergedNowSpots = useMemo(() => {
+    const merged = [];
+    const usedNames = new Set();
+    topAreas.forEach(a => {
+      merged.push({ name: a.name, count: a.count, avgAmount: a.avg, tags: ['高単価'] });
+      usedNames.add(a.name);
+    });
+    frequentSpotsNow.forEach(s => {
+      const dup = [...usedNames].find(n => n.includes(s.name) || s.name.includes(n));
+      if (dup) {
+        const ex = merged.find(m => m.name === dup);
+        if (ex && !ex.tags.includes('頻出')) { ex.tags.push('頻出'); ex.count = Math.max(ex.count, s.count); }
+      } else {
+        merged.push({ name: s.name, count: s.count, avgAmount: s.avgAmount, tags: ['頻出'] });
+        usedNames.add(s.name);
+      }
+    });
+    return merged.slice(0, 5);
+  }, [topAreas, frequentSpotsNow]);
   const eventAlerts = useMemo(() => DataService.getUpcomingEventAlerts(), [refreshKey]);
 
   // 待機スポット需要指数
@@ -10457,79 +10477,78 @@ window.DashboardPage = () => {
       )
     ),
 
-    // 単価最適化アドバイザー
-    topAreas.length > 0 && React.createElement(Card, {
-      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
-    },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#FF9800' } }, 'trending_up'),
-        React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'この時間帯の高単価エリア')
-      ),
-      topAreas.map((area, i) =>
-        React.createElement('div', {
-          key: area.name,
-          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0',
-            borderBottom: i < topAreas.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
-        },
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-            React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : '#CD7F32', width: '24px' } }, `${i + 1}`),
-            React.createElement('div', null,
-              React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, area.name),
-              React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, `${area.count}回の実績`)
-            )
-          ),
-          React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${area.avg.toLocaleString()}`)
-        )
-      )
-    ),
-
-    // 今の時間帯によく乗車される場所（機能1）
-    frequentSpotsNow.length > 0 && React.createElement(Card, {
+    // 改善1+6: 統合「今おすすめのスポット」カード（topAreas + frequentSpotsNow を統合、高い位置に配置）
+    mergedNowSpots.length > 0 && React.createElement(Card, {
       style: {
         marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(233,30,99,0.12), rgba(156,39,176,0.06))',
-        border: '1px solid rgba(233,30,99,0.25)',
+        background: 'linear-gradient(135deg, rgba(233,30,99,0.10), rgba(255,152,0,0.06))',
+        border: '1px solid rgba(233,30,99,0.2)',
       },
     },
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#e91e63' } }, 'near_me'),
-        React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } },
-          `今（${'日月火水木金土'[new Date().getDay()]}曜 ${new Date().getHours()}時台）よく乗車される場所`
+        React.createElement('div', null,
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '今おすすめのスポット'),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+            `${'日月火水木金土'[new Date().getDay()]}曜 ${new Date().getHours()}時台の実績`
+          )
         )
       ),
-      frequentSpotsNow.map((spot, i) =>
+      mergedNowSpots.map((spot, i) =>
         React.createElement('div', {
-          key: `now-${spot.name}-${i}`,
-          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0',
-            borderBottom: i < frequentSpotsNow.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+          key: `merged-${spot.name}-${i}`,
+          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0',
+            borderBottom: i < mergedNowSpots.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
         },
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 } },
             React.createElement('span', { style: {
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: '24px', height: '24px', borderRadius: '50%', fontSize: '11px',
-              fontWeight: 700, color: '#fff', background: '#e91e63', flexShrink: 0,
-            } }, `${spot.count}`),
-            React.createElement('span', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, spot.name)
+              fontWeight: 700, fontSize: 'var(--font-size-lg)', width: '20px', textAlign: 'center',
+              color: i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : '#CD7F32',
+            } }, `${i + 1}`),
+            React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+              React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, spot.name),
+              React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '2px' } },
+                spot.tags.map(tag =>
+                  React.createElement('span', {
+                    key: tag,
+                    style: {
+                      fontSize: '9px', fontWeight: 600, padding: '1px 6px', borderRadius: '8px',
+                      background: tag === '高単価' ? 'rgba(255,152,0,0.2)' : 'rgba(233,30,99,0.2)',
+                      color: tag === '高単価' ? '#FFB74D' : '#f48fb1',
+                    },
+                  }, tag)
+                ),
+                React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${spot.count}回`)
+              )
+            )
           ),
-          React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', whiteSpace: 'nowrap' } }, `¥${spot.avgAmount.toLocaleString()}`)
+          React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', whiteSpace: 'nowrap', flexShrink: 0 } }, `¥${spot.avgAmount.toLocaleString()}`)
         )
       )
     ),
 
-    // よく乗車される場所（全期間・詳細版）
+    // よく乗車される場所（全期間・詳細版）改善2,3,4,5
     displaySpots.length > 0 && React.createElement(Card, {
       style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
     },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#e91e63' } }, 'place'),
-        React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'よく乗車される場所')
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#e91e63' } }, 'place'),
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'よく乗車される場所')
+        ),
+        // 改善5: アフォーダンス
+        React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, 'タップで詳細')
       ),
       displaySpots.map((spot, i) => {
         const isExpanded = expandedSpotIdx === i;
         const tierTotal = spot.tiers ? spot.tiers.short + spot.tiers.mid + spot.tiers.long : 0;
         return React.createElement('div', {
           key: `spot-${spot.name}-${i}`,
-          style: { padding: '8px 0', borderBottom: i < displaySpots.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none', cursor: 'pointer' },
+          style: {
+            padding: '10px 8px', marginBottom: '4px', cursor: 'pointer',
+            borderRadius: '8px', transition: 'background 0.15s',
+            background: isExpanded ? 'rgba(233,30,99,0.06)' : 'transparent',
+          },
           onClick: () => setExpandedSpotIdx(isExpanded ? null : i),
         },
           // メイン行
@@ -10537,103 +10556,151 @@ window.DashboardPage = () => {
             React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 } },
               React.createElement('span', { style: {
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: '28px', height: '28px', borderRadius: '50%', fontSize: 'var(--font-size-xs)',
+                width: '30px', height: '30px', borderRadius: '50%', fontSize: 'var(--font-size-xs)',
                 fontWeight: 700, color: '#fff', background: '#e91e63', flexShrink: 0,
               } }, `${spot.count}`),
-              React.createElement('div', { style: { minWidth: 0 } },
+              React.createElement('div', { style: { flex: 1, minWidth: 0 } },
                 React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
                   spot.displayName || spot.name
                 ),
-                // geoNameがある場合、元の名前も小さく表示
                 spot.displayName && spot.originalName && spot.displayName !== spot.originalName &&
                   React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', opacity: 0.7 } }, spot.originalName),
-                React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
-                  (spot.peakDay ? `${spot.peakDay}曜` : '') + (spot.peakHour !== null ? ` ${spot.peakHour}時台が多い` : '') +
-                  (spot.eventMultiplier && spot.eventMultiplier > 1.2 ? ` | イベント時${spot.eventMultiplier}倍` : '')
+                React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+                  spot.peakDay && React.createElement('span', null, `${spot.peakDay}曜`),
+                  spot.peakHour !== null && React.createElement('span', null, `${spot.peakHour}時台`),
+                  spot.eventMultiplier && spot.eventMultiplier > 1.2 && React.createElement('span', {
+                    style: { fontSize: '9px', padding: '0 4px', borderRadius: '4px', background: 'rgba(255,152,0,0.2)', color: '#FFB74D', fontWeight: 600 },
+                  }, `イベント${spot.eventMultiplier}x`),
+                  // 改善4: 金額帯ミニバー（メイン行に表示）
+                  tierTotal > 0 && React.createElement('span', { style: { display: 'inline-flex', gap: '1px', borderRadius: '3px', overflow: 'hidden', height: '6px', width: '40px', flexShrink: 0 } },
+                    spot.tiers.short > 0 && React.createElement('span', { style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50', height: '100%' } }),
+                    spot.tiers.mid > 0 && React.createElement('span', { style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800', height: '100%' } }),
+                    spot.tiers.long > 0 && React.createElement('span', { style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63', height: '100%' } })
+                  )
                 )
               )
             ),
-            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 } },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } },
               React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', whiteSpace: 'nowrap' } }, `¥${spot.avgAmount.toLocaleString()}`),
-              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'none' } }, 'expand_more')
+              React.createElement('span', { className: 'material-icons-round', style: {
+                fontSize: '18px', color: isExpanded ? '#e91e63' : 'var(--text-muted)',
+                transition: 'transform 0.2s, color 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'none',
+              } }, 'expand_more')
             )
           ),
 
-          // 展開時の詳細（機能4,5,6,7,9）
-          isExpanded && React.createElement('div', { style: { marginTop: '10px', padding: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', fontSize: 'var(--font-size-xs)' } },
+          // 展開時の詳細パネル（改善2: 情報量整理、改善3: ヒストグラム拡大）
+          isExpanded && React.createElement('div', { style: { marginTop: '12px', padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', fontSize: 'var(--font-size-xs)' } },
 
-            // 機能4: 金額帯分布バー
-            tierTotal > 0 && React.createElement('div', { style: { marginBottom: '10px' } },
-              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px' } }, '金額帯'),
-              React.createElement('div', { style: { display: 'flex', borderRadius: '4px', overflow: 'hidden', height: '8px' } },
-                spot.tiers.short > 0 && React.createElement('div', { style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50' }, title: `短距離 ${spot.tiers.short}件` }),
-                spot.tiers.mid > 0 && React.createElement('div', { style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800' }, title: `中距離 ${spot.tiers.mid}件` }),
-                spot.tiers.long > 0 && React.createElement('div', { style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63' }, title: `長距離 ${spot.tiers.long}件` })
+            // 改善3: 拡大ヒストグラム（48px、時間ラベル改善）
+            spot.hourly && React.createElement('div', { style: { marginBottom: '14px' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'),
+                '時間帯分布'
               ),
-              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '2px', color: 'var(--text-muted)' } },
-                React.createElement('span', null, `短距離${spot.tiers.short}`),
-                React.createElement('span', null, `中距離${spot.tiers.mid}`),
-                React.createElement('span', null, `長距離${spot.tiers.long}`)
-              )
-            ),
-
-            // 機能5: 24時間ヒストグラム（簡易バー）
-            spot.hourly && React.createElement('div', { style: { marginBottom: '10px' } },
-              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px' } }, '時間帯分布'),
-              React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '32px' } },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '48px', padding: '0 2px' } },
                 spot.hourly.map((v, h) => {
                   const maxH = Math.max(...spot.hourly, 1);
+                  const pct = v / maxH * 100;
+                  const isNow = h === new Date().getHours();
                   return React.createElement('div', {
                     key: h,
-                    style: { flex: 1, height: `${Math.max(v / maxH * 100, v > 0 ? 8 : 2)}%`,
-                      background: h === new Date().getHours() ? '#e91e63' : v > 0 ? 'rgba(233,30,99,0.4)' : 'rgba(255,255,255,0.06)',
-                      borderRadius: '1px 1px 0 0' },
+                    style: {
+                      flex: 1, height: `${Math.max(pct, v > 0 ? 10 : 3)}%`,
+                      background: isNow ? '#e91e63' : v > 0 ? 'rgba(233,30,99,0.4)' : 'rgba(255,255,255,0.06)',
+                      borderRadius: '2px 2px 0 0', position: 'relative',
+                    },
                     title: `${h}時: ${v}件`,
-                  });
+                  },
+                    isNow && React.createElement('div', {
+                      style: { position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
+                        fontSize: '8px', fontWeight: 700, color: '#e91e63', whiteSpace: 'nowrap' },
+                    }, '今')
+                  );
                 })
               ),
-              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '9px', marginTop: '1px' } },
-                React.createElement('span', null, '0'),
-                React.createElement('span', null, '6'),
-                React.createElement('span', null, '12'),
-                React.createElement('span', null, '18'),
-                React.createElement('span', null, '23')
+              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '9px', marginTop: '3px', padding: '0 2px' } },
+                [0, 3, 6, 9, 12, 15, 18, 21].map(h =>
+                  React.createElement('span', { key: h, style: { width: '12px', textAlign: 'center' } }, `${h}`)
+                )
               )
             ),
 
-            // 機能6: 曜日×時間帯TOP3
-            spot.topDayHours && spot.topDayHours.length > 0 && React.createElement('div', { style: { marginBottom: '10px' } },
-              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px' } }, 'ピーク曜日×時間帯'),
-              spot.topDayHours.map((dh, di) =>
-                React.createElement('span', {
-                  key: di,
-                  style: { display: 'inline-block', padding: '2px 8px', marginRight: '4px', marginBottom: '2px',
-                    background: di === 0 ? 'rgba(233,30,99,0.2)' : 'rgba(255,255,255,0.08)',
-                    borderRadius: '10px', fontSize: '11px' },
-                }, `${dh.day}曜${dh.hour}時 (${dh.count}件)`)
+            // 改善4: 金額帯（色付きドット凡例）
+            tierTotal > 0 && React.createElement('div', { style: { marginBottom: '14px' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'payments'),
+                '金額帯'
+              ),
+              React.createElement('div', { style: { display: 'flex', borderRadius: '4px', overflow: 'hidden', height: '10px', marginBottom: '6px' } },
+                spot.tiers.short > 0 && React.createElement('div', { style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50' } }),
+                spot.tiers.mid > 0 && React.createElement('div', { style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800' } }),
+                spot.tiers.long > 0 && React.createElement('div', { style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63' } })
+              ),
+              React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+                [
+                  { label: `〜¥1,000`, count: spot.tiers.short, color: '#4CAF50', pct: Math.round(spot.tiers.short / tierTotal * 100) },
+                  { label: `¥1,001〜1,999`, count: spot.tiers.mid, color: '#FF9800', pct: Math.round(spot.tiers.mid / tierTotal * 100) },
+                  { label: `¥2,000〜`, count: spot.tiers.long, color: '#e91e63', pct: Math.round(spot.tiers.long / tierTotal * 100) },
+                ].map(t =>
+                  React.createElement('span', { key: t.label, style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                    React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: t.color, flexShrink: 0 } }),
+                    React.createElement('span', { style: { color: 'var(--text-secondary)' } }, `${t.label} ${t.count}件(${t.pct}%)`)
+                  )
+                )
               )
             ),
 
-            // 機能7: イベント需要倍率
-            spot.eventMultiplier && spot.eventMultiplier > 1.0 && React.createElement('div', { style: { marginBottom: '10px' } },
-              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '2px' } }, 'イベント影響'),
-              React.createElement('span', { style: {
-                padding: '2px 10px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                background: spot.eventMultiplier >= 2 ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.08)',
-                color: spot.eventMultiplier >= 2 ? '#FFB74D' : 'var(--text-secondary)',
-              } }, `イベント日は通常の${spot.eventMultiplier}倍`)
+            // 曜日×時間帯TOP3
+            spot.topDayHours && spot.topDayHours.length > 0 && React.createElement('div', { style: { marginBottom: '14px' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'calendar_today'),
+                'ピーク曜日×時間帯'
+              ),
+              React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                spot.topDayHours.map((dh, di) =>
+                  React.createElement('span', {
+                    key: di,
+                    style: {
+                      padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: di === 0 ? 600 : 400,
+                      background: di === 0 ? 'rgba(233,30,99,0.2)' : 'rgba(255,255,255,0.08)',
+                      color: di === 0 ? '#f48fb1' : 'var(--text-secondary)',
+                    },
+                  }, `${dh.day}曜 ${dh.hour}時 ${dh.count}件`)
+                )
+              )
             ),
 
-            // 機能9: 行き先TOP3
-            spot.topDropoffs && spot.topDropoffs.length > 0 && React.createElement('div', null,
-              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px' } }, 'よくある行き先'),
-              spot.topDropoffs.map((d, di) =>
-                React.createElement('div', {
-                  key: di,
-                  style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0' },
-                },
-                  React.createElement('span', null, d.name),
-                  React.createElement('span', { style: { color: 'var(--text-muted)' } }, `${d.count}件`)
+            // イベント影響 + 行き先（横並び2列）
+            (spot.eventMultiplier > 1.0 || (spot.topDropoffs && spot.topDropoffs.length > 0)) &&
+            React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+              // イベント倍率
+              spot.eventMultiplier && spot.eventMultiplier > 1.0 && React.createElement('div', { style: { flex: '1 1 120px' } },
+                React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'event'),
+                  'イベント影響'
+                ),
+                React.createElement('div', { style: {
+                  padding: '6px 10px', borderRadius: '8px', textAlign: 'center', fontWeight: 600,
+                  background: spot.eventMultiplier >= 2 ? 'rgba(255,152,0,0.15)' : 'rgba(255,255,255,0.06)',
+                  color: spot.eventMultiplier >= 2 ? '#FFB74D' : 'var(--text-secondary)',
+                  fontSize: spot.eventMultiplier >= 2 ? '13px' : '11px',
+                } }, `${spot.eventMultiplier}倍`)
+              ),
+              // 行き先TOP3
+              spot.topDropoffs && spot.topDropoffs.length > 0 && React.createElement('div', { style: { flex: '2 1 180px' } },
+                React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'flag'),
+                  'よくある行き先'
+                ),
+                spot.topDropoffs.map((d, di) =>
+                  React.createElement('div', {
+                    key: di,
+                    style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderBottom: di < spot.topDropoffs.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' },
+                  },
+                    React.createElement('span', { style: { color: 'var(--text-secondary)' } }, d.name),
+                    React.createElement('span', { style: { color: 'var(--text-muted)', fontWeight: 600 } }, `${d.count}`)
+                  )
                 )
               )
             )
