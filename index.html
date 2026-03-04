@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.8.3',
+  VERSION: '2.8.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17777,10 +17777,14 @@ window.SettingsPage = () => {
         },
       },
         React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--color-primary-light)' } }, '使い方'),
-        React.createElement('p', null, '1. 上のURLをウォッチのブラウザで開いてブックマーク'),
-        React.createElement('p', null, '2. 乗車時に大きな「乗車」ボタンをワンタップ'),
-        React.createElement('p', null, '3. スマホが自動でGPS取得し、売上記録に乗車地が入ります'),
-        React.createElement('p', { style: { marginTop: '8px', color: 'var(--text-secondary)' } }, '※ ウォッチ側のGPSは不要です。スマホのGPSで位置を取得します')
+        React.createElement('p', null, '1. 上のURLをウォッチのブラウザで開く'),
+        React.createElement('p', null, '2. シークレット入力画面が出たら、下の値を入力'),
+        React.createElement('p', null, '3. 乗車時に「乗車」ボタンをワンタップ'),
+        React.createElement('p', null, '4. スマホが自動でGPS取得し、売上記録に乗車地が入ります'),
+        React.createElement('p', { style: { marginTop: '8px', color: 'var(--text-secondary)' } }, '※ ウォッチ側のGPSは不要です。スマホのGPSで位置を取得します'),
+        React.createElement('div', {
+          style: { marginTop: '8px', padding: '6px 8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', fontSize: 'var(--font-size-xs)', fontFamily: 'monospace', wordBreak: 'break-all' },
+        }, 'シークレット: ' + ((localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim() || '(未設定)'))
       )
     ),
 
@@ -21396,28 +21400,47 @@ window.GatheringMemoPage = () => {
 
 const WATCH_PICKUPS_KEY = APP_CONSTANTS.STORAGE_KEYS.WATCH_PICKUPS;
 
-// URLからパラメータを取得（URLSearchParamsに依存しない）
-function _getUrlParam(name) {
-  var url = window.location.href || '';
-  var regex = new RegExp('[?&]' + name + '=([^&#]*)');
-  var match = url.match(regex);
-  return match ? decodeURIComponent(match[1]) : '';
+// シークレット取得: URL → cookie → localStorage の順でフォールバック
+function _getWatchSecret() {
+  // 1. URLクエリパラメータ（正規表現で取得）
+  try {
+    var m = (window.location.href || '').match(/[?&]secret=([^&#]*)/);
+    if (m && m[1]) return decodeURIComponent(m[1]);
+  } catch(e) {}
+  // 2. URLハッシュ
+  try {
+    var h = (window.location.hash || '').replace(/^#/, '');
+    if (h && h.length > 3) return decodeURIComponent(h);
+  } catch(e) {}
+  // 3. Cookie
+  try {
+    var cm = (document.cookie || '').match(/watchSecret=([^;]*)/);
+    if (cm && cm[1]) return decodeURIComponent(cm[1]);
+  } catch(e) {}
+  // 4. localStorage
+  try {
+    var ls = localStorage.getItem('taxi_app_sync_secret');
+    if (ls) return ls.trim();
+  } catch(e) {}
+  return '';
 }
 
-// ページ読み込み時点でシークレットを確定（グローバル変数で保持）
-var _watchSecret = _getUrlParam('secret');
+// シークレットをcookieに保存（1年間有効）
+function _saveWatchSecret(s) {
+  try { document.cookie = 'watchSecret=' + encodeURIComponent(s) + ';max-age=31536000;path=/;SameSite=Strict'; } catch(e) {}
+  try { localStorage.setItem('taxi_app_sync_secret', s); } catch(e) {}
+}
+
+// ページ読み込み時に確定
+var _watchSecret = _getWatchSecret();
+if (_watchSecret) _saveWatchSecret(_watchSecret);
 
 window.WatchPage = () => {
   const { useState, useEffect, useCallback } = React;
-  const [status, setStatus] = useState('ready'); // ready | loading | success | error
+  const [status, setStatus] = useState(_watchSecret ? 'ready' : 'setup');
   const [message, setMessage] = useState('');
   const [time, setTime] = useState('');
-  const [debugUrl, setDebugUrl] = useState('');
-
-  // デバッグ: 現在のURLを取得（初回のみ）
-  useEffect(() => {
-    setDebugUrl(window.location.href || '(不明)');
-  }, []);
+  const [secretInput, setSecretInput] = useState('');
 
   // 時刻表示を更新
   useEffect(() => {
@@ -21430,24 +21453,24 @@ window.WatchPage = () => {
     return () => clearInterval(id);
   }, []);
 
-  // 乗車ボタン押下 — スマホのGPSボタンをリモートで押すトリガーを送信
+  // シークレット手動保存
+  const saveSecret = useCallback(() => {
+    var s = (secretInput || '').trim();
+    if (!s) return;
+    _watchSecret = s;
+    _saveWatchSecret(s);
+    setStatus('ready');
+    setMessage('設定完了');
+    setTimeout(() => setMessage(''), 2000);
+  }, [secretInput]);
+
+  // 乗車ボタン押下
   const handlePickup = useCallback(async () => {
     if (status === 'loading') return;
+    if (!_watchSecret) { setStatus('setup'); return; }
     setStatus('loading');
     setMessage('送信中...');
-
     if (navigator.vibrate) navigator.vibrate(50);
-
-    // シークレット取得
-    const secret = _watchSecret || _getUrlParam('secret');
-
-    if (!secret) {
-      setStatus('error');
-      setMessage('secret未検出。設定からURLを再コピーしてください');
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      setTimeout(() => { setStatus('ready'); setMessage(''); }, 8000);
-      return;
-    }
 
     const trigger = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -21457,12 +21480,11 @@ window.WatchPage = () => {
     };
 
     try {
-      // クラウドに直接送信（トリガー1件のみ送信、localStorage不要）
       const res = await fetch('/api/data?type=watchpickups', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + secret,
+          'Authorization': 'Bearer ' + _watchSecret,
         },
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
@@ -21474,24 +21496,57 @@ window.WatchPage = () => {
 
       if (res.ok) {
         setStatus('success');
-        setMessage('スマホに送信しました');
+        setMessage('送信OK');
         if (navigator.vibrate) navigator.vibrate(200);
       } else {
-        const errText = await res.text().catch(() => '');
         setStatus('error');
-        setMessage('送信失敗(' + res.status + ')');
+        setMessage('失敗(' + res.status + ')');
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       }
     } catch (e) {
       setStatus('error');
-      setMessage('通信エラー: ' + e.message);
+      setMessage('通信エラー');
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     }
 
     setTimeout(() => { setStatus('ready'); setMessage(''); }, 3000);
   }, [status]);
 
-  // スタイル
+  // ── セットアップ画面（シークレット未設定時） ──
+  if (status === 'setup') {
+    return React.createElement('div', {
+      style: {
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        background: '#1a1a2e', color: '#fff', padding: '16px',
+        fontFamily: '"Noto Sans JP", sans-serif',
+      },
+    },
+      React.createElement('div', {
+        style: { fontSize: '13px', marginBottom: '12px', textAlign: 'center', lineHeight: 1.6 },
+      }, 'スマホの設定画面の「クラウド同期シークレット」を入力してください'),
+      React.createElement('input', {
+        type: 'text',
+        value: secretInput,
+        onChange: function(e) { setSecretInput(e.target.value); },
+        placeholder: 'シークレットを入力',
+        style: {
+          width: '90%', padding: '10px', borderRadius: '8px',
+          border: '1px solid #555', background: '#2a2a3e', color: '#fff',
+          fontSize: '14px', marginBottom: '12px', textAlign: 'center',
+        },
+      }),
+      React.createElement('button', {
+        onClick: saveSecret,
+        style: {
+          padding: '10px 24px', borderRadius: '8px', border: 'none',
+          background: '#1565c0', color: '#fff', fontSize: '14px', fontWeight: 'bold',
+        },
+      }, '保存')
+    );
+  }
+
+  // ── 乗車ボタン画面 ──
   const containerStyle = {
     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -21503,10 +21558,6 @@ window.WatchPage = () => {
     WebkitUserSelect: 'none',
     touchAction: 'manipulation',
     overflow: 'hidden',
-    paddingTop: 'env(safe-area-inset-top)',
-    paddingBottom: 'env(safe-area-inset-bottom)',
-    paddingLeft: 'env(safe-area-inset-left)',
-    paddingRight: 'env(safe-area-inset-right)',
   };
 
   const timeStyle = {
@@ -21542,12 +21593,6 @@ window.WatchPage = () => {
 
   const btnLabel = status === 'loading' ? '...' : status === 'success' ? 'OK' : status === 'error' ? '!' : '乗車';
 
-  const urlDebugStyle = {
-    position: 'absolute', bottom: '4px', left: '4px', right: '4px',
-    textAlign: 'center', fontSize: '8px', opacity: 0.4,
-    wordBreak: 'break-all', lineHeight: 1.2, maxHeight: '32px', overflow: 'hidden',
-  };
-
   return React.createElement('div', { style: containerStyle },
     React.createElement('div', { style: timeStyle }, time),
     React.createElement('button', {
@@ -21555,9 +21600,7 @@ window.WatchPage = () => {
       onClick: handlePickup,
       disabled: status === 'loading',
     }, btnLabel),
-    React.createElement('div', { style: msgStyle }, message),
-    React.createElement('div', { style: urlDebugStyle },
-      (_watchSecret ? 'secret:OK' : 'secret:NG') + ' | ' + (debugUrl || '').replace(/secret=[^&]*/, 'secret=***'))
+    React.createElement('div', { style: msgStyle }, message)
   );
 };
 
