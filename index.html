@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.4.2</title>
+  <title>タクシー売上サポート v1.4.3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -4617,7 +4617,10 @@ window.DataService = (() => {
   async function getFrequentPickupSpotsWithNames(options) {
     const spots = getFrequentPickupSpots(options);
     const results = [];
-    for (const spot of spots) {
+    for (let i = 0; i < spots.length; i++) {
+      const spot = spots[i];
+      // Nominatim利用規約: 1リクエスト/秒以下（2件目以降に1秒待機）
+      if (i > 0) await new Promise(r => setTimeout(r, 1100));
       const geoName = await reverseGeocodeSpot(spot.centroid.lat, spot.centroid.lng);
       results.push({ ...spot, geoName: geoName || null });
     }
@@ -10025,6 +10028,7 @@ window.DashboardPage = () => {
   const [spotsWithGeoNames, setSpotsWithGeoNames] = useState(null);
   useEffect(() => {
     let cancelled = false;
+    setSpotsWithGeoNames(null); // refreshKey変更時に古いデータをクリア
     DataService.getFrequentPickupSpotsWithNames().then(result => {
       if (!cancelled) setSpotsWithGeoNames(result);
     });
@@ -10582,7 +10586,7 @@ window.DashboardPage = () => {
                 React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
                   spot.peakDay && React.createElement('span', null, `${spot.peakDay}曜`),
                   spot.peakHour !== null && React.createElement('span', null, `${spot.peakHour}時台`),
-                  spot.eventMultiplier && spot.eventMultiplier > 1.2 && React.createElement('span', {
+                  spot.eventMultiplier > 1.2 && React.createElement('span', {
                     style: { fontSize: '9px', padding: '0 4px', borderRadius: '4px', background: 'rgba(255,152,0,0.2)', color: '#FFB74D', fontWeight: 600 },
                   }, `イベント${spot.eventMultiplier}x`),
                   // 改善4: 金額帯ミニバー（メイン行に表示）
@@ -10659,9 +10663,11 @@ window.DashboardPage = () => {
                 '金額帯'
               ),
               React.createElement('div', { style: { display: 'flex', borderRadius: '4px', overflow: 'hidden', height: '10px', marginBottom: '6px' } },
-                spot.tiers.short > 0 && React.createElement('div', { style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50' } }),
-                spot.tiers.mid > 0 && React.createElement('div', { style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800' } }),
-                spot.tiers.long > 0 && React.createElement('div', { style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63' } })
+                ...[
+                  spot.tiers.short > 0 && React.createElement('div', { key: 's', style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50' } }),
+                  spot.tiers.mid > 0 && React.createElement('div', { key: 'm', style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800' } }),
+                  spot.tiers.long > 0 && React.createElement('div', { key: 'l', style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63' } }),
+                ].filter(Boolean)
               ),
               React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
                 [
@@ -10698,10 +10704,10 @@ window.DashboardPage = () => {
             ),
 
             // 修正3: eventMultiplier null安全 + イベント影響 + 行き先（横並び2列）
-            ((spot.eventMultiplier && spot.eventMultiplier > 1.0) || (spot.topDropoffs && spot.topDropoffs.length > 0)) &&
+            (spot.eventMultiplier > 1.0 || (spot.topDropoffs && spot.topDropoffs.length > 0)) &&
             React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
               // イベント倍率
-              spot.eventMultiplier && spot.eventMultiplier > 1.0 && React.createElement('div', { style: { flex: '1 1 120px' } },
+              spot.eventMultiplier > 1.0 && React.createElement('div', { style: { flex: '1 1 120px' } },
                 React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' } },
                   React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'event'),
                   'イベント影響'
@@ -10750,7 +10756,7 @@ window.DashboardPage = () => {
         style: { textAlign: 'center', paddingTop: '8px' },
       },
         React.createElement('button', {
-          onClick: (e) => { e.stopPropagation(); setShowAllSpots(false); setExpandedSpotIdx(null); },
+          onClick: (e) => { e.stopPropagation(); setShowAllSpots(false); stableSetExpandedSpotIdx(null); },
           style: {
             border: 'none', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)',
             padding: '6px 20px', borderRadius: '16px', fontSize: '12px',
