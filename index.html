@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.4.3</title>
+  <title>タクシー売上サポート v1.5.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1071,6 +1071,32 @@ window.APP_CONSTANTS = {
         { name: '旭川赤十字病院', lat: 43.7580, lng: 142.3720, peakMorning: '08:30-11:00', peakAfternoon: null },
         { name: '市立旭川病院', lat: 43.7710, lng: 142.3650, peakMorning: null, peakAfternoon: '13:00-15:00' },
         { name: '旭川厚生病院', lat: 43.7650, lng: 142.3490, peakMorning: null, peakAfternoon: '13:00-15:00' },
+      ],
+      hospitalSchedules: [
+        { id: 'asahikawa_medical', name: '旭川医科大学病院',
+          lat: 43.7306, lng: 142.3857,
+          reception: [{ days: [1,2,3,4,5], start: '08:00', end: '11:00' }],
+          dischargePeaks: [{ start: '10:30', end: '12:00', weight: 1.0, label: '午前診察終了' }],
+          closedDays: [0, 6] },
+        { id: 'red_cross', name: '旭川赤十字病院',
+          lat: 43.7580, lng: 142.3720,
+          reception: [{ days: [1,2,3,4,5], start: '08:30', end: '11:00' }],
+          dischargePeaks: [{ start: '10:30', end: '12:00', weight: 0.9, label: '午前診察終了' }],
+          closedDays: [0, 6] },
+        { id: 'kosei', name: '旭川厚生病院',
+          lat: 43.7650, lng: 142.3490,
+          reception: [{ days: [1,2,3,4,5], start: '08:30', end: '11:00' },
+                      { days: [1,2,3,4,5], start: '13:00', end: '15:00' }],
+          dischargePeaks: [{ start: '11:00', end: '12:30', weight: 0.8, label: '午前診察終了' },
+                           { start: '14:30', end: '16:00', weight: 0.7, label: '午後診察終了' }],
+          closedDays: [0, 6] },
+        { id: 'shiritsu', name: '市立旭川病院',
+          lat: 43.7710, lng: 142.3650,
+          reception: [{ days: [1,2,3,4,5], start: '08:30', end: '11:30' },
+                      { days: [1,2,3,4,5], start: '13:00', end: '15:00' }],
+          dischargePeaks: [{ start: '11:00', end: '12:30', weight: 0.8, label: '午前診察終了' },
+                           { start: '14:30', end: '16:00', weight: 0.7, label: '午後診察終了' }],
+          closedDays: [0, 6] },
       ],
       hotels: [
         // 駅遠方（タクシー需要: 非常に高い）
@@ -4627,6 +4653,58 @@ window.DataService = (() => {
     return results;
   }
 
+  // チェーン提案: 降車地付近の過去乗車地を推薦
+  function getChainSuggestion(dropoffLocation, dropoffCoords) {
+    const result = { suggestions: [], nearbyPickupHistory: [] };
+    if (!dropoffCoords || !dropoffCoords.lat) return result;
+
+    const entries = getEntries();
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    // 降車地の1km以内（≒0.009度）の過去乗車地を検索
+    const nearbyPickups = {};
+    entries.forEach(e => {
+      if (!e.pickupCoords || !e.pickupCoords.lat) return;
+      const dLat = Math.abs(e.pickupCoords.lat - dropoffCoords.lat);
+      const dLng = Math.abs(e.pickupCoords.lng - dropoffCoords.lng);
+      if (dLat > 0.009 || dLng > 0.012) return; // 約1km
+      const name = e.pickup || `${e.pickupCoords.lat.toFixed(4)},${e.pickupCoords.lng.toFixed(4)}`;
+      if (!nearbyPickups[name]) nearbyPickups[name] = { name, count: 0, totalAmount: 0, coords: e.pickupCoords };
+      nearbyPickups[name].count++;
+      nearbyPickups[name].totalAmount += e.amount || 0;
+    });
+
+    const history = Object.values(nearbyPickups)
+      .map(p => ({ name: p.name, count: p.count, avgAmount: p.count > 0 ? Math.round(p.totalAmount / p.count) : 0 }))
+      .sort((a, b) => b.count - a.count);
+    result.nearbyPickupHistory = history.slice(0, 5);
+
+    // 待機スポット需要指数とクロス
+    const waitingData = getWaitingSpotDemandIndex();
+    const cruisingData = getCruisingAreaDemandIndex();
+
+    const candidates = [];
+    waitingData.spots.forEach(spot => {
+      if (spot.currentDisabled) return;
+      const dLat = Math.abs(spot.lat - dropoffCoords.lat);
+      const dLng = Math.abs(spot.lng - dropoffCoords.lng);
+      const distKm = Math.sqrt(dLat * dLat + dLng * dLng) * 111;
+      if (distKm > 3) return;
+      const histMatch = history.find(h => h.name.includes(spot.name) || spot.name.includes(h.name));
+      candidates.push({
+        name: spot.name, distance: `${distKm.toFixed(1)}km`,
+        demandScore: spot.currentIndex,
+        avgWaitMin: 15, avgFare: histMatch ? histMatch.avgAmount : 1500,
+        reason: spot.currentIndex >= 60 ? '高需要スポット' : histMatch ? '過去実績あり' : '近距離',
+      });
+    });
+
+    candidates.sort((a, b) => b.demandScore - a.demandScore);
+    result.suggestions = candidates.slice(0, 3);
+    return result;
+  }
+
   // 時間帯・曜日対応ヒートマップデータ
   // mode: 'all' | 'timeAware' | 'transit' | 'combined'
   function getSmartHeatmapData(mode) {
@@ -4775,6 +4853,97 @@ window.DataService = (() => {
     if (name.includes('市立')) return { lat: locs.hospitals[2].lat, lng: locs.hospitals[2].lng };
     if (name.includes('厚生')) return { lat: locs.hospitals[3].lat, lng: locs.hospitals[3].lng };
     return null;
+  }
+
+  // 病院外来スケジュールデータ（リアルタイム状態判定）
+  function getHospitalScheduleData() {
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const schedules = locs.hospitalSchedules || [];
+    if (schedules.length === 0) return { hospitals: [], timestamp: new Date().toISOString() };
+
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+
+    function timeToMin(hhmm) {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    const hospitals = schedules.map(hosp => {
+      const isClosed = hosp.closedDays.includes(dayOfWeek);
+      if (isClosed) {
+        return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
+          currentStatus: 'closed', nextEvent: null, demandWeight: 0 };
+      }
+
+      // 退院ピーク中かチェック
+      let inDischargePeak = null;
+      for (const dp of hosp.dischargePeaks) {
+        const dpStart = timeToMin(dp.start);
+        const dpEnd = timeToMin(dp.end);
+        if (currentMin >= dpStart && currentMin <= dpEnd) {
+          inDischargePeak = dp;
+          break;
+        }
+      }
+      if (inDischargePeak) {
+        const dpEnd = timeToMin(inDischargePeak.end);
+        return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
+          currentStatus: 'discharge_peak', nextEvent: { type: 'peak_end', minutesLeft: dpEnd - currentMin, label: inDischargePeak.label },
+          demandWeight: inDischargePeak.weight };
+      }
+
+      // 受付中かチェック
+      let inReception = null;
+      for (const rec of hosp.reception) {
+        if (!rec.days.includes(dayOfWeek)) continue;
+        const rStart = timeToMin(rec.start);
+        const rEnd = timeToMin(rec.end);
+        if (currentMin >= rStart && currentMin <= rEnd) {
+          inReception = rec;
+          break;
+        }
+      }
+      if (inReception) {
+        // 次の退院ピークを探す
+        let nextPeak = null;
+        for (const dp of hosp.dischargePeaks) {
+          const dpStart = timeToMin(dp.start);
+          if (dpStart > currentMin) { nextPeak = { type: 'discharge_peak', minutesLeft: dpStart - currentMin, label: dp.label }; break; }
+        }
+        return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
+          currentStatus: 'reception_open', nextEvent: nextPeak, demandWeight: 0.3 };
+      }
+
+      // 受付前かチェック
+      let nextReception = null;
+      for (const rec of hosp.reception) {
+        if (!rec.days.includes(dayOfWeek)) continue;
+        const rStart = timeToMin(rec.start);
+        if (rStart > currentMin) { nextReception = { type: 'reception_start', minutesLeft: rStart - currentMin, label: '受付開始' }; break; }
+      }
+      if (nextReception) {
+        return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
+          currentStatus: 'before_reception', nextEvent: nextReception, demandWeight: 0 };
+      }
+
+      // 次の退院ピークを探す
+      let nextDP = null;
+      for (const dp of hosp.dischargePeaks) {
+        const dpStart = timeToMin(dp.start);
+        if (dpStart > currentMin) { nextDP = { type: 'discharge_peak', minutesLeft: dpStart - currentMin, label: dp.label }; break; }
+      }
+      if (nextDP) {
+        return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
+          currentStatus: 'between_sessions', nextEvent: nextDP, demandWeight: 0 };
+      }
+
+      return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
+        currentStatus: 'closed', nextEvent: null, demandWeight: 0 };
+    });
+
+    return { hospitals, timestamp: now.toISOString() };
   }
 
   // 旭川駅前バスターミナル到着便の構造化データ（実時刻表ベース）
@@ -4956,6 +5125,252 @@ window.DataService = (() => {
     };
   }
 
+  // 日勤タイムライン: 7-17時のイベントを時系列でマージ
+  function getDayShiftTimeline(weatherImpact) {
+    const now = new Date();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+    const events = [];
+    let eventId = 0;
+
+    function timeToMin(hhmm) {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    }
+    function minToTime(m) {
+      return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    }
+
+    // バス到着 (7-17時のみ)
+    const busData = getBusArrivalsData();
+    busData.forEach(arr => {
+      if (!arr.arrivalTime) return;
+      const arrMin = timeToMin(arr.arrivalTime);
+      if (arrMin < 420 || arrMin > 1020) return; // 7:00-17:00
+      events.push({
+        id: `bus-${eventId++}`, time: arr.arrivalTime, timeMin: arrMin,
+        endTime: minToTime(arrMin + 15), type: 'bus',
+        title: `${arr.line || arr.type}`, subtitle: `${arr.origin || ''} → 旭川駅`,
+        demandLevel: arr.peakWeight >= 0.8 ? 'high' : arr.peakWeight >= 0.5 ? 'medium' : 'low',
+        icon: 'directions_bus', color: '#3b82f6',
+        isCurrent: currentMin >= arrMin && currentMin <= arrMin + 15,
+        isPast: currentMin > arrMin + 15,
+      });
+    });
+
+    // 病院退院ピーク
+    const hospSchedules = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || [];
+    const dayOfWeek = now.getDay();
+    hospSchedules.forEach(hosp => {
+      if (hosp.closedDays.includes(dayOfWeek)) return;
+      hosp.dischargePeaks.forEach(dp => {
+        const dpStartMin = timeToMin(dp.start);
+        const dpEndMin = timeToMin(dp.end);
+        if (dpStartMin < 420 || dpStartMin > 1020) return;
+        events.push({
+          id: `hosp-${eventId++}`, time: dp.start, timeMin: dpStartMin,
+          endTime: dp.end, type: 'hospital',
+          title: hosp.name.replace('旭川', ''), subtitle: dp.label,
+          demandLevel: dp.weight >= 0.9 ? 'high' : 'medium',
+          icon: 'local_hospital', color: '#ef4444',
+          isCurrent: currentMin >= dpStartMin && currentMin <= dpEndMin,
+          isPast: currentMin > dpEndMin,
+        });
+      });
+    });
+
+    // ホテルCO/CI
+    const hotelPeaks = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hotelPeakWindows || {};
+    Object.entries(hotelPeaks).forEach(([key, pw]) => {
+      const pwStartMin = timeToMin(pw.start);
+      const pwEndMin = timeToMin(pw.end);
+      if (pwStartMin < 420 || pwStartMin > 1020) return;
+      events.push({
+        id: `hotel-${eventId++}`, time: pw.start, timeMin: pwStartMin,
+        endTime: pw.end, type: 'hotel',
+        title: pw.label || key, subtitle: `需要weight: ${pw.weight}`,
+        demandLevel: pw.weight >= 0.8 ? 'high' : 'medium',
+        icon: 'hotel', color: '#8b5cf6',
+        isCurrent: currentMin >= pwStartMin && currentMin <= pwEndMin,
+        isPast: currentMin > pwEndMin,
+      });
+    });
+
+    // イベント
+    const eventAlerts = getUpcomingEventAlerts();
+    eventAlerts.forEach(a => {
+      const endMin = a.endTime ? timeToMin(a.endTime) : currentMin + a.minutesLeft;
+      const startMin = endMin - 120; // 推定2時間前
+      if (endMin < 420 || startMin > 1020) return;
+      events.push({
+        id: `event-${eventId++}`, time: minToTime(Math.max(startMin, 420)), timeMin: Math.max(startMin, 420),
+        endTime: a.endTime || minToTime(endMin), type: 'event',
+        title: a.name, subtitle: a.location || '',
+        demandLevel: 'high', icon: 'event', color: '#f59e0b',
+        isCurrent: currentMin >= startMin && currentMin <= endMin,
+        isPast: currentMin > endMin,
+      });
+    });
+
+    // 天気変化
+    if (weatherImpact && weatherImpact.alerts) {
+      weatherImpact.alerts.forEach(alert => {
+        const alertMin = timeToMin(alert.time);
+        if (alertMin < 420 || alertMin > 1020) return;
+        events.push({
+          id: `weather-${eventId++}`, time: alert.time, timeMin: alertMin,
+          endTime: minToTime(alertMin + 60), type: 'weather',
+          title: alert.message.split('→')[0] || alert.message, subtitle: alert.message.split('→')[1] || '',
+          demandLevel: alert.severity === 'high' ? 'high' : 'medium',
+          icon: 'cloud', color: '#06b6d4',
+          isCurrent: false, isPast: currentMin > alertMin + 60,
+        });
+      });
+    }
+
+    // 時間順ソート
+    events.sort((a, b) => a.timeMin - b.timeMin);
+
+    // 次のイベント
+    const nextEventIndex = events.findIndex(e => !e.isPast && !e.isCurrent);
+    const nextEvent = nextEventIndex >= 0 ? events[nextEventIndex] : null;
+    const countdown = nextEvent ? { minutes: nextEvent.timeMin - currentMin, event: nextEvent } : null;
+
+    // 現在位置（0.0〜1.0）
+    const nowPosition = Math.max(0, Math.min(1, (currentMin - 420) / 600));
+
+    return {
+      events, nextEventIndex, countdown, nowPosition,
+      timelineRange: { start: 7, end: 17 },
+    };
+  }
+
+  // 次の最適行動を提案
+  function getNextOptimalAction(currentCoords, weatherImpact) {
+    const now = new Date();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+    const isEvenDay = now.getDate() % 2 === 0;
+
+    const hospitalData = getHospitalScheduleData();
+    const waitingData = getWaitingSpotDemandIndex();
+    const cruisingData = getCruisingAreaDemandIndex();
+    const busData = getBusArrivalsData();
+    const hotelPeaks = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hotelPeakWindows || {};
+
+    const candidates = [];
+
+    // 1. バス到着15分以内 && 偶数日 → 駅前待機
+    if (isEvenDay) {
+      busData.forEach(arr => {
+        if (!arr.arrivalTime) return;
+        const [h, m] = arr.arrivalTime.split(':').map(Number);
+        const arrMin = h * 60 + m;
+        const diff = arrMin - currentMin;
+        if (diff > 0 && diff <= 15) {
+          const stationSpot = waitingData.spots.find(s => s.id === 'station');
+          const score = stationSpot ? stationSpot.currentIndex : 50;
+          if (score > 30) {
+            candidates.push({
+              action: '駅前で待機', reason: `${arr.line || arr.type}が${arr.arrivalTime}着（あと${diff}分）`,
+              urgency: 'now', demandScore: score, estimatedRevenue: 2000,
+              estimatedWaitMin: diff + 5, priority: 100,
+            });
+          }
+        }
+      });
+    }
+
+    // 2. 病院退院ピーク中
+    hospitalData.hospitals.forEach(hosp => {
+      if (hosp.currentStatus === 'discharge_peak' && hosp.demandWeight > 0) {
+        candidates.push({
+          action: `${hosp.name.replace('旭川', '')}で待機`,
+          reason: `退院ピーク中（需要weight ${hosp.demandWeight}）`,
+          urgency: 'now', demandScore: Math.round(hosp.demandWeight * 80),
+          estimatedRevenue: 2500, estimatedWaitMin: 10, priority: 90,
+        });
+      } else if (hosp.nextEvent && hosp.nextEvent.type === 'discharge_peak' && hosp.nextEvent.minutesLeft <= 30) {
+        candidates.push({
+          action: `${hosp.name.replace('旭川', '')}へ移動`,
+          reason: `退院ピークまであと${hosp.nextEvent.minutesLeft}分`,
+          urgency: 'soon', demandScore: 60,
+          estimatedRevenue: 2500, estimatedWaitMin: hosp.nextEvent.minutesLeft, priority: 70,
+        });
+      }
+    });
+
+    // 3. ホテルCO/CI中
+    Object.values(hotelPeaks).forEach(pw => {
+      const pwStartMin = parseInt(pw.start.split(':')[0], 10) * 60 + parseInt(pw.start.split(':')[1] || '0', 10);
+      const pwEndMin = parseInt(pw.end.split(':')[0], 10) * 60 + parseInt(pw.end.split(':')[1] || '0', 10);
+      if (currentMin >= pwStartMin && currentMin <= pwEndMin) {
+        candidates.push({
+          action: `ホテル周辺で待機`,
+          reason: `${pw.label || ''}ピーク中 (${pw.start}-${pw.end})`,
+          urgency: 'now', demandScore: Math.round(pw.weight * 70),
+          estimatedRevenue: 2000, estimatedWaitMin: 15, priority: 75,
+        });
+      } else if (pwStartMin - currentMin > 0 && pwStartMin - currentMin <= 30) {
+        candidates.push({
+          action: `ホテル周辺へ移動`,
+          reason: `${pw.label || ''}まであと${pwStartMin - currentMin}分`,
+          urgency: 'soon', demandScore: 50,
+          estimatedRevenue: 2000, estimatedWaitMin: pwStartMin - currentMin, priority: 60,
+        });
+      }
+    });
+
+    // 4. 天気変化1時間以内
+    if (weatherImpact && weatherImpact.alerts && weatherImpact.alerts.length > 0) {
+      const nextAlert = weatherImpact.alerts[0];
+      candidates.push({
+        action: '高需要スポットへ移動',
+        reason: nextAlert.message,
+        urgency: 'soon', demandScore: 55,
+        estimatedRevenue: 1800, estimatedWaitMin: 20, priority: 55,
+      });
+    }
+
+    // 5. フォールバック: 最高スコアの待機or流し
+    const allSpots = [
+      ...waitingData.spots.filter(s => !s.currentDisabled).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
+      ...cruisingData.areas.map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
+    ].sort((a, b) => b.score - a.score);
+
+    if (allSpots.length > 0) {
+      candidates.push({
+        action: allSpots[0].type === '待機' ? `${allSpots[0].name}で待機` : `${allSpots[0].name}で流し`,
+        reason: `需要スコア${allSpots[0].score}（現在最高）`,
+        urgency: 'plan', demandScore: allSpots[0].score,
+        estimatedRevenue: 1500, estimatedWaitMin: 20, priority: 40,
+      });
+    }
+
+    // 優先度ソート
+    candidates.sort((a, b) => b.priority - a.priority);
+
+    const best = candidates[0] || {
+      action: '待機継続', reason: '特に大きな変動なし',
+      urgency: 'plan', demandScore: 30, estimatedRevenue: 1000, estimatedWaitMin: 30,
+    };
+
+    const alternatives = candidates.slice(1, 3).map(c => ({
+      action: c.action, reason: c.reason, demandScore: c.demandScore,
+    }));
+
+    // 次の遷移ポイント
+    let nextTransition = null;
+    const futureCandidate = candidates.find(c => c.urgency === 'soon');
+    if (futureCandidate) {
+      nextTransition = { time: `あと${futureCandidate.estimatedWaitMin}分`, action: futureCandidate.action };
+    }
+
+    return {
+      action: best.action, reason: best.reason, urgency: best.urgency,
+      demandScore: best.demandScore, estimatedRevenue: best.estimatedRevenue,
+      estimatedWaitMin: best.estimatedWaitMin, alternatives, nextTransition,
+    };
+  }
+
   // ホテル需要データを算出（時間帯×客室数×駅距離からウェイト計算）
   function getHotelDemandData() {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
@@ -5003,6 +5418,72 @@ window.DataService = (() => {
     });
 
     return origins;
+  }
+
+  // 天候需要インパクト分析（時間別天気予報から需要変動を算出）
+  // 注意: forecastDataは非同期で取得済みのデータを外部から渡す
+  function getWeatherDemandImpact(forecastData) {
+    const result = {
+      current: { weather: '不明', temp: null, multiplier: 1.0 },
+      upcoming: [],
+      alerts: [],
+      overallShiftImpact: 1.0,
+    };
+    if (!forecastData || !forecastData.hours || forecastData.hours.length === 0) return result;
+
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    function getMultiplier(weather, temp, windSpeed) {
+      let m = 1.0;
+      if (weather === '雨' || weather === 'にわか雨' || weather === '霧雨') m = Math.max(m, 1.25);
+      if (weather === '雪' || weather === 'にわか雪' || weather === '霧雪' || weather === '凍雨') m = Math.max(m, 1.35);
+      if (weather === '雷雨') m = Math.max(m, 1.35);
+      if (temp != null && temp <= -5) m *= 1.15;
+      if (windSpeed != null && windSpeed > 10) m *= 1.10;
+      return Math.round(m * 100) / 100;
+    }
+
+    // 現在時間のデータ
+    const currentData = forecastData.hours.find(h => h.hour === currentHour);
+    if (currentData) {
+      result.current = {
+        weather: currentData.weather,
+        temp: currentData.temperature,
+        multiplier: getMultiplier(currentData.weather, currentData.temperature, currentData.windSpeed),
+      };
+    }
+
+    // 7-17時の時間帯別データ
+    let prevWeather = currentData ? currentData.weather : null;
+    let shiftMultipliers = [];
+
+    forecastData.hours.forEach(h => {
+      if (h.hour < 7 || h.hour > 17) return;
+      const mult = getMultiplier(h.weather, h.temperature, h.windSpeed);
+      const changeAlert = prevWeather && h.weather !== prevWeather
+        ? `${h.hour}時頃から${h.weather}` : null;
+      result.upcoming.push({
+        hour: h.hour, weather: h.weather, temp: h.temperature,
+        multiplier: mult, changeAlert,
+      });
+      if (changeAlert && mult > 1.0) {
+        const pctStr = Math.round((mult - 1) * 100);
+        result.alerts.push({
+          time: `${h.hour}:00`,
+          message: `${h.hour}時頃から${h.weather}予報 → 需要+${pctStr}%見込み`,
+          severity: mult >= 1.3 ? 'high' : 'medium',
+        });
+      }
+      if (h.hour >= currentHour) shiftMultipliers.push(mult);
+      prevWeather = h.weather;
+    });
+
+    if (shiftMultipliers.length > 0) {
+      result.overallShiftImpact = Math.round(shiftMultipliers.reduce((s, m) => s + m, 0) / shiftMultipliers.length * 100) / 100;
+    }
+
+    return result;
   }
 
   // 待機スポット需要指数を算出（全スポット×24時間）
@@ -5169,9 +5650,25 @@ window.DataService = (() => {
           hotelBoost = Math.min(hotelBoost, 15);
         }
 
-        // ピーク時間帯ブースト（病院）
+        // ピーク時間帯ブースト（病院 — hospitalSchedulesからリアルタイム判定）
         let peakBoost = 0;
-        if (spot.peakBoost && h >= spot.peakBoost.startHour && h <= spot.peakBoost.endHour) {
+        const hospSchedules = locs.hospitalSchedules || [];
+        hospSchedules.forEach(hosp => {
+          if (hosp.closedDays.includes(dayOfWeek)) return;
+          // スポットが病院対応ならブースト
+          const isNearHosp = spot.lat && hosp.lat && Math.abs(spot.lat - hosp.lat) < 0.01 && Math.abs(spot.lng - hosp.lng) < 0.01;
+          const isHospSpot = spot.id && hosp.id && spot.id.includes(hosp.id.split('_')[0]);
+          if (!isNearHosp && !isHospSpot && !spot.peakBoost) return;
+          hosp.dischargePeaks.forEach(dp => {
+            const dpStartH = parseInt(dp.start.split(':')[0], 10);
+            const dpEndH = parseInt(dp.end.split(':')[0], 10);
+            if (h >= dpStartH && h <= dpEndH) {
+              peakBoost = Math.max(peakBoost, dp.weight * 20);
+            }
+          });
+        });
+        // フォールバック: 旧式peakBoost定義
+        if (peakBoost === 0 && spot.peakBoost && h >= spot.peakBoost.startHour && h <= spot.peakBoost.endHour) {
           peakBoost = spot.peakBoost.boost;
         }
 
@@ -5590,6 +6087,204 @@ window.DataService = (() => {
         weatherFactor: demandData.weatherFactor,
       },
       timestamp: new Date().toISOString(),
+    };
+  }
+
+  // 日勤需要スコア（7-17時特化の複合スコア）
+  function getDayShiftDemandScore(weatherImpact) {
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    const hospitalData = getHospitalScheduleData();
+    const hotelData = getHotelDemandData();
+    const waitingData = getWaitingSpotDemandIndex();
+    const cruisingData = getCruisingAreaDemandIndex();
+    const busData = getBusArrivalsData();
+
+    // 7-17の各時間帯スコアを計算
+    const hourlyScores = [];
+    for (let h = 7; h <= 17; h++) {
+      // 履歴スコア: 待機+流しの平均
+      let historyScore = 0;
+      const waitScores = waitingData.spots.map(s => (s.hourlyIndex[h] || {}).index || 0);
+      const cruiseScores = cruisingData.areas.map(a => (a.hourlyIndex[h] || {}).index || 0);
+      if (waitScores.length + cruiseScores.length > 0) {
+        historyScore = [...waitScores, ...cruiseScores].reduce((s, v) => s + v, 0) / (waitScores.length + cruiseScores.length);
+      }
+
+      // 病院スコア
+      let hospitalScore = 0;
+      hospitalData.hospitals.forEach(hosp => {
+        const schedules = (APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || []).find(s => s.id === hosp.id);
+        if (!schedules) return;
+        schedules.dischargePeaks.forEach(dp => {
+          const dpStartH = parseInt(dp.start.split(':')[0], 10);
+          const dpEndH = parseInt(dp.end.split(':')[0], 10);
+          if (h >= dpStartH && h <= dpEndH) hospitalScore += dp.weight * 50;
+        });
+      });
+      hospitalScore = Math.min(hospitalScore, 100);
+
+      // ホテルスコア
+      let hotelScore = 0;
+      const peaks = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hotelPeakWindows || {};
+      Object.values(peaks).forEach(pw => {
+        const pwStart = parseInt(pw.start.split(':')[0], 10);
+        const pwEnd = parseInt(pw.end.split(':')[0], 10);
+        if (h >= pwStart && h <= pwEnd) hotelScore += pw.weight * 40;
+      });
+      hotelScore = Math.min(hotelScore, 100);
+
+      // 交通スコア
+      let transitScore = 0;
+      busData.forEach(arr => {
+        if (!arr.arrivalTime) return;
+        const arrH = parseInt(arr.arrivalTime.split(':')[0], 10);
+        if (arrH === h) transitScore += (arr.peakWeight || 0.5) * 25;
+      });
+      transitScore = Math.min(transitScore, 100);
+
+      // 天気スコア
+      let weatherScore = 0;
+      if (weatherImpact && weatherImpact.upcoming) {
+        const wh = weatherImpact.upcoming.find(u => u.hour === h);
+        if (wh) weatherScore = (wh.multiplier - 1) * 200; // 1.25 → 50pt
+      }
+      weatherScore = Math.max(0, Math.min(100, weatherScore));
+
+      // 時間帯スコア（需要パターン）
+      const timePatterns = { 7: 30, 8: 55, 9: 65, 10: 70, 11: 60, 12: 40, 13: 45, 14: 50, 15: 55, 16: 60, 17: 50 };
+      const timeScore = timePatterns[h] || 40;
+
+      // 複合スコア
+      const score = Math.round(
+        historyScore * 0.30 + hospitalScore * 0.20 + hotelScore * 0.15 +
+        transitScore * 0.15 + weatherScore * 0.10 + timeScore * 0.10
+      );
+
+      const topFactors = [];
+      if (hospitalScore > 30) topFactors.push('病院');
+      if (hotelScore > 30) topFactors.push('ホテル');
+      if (transitScore > 30) topFactors.push('交通');
+      if (weatherScore > 30) topFactors.push('天気');
+      if (historyScore > 50) topFactors.push('履歴');
+
+      hourlyScores.push({
+        hour: h, score: Math.max(0, Math.min(100, score)), topFactors,
+        breakdown: { hospital: Math.round(hospitalScore), hotel: Math.round(hotelScore),
+          transit: Math.round(transitScore), weather: Math.round(weatherScore),
+          history: Math.round(historyScore), time: timeScore },
+      });
+    }
+
+    // 現在スコア
+    const currentEntry = hourlyScores.find(hs => hs.hour === currentHour) || hourlyScores[0] || { score: 0, breakdown: {} };
+    const currentScore = currentEntry ? currentEntry.score : 0;
+
+    // ピーク時間
+    const sorted = [...hourlyScores].sort((a, b) => b.score - a.score);
+    const peakHours = sorted.slice(0, 3).map(hs => ({
+      hour: hs.hour, score: hs.score, reason: hs.topFactors.join('+') || '総合',
+    }));
+
+    // ベストスポット
+    let bestSpot = { name: '---', score: 0, reason: '' };
+    const allSpots = [
+      ...waitingData.spots.filter(s => !s.currentDisabled).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
+      ...cruisingData.areas.map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
+    ].sort((a, b) => b.score - a.score);
+    if (allSpots.length > 0) {
+      bestSpot = { name: allSpots[0].name, score: allSpots[0].score, reason: allSpots[0].type };
+    }
+
+    // 総合レーティング
+    const rating = currentScore > 70 ? 'excellent' : currentScore > 50 ? 'good' : currentScore > 30 ? 'normal' : 'slow';
+
+    return {
+      currentScore,
+      scoreBreakdown: currentEntry.breakdown,
+      hourlyScores,
+      peakHours,
+      bestSpot,
+      overallShiftRating: rating,
+    };
+  }
+
+  // 戦略シミュレーション: 指定時間帯の各スポット/エリアを比較
+  function getStrategySimulation(targetHour) {
+    targetHour = targetHour || new Date().getHours();
+    const waitingData = getWaitingSpotDemandIndex();
+    const cruisingData = getCruisingAreaDemandIndex();
+    const revForecast = getWaitingSpotRevenueForecast();
+
+    const strategies = [];
+
+    // 待機スポット戦略
+    waitingData.spots.forEach(spot => {
+      const hourData = spot.hourlyIndex[targetHour] || {};
+      const revSpot = revForecast.spots.find(r => r.id === spot.id);
+      const hourlyRevDetail = revSpot && revSpot.hourlyDetail[targetHour];
+      const hourlyRev = hourlyRevDetail ? hourlyRevDetail.revenue : 0;
+      const waitMin = revSpot ? revSpot.avgWaitMin : 20;
+      const avgFare = revSpot ? revSpot.avgFare : 1500;
+      const ridesPerHour = waitMin > 0 ? Math.round(60 / (waitMin + 15) * 10) / 10 : 0;
+
+      // リスクレベル: 需要指数の変動から推定
+      const indices = Array.from({ length: 3 }, (_, i) => {
+        const h = targetHour - 1 + i;
+        return h >= 0 && h < 24 ? (spot.hourlyIndex[h] || {}).index || 0 : 0;
+      });
+      const avg = indices.reduce((s, v) => s + v, 0) / indices.length;
+      const variance = indices.reduce((s, v) => s + (v - avg) * (v - avg), 0) / indices.length;
+      const cv = avg > 0 ? Math.sqrt(variance) / avg : 0;
+      const riskLevel = cv > 0.5 ? 'high' : cv > 0.25 ? 'medium' : 'low';
+
+      strategies.push({
+        type: 'waiting', location: spot.name, shortName: spot.shortName || spot.name,
+        expectedHourlyRevenue: hourlyRev,
+        expectedRidesPerHour: ridesPerHour,
+        expectedWaitMin: waitMin, avgFare,
+        riskLevel, demandScore: hourData.index || 0, disabled: spot.currentDisabled,
+        factors: spot.currentDisabled ? ['待機不可'] : [],
+      });
+    });
+
+    // 流しエリア戦略
+    cruisingData.areas.forEach(area => {
+      const hourData = area.hourlyIndex[targetHour] || {};
+      const demandIdx = hourData.index || 0;
+      const avgFare = 1200; // 流しは短距離中心の想定
+      const ridesPerHour = demandIdx >= 60 ? 3 : demandIdx >= 40 ? 2 : 1;
+      const hourlyRev = avgFare * ridesPerHour;
+
+      strategies.push({
+        type: 'cruising', location: area.name, shortName: area.shortName || area.name,
+        expectedHourlyRevenue: hourlyRev,
+        expectedRidesPerHour: ridesPerHour,
+        expectedWaitMin: 0, avgFare,
+        riskLevel: demandIdx < 30 ? 'high' : demandIdx < 50 ? 'medium' : 'low',
+        demandScore: demandIdx, disabled: false,
+        factors: [],
+      });
+    });
+
+    // ソート: disabled以外を時給降順
+    strategies.sort((a, b) => {
+      if (a.disabled && !b.disabled) return 1;
+      if (!a.disabled && b.disabled) return -1;
+      return b.expectedHourlyRevenue - a.expectedHourlyRevenue;
+    });
+
+    const bestStrategy = strategies.find(s => !s.disabled) || null;
+
+    return {
+      strategies,
+      bestStrategy: bestStrategy ? bestStrategy.location : '---',
+      targetHour,
+      comparison: {
+        labels: strategies.filter(s => !s.disabled).slice(0, 5).map(s => s.shortName),
+        revenues: strategies.filter(s => !s.disabled).slice(0, 5).map(s => s.expectedHourlyRevenue),
+      },
     };
   }
 
@@ -6059,6 +6754,15 @@ window.DataService = (() => {
     // 待機スポット売上シミュレーション
     getWaitingSpotRevenueForecast,
 
+    // 日勤集客強化 (v1.5.0)
+    getHospitalScheduleData,
+    getWeatherDemandImpact,
+    getDayShiftDemandScore,
+    getDayShiftTimeline,
+    getNextOptimalAction,
+    getChainSuggestion,
+    getStrategySimulation,
+
     // ホテル価格
     getHotelPriceHistory,
     saveHotelPrices,
@@ -6129,6 +6833,57 @@ window.DemandNotificationService = (() => {
         });
       }
     }
+
+    // 病院退院ピーク15分前通知
+    _checkHospitalDischarge(now);
+
+    // ホテルチェックアウト15分前通知
+    _checkHotelCheckout(now);
+
+    // 天候変化通知
+    _checkWeatherChange();
+  }
+
+  function _checkHospitalDischarge(now) {
+    const hospitalData = DataService.getHospitalScheduleData();
+    if (!hospitalData || !hospitalData.hospitals) return;
+    hospitalData.hospitals.forEach(hosp => {
+      if (hosp.nextEvent && hosp.nextEvent.type === 'discharge_peak' && hosp.nextEvent.minutesLeft > 0 && hosp.nextEvent.minutesLeft <= 15) {
+        NotificationService.send('病院退院ピーク間近', {
+          body: `${hosp.name}の${hosp.nextEvent.label || '退院ピーク'}まであと${hosp.nextEvent.minutesLeft}分`,
+          tag: 'hospital-discharge-' + hosp.id,
+        });
+      }
+    });
+  }
+
+  function _checkHotelCheckout(now) {
+    const peaks = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hotelPeakWindows || {};
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    Object.entries(peaks).forEach(([key, pw]) => {
+      const [h, m] = pw.start.split(':').map(Number);
+      const startMin = h * 60 + (m || 0);
+      const diff = startMin - nowMin;
+      if (diff > 0 && diff <= 15) {
+        NotificationService.send('ホテル需要開始間近', {
+          body: `${pw.label || key}が${pw.start}から開始 → ホテル周辺で需要増`,
+          tag: 'hotel-checkout-' + key,
+        });
+      }
+    });
+  }
+
+  function _checkWeatherChange() {
+    GpsLogService.fetchHourlyForecast().then(forecast => {
+      const impact = DataService.getWeatherDemandImpact(forecast);
+      if (!impact || !impact.alerts || impact.alerts.length === 0) return;
+      impact.alerts.forEach(alert => {
+        NotificationService.send('天候変化予報', {
+          body: alert.message,
+          tag: 'weather-change-' + alert.time,
+        });
+      });
+    }).catch(() => {});
   }
 
   return { start, stop };
@@ -7448,6 +8203,52 @@ window.GpsLogService = (() => {
     return { date: dateStr, hourly };
   }
 
+  // 時間別天気予報取得（Open-Meteo API、30分キャッシュ）
+  let _forecastCache = null;
+
+  function wmoToWeather(code) {
+    if (code === 0) return '快晴';
+    if (code <= 3) return '晴れ';
+    if (code <= 48) return '曇り';
+    if (code <= 55) return '霧雨';
+    if (code <= 65) return '雨';
+    if (code <= 67) return '凍雨';
+    if (code <= 75) return '雪';
+    if (code <= 77) return '霧雪';
+    if (code <= 82) return 'にわか雨';
+    if (code <= 86) return 'にわか雪';
+    if (code <= 99) return '雷雨';
+    return '不明';
+  }
+
+  async function fetchHourlyForecast() {
+    if (_forecastCache && Date.now() - _forecastCache.fetchedAt < 30 * 60 * 1000) {
+      return _forecastCache;
+    }
+    try {
+      const url = 'https://api.open-meteo.com/v1/forecast?latitude=43.77&longitude=142.37&hourly=temperature_2m,weather_code,precipitation,wind_speed_10m&timezone=Asia/Tokyo&forecast_hours=12';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Forecast API error');
+      const data = await res.json();
+      const hourly = data.hourly || {};
+      const times = hourly.time || [];
+      const hours = times.map((t, i) => ({
+        hour: new Date(t).getHours(),
+        temperature: (hourly.temperature_2m || [])[i],
+        weatherCode: (hourly.weather_code || [])[i],
+        weather: wmoToWeather((hourly.weather_code || [])[i]),
+        precipitation: (hourly.precipitation || [])[i] || 0,
+        windSpeed: (hourly.wind_speed_10m || [])[i] || 0,
+      }));
+      _forecastCache = { hours, fetchedAt: Date.now() };
+      return _forecastCache;
+    } catch (e) {
+      console.warn('[fetchHourlyForecast] error:', e);
+      if (_forecastCache) return _forecastCache;
+      return { hours: [], fetchedAt: Date.now() };
+    }
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -7463,6 +8264,7 @@ window.GpsLogService = (() => {
     getWeatherTrend,
     startWeatherPolling,
     stopWeatherPolling,
+    fetchHourlyForecast,
     // 分析API
     getVacantHeatmapData,
     getAreaTimeMatrix,
@@ -10078,6 +10880,23 @@ window.DashboardPage = () => {
   // 流しエリア需要指数
   const cruisingAreaData = useMemo(() => DataService.getCruisingAreaDemandIndex(), [refreshKey]);
 
+  // 日勤集客強化: 病院・天気・タイムライン・アクション提案
+  const hospitalData = useMemo(() => DataService.getHospitalScheduleData(), [refreshKey]);
+  const [weatherImpact, setWeatherImpact] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    GpsLogService.fetchHourlyForecast().then(forecast => {
+      if (!cancelled) setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
+    });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+  const dayShiftScore = useMemo(() => DataService.getDayShiftDemandScore(weatherImpact), [refreshKey, weatherImpact]);
+  const timeline = useMemo(() => DataService.getDayShiftTimeline(weatherImpact), [refreshKey, weatherImpact]);
+  const nextAction = useMemo(() => DataService.getNextOptimalAction(currentPosition, weatherImpact), [refreshKey, weatherImpact, currentPosition]);
+  const strategyData = useMemo(() => DataService.getStrategySimulation(new Date().getHours()), [refreshKey]);
+  const [strategyHour, setStrategyHour] = useState(new Date().getHours());
+  const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
+
   // 始業/終業シフト管理
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
   // 休憩管理
@@ -10485,6 +11304,211 @@ window.DashboardPage = () => {
       )
     ),
 
+    // ============================================================
+    // [NEW] 次の行動ヒーローカード (Feature 2)
+    // ============================================================
+    nextAction && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: nextAction.urgency === 'now'
+          ? 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(249,115,22,0.10))'
+          : nextAction.urgency === 'soon'
+            ? 'linear-gradient(135deg, rgba(245,158,11,0.18), rgba(234,179,8,0.10))'
+            : 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(59,130,246,0.10))',
+        border: nextAction.urgency === 'now'
+          ? '2px solid rgba(239,68,68,0.5)'
+          : nextAction.urgency === 'soon'
+            ? '2px solid rgba(245,158,11,0.4)'
+            : '2px solid rgba(34,197,94,0.3)',
+        animation: nextAction.urgency === 'now' ? 'pulse 2s ease-in-out infinite' : 'none',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flex: 1 } },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: {
+              fontSize: '36px',
+              color: nextAction.urgency === 'now' ? '#ef4444' : nextAction.urgency === 'soon' ? '#f59e0b' : '#22c55e',
+            },
+          }, nextAction.action.includes('待機') ? 'pin_drop' : nextAction.action.includes('流し') ? 'directions_car' : 'navigation'),
+          React.createElement('div', { style: { flex: 1 } },
+            React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 800 } }, nextAction.action),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginTop: '2px' } }, nextAction.reason),
+            nextAction.estimatedWaitMin && nextAction.urgency !== 'plan' && React.createElement('span', {
+              style: {
+                display: 'inline-block', marginTop: '4px', fontSize: '10px', fontWeight: 700,
+                padding: '2px 8px', borderRadius: '8px',
+                background: nextAction.urgency === 'now' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
+                color: nextAction.urgency === 'now' ? '#fca5a5' : '#fcd34d',
+              },
+            }, `あと${nextAction.estimatedWaitMin}分`)
+          )
+        ),
+        React.createElement('div', {
+          style: {
+            width: '52px', height: '52px', borderRadius: '50%', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            background: nextAction.demandScore >= 70 ? 'rgba(239,68,68,0.2)' : nextAction.demandScore >= 50 ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.15)',
+          },
+        },
+          React.createElement('span', {
+            style: { fontSize: '20px', fontWeight: 800, color: nextAction.demandScore >= 70 ? '#ef4444' : nextAction.demandScore >= 50 ? '#f59e0b' : '#3b82f6' },
+          }, String(nextAction.demandScore))
+        )
+      ),
+      // alternatives
+      nextAction.alternatives && nextAction.alternatives.length > 0 && React.createElement('div', {
+        style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' },
+      },
+        nextAction.alternatives.map((alt, i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: '11px', color: 'var(--text-secondary)' },
+          },
+            React.createElement('span', null, alt.action),
+            React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `スコア${alt.demandScore}`)
+          )
+        )
+      )
+    ),
+
+    // ============================================================
+    // [NEW] 日勤タイムラインカード (Feature 1+7+8)
+    // ============================================================
+    React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.06))',
+        border: '1px solid rgba(99,102,241,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#6366f1' } }, 'timeline'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '日勤タイムライン'),
+          React.createElement('span', {
+            style: {
+              fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+              background: new Date().getDate() % 2 === 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+              color: new Date().getDate() % 2 === 0 ? '#22c55e' : '#ef4444',
+            },
+          }, new Date().getDate() % 2 === 0 ? '駅前OK' : '駅前不可')
+        )
+      ),
+
+      // 天気予報ストリップ (7-17)
+      weatherImpact && weatherImpact.upcoming && weatherImpact.upcoming.length > 0 && React.createElement('div', {
+        style: { display: 'flex', gap: '2px', marginBottom: '10px', overflowX: 'auto', paddingBottom: '2px' },
+      },
+        ...weatherImpact.upcoming.filter(u => u.hour >= 7 && u.hour <= 17).map(u => {
+          const weatherIcon = u.weather.includes('雨') ? '雨' : u.weather.includes('雪') ? '雪' : u.weather.includes('曇') ? '曇' : '晴';
+          return React.createElement('div', {
+            key: `wstrip-${u.hour}`,
+            style: {
+              flex: '1 0 auto', minWidth: '28px', textAlign: 'center', padding: '3px 2px',
+              borderRadius: '4px', fontSize: '9px',
+              background: u.multiplier > 1.2 ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+            },
+          },
+            React.createElement('div', { style: { fontWeight: 600, color: 'var(--text-muted)' } }, `${u.hour}`),
+            React.createElement('div', { style: { fontSize: '11px' } }, weatherIcon),
+            React.createElement('div', { style: { color: 'var(--text-muted)' } }, `${u.temp != null ? Math.round(u.temp) : '-'}°`)
+          );
+        })
+      ),
+
+      // タイムラインバー (7-17)
+      React.createElement('div', { style: { position: 'relative', marginBottom: '12px' } },
+        // セグメントバー
+        React.createElement('div', { style: { display: 'flex', height: '24px', borderRadius: '6px', overflow: 'hidden', gap: '1px' } },
+          ...Array.from({ length: 11 }, (_, i) => {
+            const h = 7 + i;
+            const hs = dayShiftScore.hourlyScores.find(s => s.hour === h);
+            const score = hs ? hs.score : 0;
+            const isPast = h < new Date().getHours();
+            const bg = isPast ? 'rgba(107,114,128,0.2)' : score > 70 ? 'rgba(239,68,68,0.4)' : score > 40 ? 'rgba(245,158,11,0.35)' : 'rgba(59,130,246,0.25)';
+            return React.createElement('div', {
+              key: `seg-${h}`,
+              style: { flex: 1, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: isPast ? '#6b7280' : '#fff' },
+              title: `${h}時: スコア${score}`,
+            }, h % 2 === 1 ? String(h) : '');
+          })
+        ),
+        // 現在位置マーカー ▼
+        new Date().getHours() >= 7 && new Date().getHours() <= 17 && React.createElement('div', {
+          style: {
+            position: 'absolute', top: '-10px',
+            left: `${timeline.nowPosition * 100}%`, transform: 'translateX(-50%)',
+            fontSize: '12px', color: '#6366f1', fontWeight: 800,
+          },
+        }, '\u25BC'),
+
+        // イベントドット
+        React.createElement('div', { style: { position: 'relative', height: '10px', marginTop: '2px' } },
+          ...timeline.events.filter(e => !e.isPast).slice(0, 12).map(ev => {
+            const pos = Math.max(0, Math.min(100, (ev.timeMin - 420) / 600 * 100));
+            return React.createElement('div', {
+              key: ev.id,
+              style: {
+                position: 'absolute', left: `${pos}%`, top: '0', transform: 'translateX(-50%)',
+                width: '8px', height: '8px', borderRadius: '50%', background: ev.color,
+              },
+              title: `${ev.time} ${ev.title}`,
+            });
+          })
+        )
+      ),
+
+      // 凡例
+      React.createElement('div', {
+        style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', justifyContent: 'center' },
+      },
+        ...[
+          { label: 'バス', color: '#3b82f6' },
+          { label: '病院', color: '#ef4444' },
+          { label: 'ホテル', color: '#8b5cf6' },
+          { label: 'イベント', color: '#f59e0b' },
+          { label: '天気', color: '#06b6d4' },
+        ].map(leg => React.createElement('span', {
+          key: leg.label,
+          style: { fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' },
+        },
+          React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: leg.color, display: 'inline-block' } }),
+          leg.label
+        ))
+      ),
+
+      // 次の3イベント
+      (() => {
+        const upcoming = timeline.events.filter(e => !e.isPast).slice(0, 3);
+        if (upcoming.length === 0) return React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' } }, '残りのイベントはありません');
+        return React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '8px' } },
+          ...upcoming.map(ev => {
+            const diff = ev.timeMin - (new Date().getHours() * 60 + new Date().getMinutes());
+            return React.createElement('div', {
+              key: ev.id,
+              style: {
+                display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0',
+                opacity: ev.isCurrent ? 1 : 0.85,
+              },
+            },
+              React.createElement('span', {
+                className: 'material-icons-round',
+                style: { fontSize: '16px', color: ev.color },
+              }, ev.icon),
+              React.createElement('span', { style: { fontSize: '11px', fontWeight: 700, minWidth: '40px' } }, ev.time),
+              React.createElement('span', { style: { fontSize: '11px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, ev.title),
+              ev.isCurrent
+                ? React.createElement('span', { style: { fontSize: '10px', padding: '1px 6px', borderRadius: '8px', background: '#6366f1', color: '#fff', fontWeight: 700 } }, 'NOW')
+                : diff > 0 && React.createElement('span', { style: { fontSize: '10px', color: diff <= 15 ? '#ef4444' : '#f59e0b', fontWeight: 600 } }, `あと${diff}分`)
+            );
+          })
+        );
+      })()
+    ),
+
     // 改善1+6: 統合「今おすすめのスポット」カード（topAreas + frequentSpotsNow を統合、高い位置に配置）
     mergedNowSpots.length > 0 && React.createElement(Card, {
       style: {
@@ -10532,7 +11556,42 @@ window.DashboardPage = () => {
           ),
           React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', whiteSpace: 'nowrap', flexShrink: 0 } }, `¥${spot.avgAmount.toLocaleString()}`)
         )
-      )
+      ),
+
+      // Feature 5: チェーン提案（最新売上の降車座標がある場合）
+      (() => {
+        const latest = todaySummary.entries && todaySummary.entries[0];
+        if (!latest || !latest.dropoffCoords || !latest.dropoffCoords.lat) return null;
+        const chain = DataService.getChainSuggestion(latest.dropoff, latest.dropoffCoords);
+        if (!chain.suggestions || chain.suggestions.length === 0) return null;
+        return React.createElement('div', {
+          style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#f59e0b' } }, 'alt_route'),
+            React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: '#f59e0b' } }, '降車後おすすめ'),
+            React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' } }, `(${latest.dropoff || '直近降車地'}付近)`)
+          ),
+          ...chain.suggestions.map((sug, i) =>
+            React.createElement('div', {
+              key: `chain-${i}`,
+              style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '11px' },
+            },
+              React.createElement('div', { style: { flex: 1 } },
+                React.createElement('span', { style: { fontWeight: 600 } }, sug.name),
+                React.createElement('span', { style: { color: 'var(--text-muted)', marginLeft: '6px', fontSize: '10px' } }, sug.distance)
+              ),
+              React.createElement('span', {
+                style: {
+                  fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px',
+                  background: sug.demandScore >= 60 ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.1)',
+                  color: sug.demandScore >= 60 ? '#ef4444' : '#3b82f6',
+                },
+              }, `${sug.demandScore}`)
+            )
+          )
+        );
+      })()
     ),
 
     // 修正4: mergedNowSpotsが空の場合のデータ不足メッセージ
@@ -10766,366 +11825,198 @@ window.DashboardPage = () => {
       )
     ),
 
-    // イベント需要アラート
-    eventAlerts.length > 0 && React.createElement(Card, {
+    // ============================================================
+    // [NEW] 天候予報バーカード (Feature 8) — 天気変化がある場合のみ
+    // ============================================================
+    weatherImpact && weatherImpact.alerts && weatherImpact.alerts.length > 0 && React.createElement(Card, {
       style: {
-        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(255,152,0,0.15), rgba(255,87,34,0.08))',
-        border: '1px solid rgba(255,152,0,0.3)',
+        marginBottom: 'var(--space-md)', padding: '12px var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(59,130,246,0.06))',
+        border: '1px solid rgba(6,182,212,0.25)',
       },
     },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#FF9800' } }, 'event_available'),
-        React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'イベント終了間近')
-      ),
-      eventAlerts.map(alert =>
-        React.createElement('div', {
-          key: alert.name,
-          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' },
-        },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, alert.name),
-            alert.location && React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, alert.location)
+      // コンパクト1行
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#06b6d4' } }, 'cloud'),
+        React.createElement('div', { style: { flex: 1, fontSize: '12px' } },
+          React.createElement('span', { style: { fontWeight: 600 } },
+            `現在: ${weatherImpact.current.weather} ${weatherImpact.current.temp != null ? Math.round(weatherImpact.current.temp) + '°C' : ''}`
           ),
-          React.createElement('div', { style: { textAlign: 'right' } },
-            React.createElement('div', { style: { fontWeight: 700, color: '#FF9800' } }, `あと${alert.minutesLeft}分`),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, `〜${alert.endTime}`)
+          weatherImpact.alerts[0] && React.createElement('span', { style: { color: '#fcd34d', marginLeft: '8px' } },
+            ` → ${weatherImpact.alerts[0].message}`
+          )
+        )
+      ),
+      // 展開: 時間別テーブル
+      weatherImpact.upcoming && weatherImpact.upcoming.length > 0 && React.createElement('div', {
+        style: { marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(65px, 1fr))', gap: '4px' },
+      },
+        ...weatherImpact.upcoming.filter(u => u.hour >= new Date().getHours() && u.hour <= 17).map(u =>
+          React.createElement('div', {
+            key: `wdet-${u.hour}`,
+            style: {
+              textAlign: 'center', padding: '4px', borderRadius: '4px', fontSize: '10px',
+              background: u.multiplier > 1.2 ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+            },
+          },
+            React.createElement('div', { style: { fontWeight: 700, color: 'var(--text-secondary)' } }, `${u.hour}時`),
+            React.createElement('div', null, u.weather),
+            React.createElement('div', { style: { color: 'var(--text-muted)' } }, `${u.temp != null ? Math.round(u.temp) : '-'}°C`),
+            u.multiplier > 1.0 && React.createElement('div', {
+              style: { fontSize: '9px', fontWeight: 700, color: '#ef4444' },
+            }, `+${Math.round((u.multiplier - 1) * 100)}%`)
           )
         )
       )
     ),
 
-    // 本日の営業プラン
-    React.createElement(Card, {
+    // ============================================================
+    // [NEW] 日勤需要スコアカード (Feature 4)
+    // ============================================================
+    dayShiftScore && React.createElement(Card, {
       style: {
         marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(124,58,237,0.12), rgba(236,72,153,0.06))',
-        border: '1px solid rgba(124,58,237,0.25)',
-      },
-    },
-      // ヘッダー
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#7c3aed' } }, 'route'),
-          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '本日の営業プラン'),
-          React.createElement('span', {
-            style: {
-              fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
-              background: new Date().getDate() % 2 === 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-              color: new Date().getDate() % 2 === 0 ? '#22c55e' : '#ef4444',
-            },
-          }, new Date().getDate() % 2 === 0 ? '駅前待機OK' : '駅前待機不可')
-        ),
-        React.createElement('button', {
-          onClick: handleFetchDemandPlan,
-          disabled: demandPlanLoading || !geminiApiKey,
-          style: {
-            display: 'flex', alignItems: 'center', gap: '4px',
-            padding: '4px 10px', borderRadius: '6px', border: 'none',
-            background: 'rgba(124,58,237,0.2)', color: '#a78bfa', cursor: geminiApiKey ? 'pointer' : 'not-allowed',
-            fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
-            opacity: demandPlanLoading ? 0.6 : 1,
-          },
-        },
-          React.createElement('span', {
-            className: 'material-icons-round',
-            style: { fontSize: '14px', animation: demandPlanLoading ? 'spin 1s linear infinite' : 'none' },
-          }, demandPlanLoading ? 'sync' : 'refresh'),
-          demandPlanLoading ? '取得中...' : '更新'
-        )
-      ),
-
-      // APIキー未設定時
-      !geminiApiKey && React.createElement('div', {
-        style: { padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', textAlign: 'center' },
-      },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', display: 'block', marginBottom: '4px' } }, 'vpn_key'),
-        'Gemini APIキーを設定すると、JR特急・バスの到着時刻と病院外来ピークに基づく営業プランが表示されます。',
-        React.createElement('div', {
-          onClick: () => navigate('settings'),
-          style: { color: '#7c3aed', cursor: 'pointer', marginTop: '4px', fontWeight: 600 },
-        }, '設定ページへ →')
-      ),
-
-      // タイムラインブロック
-      geminiApiKey && dailySchedule.available && dailySchedule.dailyPlan.length > 0 && React.createElement('div', {
-        style: { marginBottom: '12px' },
-      },
-        dailySchedule.dailyPlan.map((block, i) => {
-          const now = new Date();
-          const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-          const isCurrent = nowStr >= (block.startTime || '') && nowStr < (block.endTime || '24:00');
-          const levelColor = block.demandLevel === 'high' ? '#ef4444' : block.demandLevel === 'medium' ? '#f59e0b' : '#3b82f6';
-          return React.createElement('div', {
-            key: i,
-            style: {
-              display: 'flex', gap: '10px', padding: '8px',
-              borderRadius: '6px', marginBottom: '4px',
-              background: isCurrent ? 'rgba(124,58,237,0.15)' : 'transparent',
-              border: isCurrent ? '1px solid rgba(124,58,237,0.4)' : '1px solid transparent',
-            },
-          },
-            React.createElement('div', {
-              style: {
-                minWidth: '70px', padding: '2px 6px', borderRadius: '4px',
-                background: `${levelColor}20`, color: levelColor,
-                fontSize: '11px', fontWeight: 700, textAlign: 'center',
-                borderLeft: `3px solid ${levelColor}`,
-              },
-            },
-              `${block.startTime || ''}`,
-              React.createElement('br'),
-              `〜${block.endTime || ''}`
-            ),
-            React.createElement('div', { style: { flex: 1 } },
-              React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--text-primary)' } }, block.location || ''),
-              React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, block.action || '')
-            ),
-            isCurrent && React.createElement('span', {
-              style: { fontSize: '10px', padding: '2px 6px', borderRadius: '8px', background: '#7c3aed', color: '#fff', alignSelf: 'center', fontWeight: 700 },
-            }, 'NOW')
-          );
-        })
-      ),
-
-      // 次の到着便（今後3便）
-      geminiApiKey && dailySchedule.available && dailySchedule.transitArrivals.length > 0 && (() => {
-        const now = new Date();
-        const nowMin = now.getHours() * 60 + now.getMinutes();
-        const upcoming = dailySchedule.transitArrivals
-          .filter(a => {
-            if (!a.arrivalTime) return false;
-            const p = a.arrivalTime.split(':');
-            return parseInt(p[0], 10) * 60 + parseInt(p[1], 10) > nowMin;
-          })
-          .slice(0, 3);
-        if (upcoming.length === 0) return null;
-        return React.createElement('div', {
-          style: { padding: '8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)' },
-        },
-          React.createElement('div', {
-            style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' },
-          },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'directions_transit'),
-            '次の到着便'
-          ),
-          upcoming.map((arr, i) => {
-            const p = arr.arrivalTime.split(':');
-            const arrMin = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
-            const diff = arrMin - nowMin;
-            return React.createElement('div', {
-              key: i,
-              style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '12px' },
-            },
-              React.createElement('div', null,
-                React.createElement('span', { style: { fontWeight: 600 } }, `${arr.type || ''} ${arr.line || ''}`),
-                React.createElement('span', { style: { color: 'var(--text-muted)', marginLeft: '6px' } }, `(${arr.origin || ''})`)
-              ),
-              React.createElement('div', { style: { textAlign: 'right' } },
-                React.createElement('span', { style: { fontWeight: 700, color: '#7c3aed' } }, arr.arrivalTime),
-                React.createElement('span', { style: { fontSize: '10px', color: diff <= 15 ? '#ef4444' : '#f59e0b', marginLeft: '6px', fontWeight: 600 } }, `あと${diff}分`)
-              )
-            );
-          })
-        );
-      })(),
-
-      // ホテル需要セクション（APIキー不要・静的データ）
-      dailySchedule.available && (dailySchedule.hotelWindows || []).length > 0 && React.createElement('div', {
-        style: { padding: '8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)', marginTop: '8px' },
-      },
-        React.createElement('div', {
-          style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'hotel'),
-          'ホテル需要'
-        ),
-        (dailySchedule.hotelWindows || []).map((hw, i) => {
-          const levelColors = { very_high: '#ef4444', high: '#f59e0b', medium: '#3b82f6', low: '#6b7280' };
-          return React.createElement('div', { key: i, style: { marginBottom: '6px' } },
-            React.createElement('div', {
-              style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' },
-            },
-              React.createElement('span', {
-                style: {
-                  fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
-                  background: hw.isCurrent ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-                  color: hw.isCurrent ? '#ef4444' : '#f59e0b',
-                },
-              }, hw.isCurrent ? 'NOW' : 'SOON'),
-              React.createElement('span', { style: { fontSize: '12px', fontWeight: 600 } },
-                `${hw.start}〜${hw.end} ${hw.label}`
-              )
-            ),
-            React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px' } },
-              hw.hotels.slice(0, 5).map((h, j) =>
-                React.createElement('span', {
-                  key: j,
-                  style: {
-                    fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
-                    background: `${levelColors[h.demandLevel] || '#6b7280'}18`,
-                    color: levelColors[h.demandLevel] || '#6b7280',
-                    fontWeight: 600, whiteSpace: 'nowrap',
-                  },
-                }, `${h.name}(${h.rooms}室)`)
-              )
-            )
-          );
-        })
-      ),
-
-      // ローディング中
-      geminiApiKey && demandPlanLoading && !dailySchedule.available && React.createElement('div', {
-        style: { textAlign: 'center', padding: '16px', color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' },
-      },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', animation: 'spin 1s linear infinite', display: 'block', marginBottom: '4px' } }, 'sync'),
-        'Gemini AIから需要予測データを取得中...'
-      )
-    ),
-
-    // 待機スポット需要指数カード
-    waitingSpotData.spots.length > 0 && React.createElement(Card, {
-      style: {
-        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(16,185,129,0.06))',
+        background: 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(168,85,247,0.06))',
         border: '1px solid rgba(59,130,246,0.25)',
       },
     },
       // ヘッダー
-      React.createElement('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
-      },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#3b82f6' } }, 'pin_drop'),
-          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機スポット需要指数')
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#3b82f6' } }, 'analytics'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '日勤需要スコア')
         ),
-        waitingSpotData.isOddDay && React.createElement('span', {
-          style: { fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: 'rgba(239,68,68,0.15)', color: '#ef4444' },
-        }, '奇数日: 駅前待機不可')
-      ),
-
-      // 今のおすすめ
-      (() => {
-        const best = waitingSpotData.spots.find(s => !s.currentDisabled && s.currentIndex > 0);
-        if (!best) return null;
-        const indexColor = best.currentIndex >= 80 ? '#ef4444' : best.currentIndex >= 60 ? '#f59e0b' : best.currentIndex >= 40 ? '#10b981' : '#3b82f6';
-        return React.createElement('div', {
+        React.createElement('span', {
           style: {
-            padding: '10px 14px', borderRadius: '8px', marginBottom: '12px',
-            background: `linear-gradient(135deg, ${indexColor}18, ${indexColor}08)`,
-            border: `1px solid ${indexColor}30`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
+            background: dayShiftScore.overallShiftRating === 'excellent' ? 'rgba(239,68,68,0.15)' :
+              dayShiftScore.overallShiftRating === 'good' ? 'rgba(245,158,11,0.15)' :
+              dayShiftScore.overallShiftRating === 'normal' ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.15)',
+            color: dayShiftScore.overallShiftRating === 'excellent' ? '#ef4444' :
+              dayShiftScore.overallShiftRating === 'good' ? '#f59e0b' :
+              dayShiftScore.overallShiftRating === 'normal' ? '#3b82f6' : '#6b7280',
           },
-        },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, '今のおすすめ'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-md)', fontWeight: 700 } }, best.name)
-          ),
-          React.createElement('div', {
-            style: { fontSize: '24px', fontWeight: 800, color: indexColor },
-          }, String(best.currentIndex))
-        );
-      })(),
-
-      // 全スポット現在値
-      React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '12px' },
-      },
-        ...waitingSpotData.spots.map(spot => {
-          const idx = spot.currentIndex;
-          const disabled = spot.currentDisabled;
-          const bg = disabled ? 'rgba(107,114,128,0.1)' : idx >= 80 ? 'rgba(239,68,68,0.12)' : idx >= 60 ? 'rgba(245,158,11,0.12)' : idx >= 40 ? 'rgba(16,185,129,0.12)' : idx >= 20 ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.08)';
-          const color = disabled ? '#6b7280' : idx >= 80 ? '#ef4444' : idx >= 60 ? '#f59e0b' : idx >= 40 ? '#10b981' : idx >= 20 ? '#3b82f6' : '#9ca3af';
-          return React.createElement('div', {
-            key: spot.id,
-            style: { padding: '8px', borderRadius: '8px', background: bg, textAlign: 'center' },
-          },
-            React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, spot.shortName),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 800, color: color } }, disabled ? '---' : String(idx)),
-            disabled && React.createElement('div', { style: { fontSize: '9px', color: '#ef4444', fontWeight: 600 } }, '待機不可')
-          );
-        })
+        }, dayShiftScore.overallShiftRating === 'excellent' ? '非常に良い' :
+          dayShiftScore.overallShiftRating === 'good' ? '良好' :
+          dayShiftScore.overallShiftRating === 'normal' ? '普通' : '低調')
       ),
 
-      // 凡例
+      // 現在スコア
       React.createElement('div', {
-        style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', justifyContent: 'center' },
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '14px' },
       },
-        ...[
-          { label: '80+ 最高', color: '#ef4444' },
-          { label: '60-79 高い', color: '#f59e0b' },
-          { label: '40-59 普通', color: '#10b981' },
-          { label: '20-39 低い', color: '#3b82f6' },
-          { label: '0-19 ---', color: '#9ca3af' },
-        ].map(leg => React.createElement('span', {
-          key: leg.label,
-          style: { fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' },
+        React.createElement('div', {
+          style: {
+            width: '64px', height: '64px', borderRadius: '50%', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: dayShiftScore.currentScore > 70 ? 'rgba(239,68,68,0.2)' : dayShiftScore.currentScore > 50 ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.15)',
+            border: `3px solid ${dayShiftScore.currentScore > 70 ? '#ef4444' : dayShiftScore.currentScore > 50 ? '#f59e0b' : '#3b82f6'}`,
+          },
         },
-          React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: leg.color, display: 'inline-block' } }),
-          leg.label
-        ))
+          React.createElement('span', {
+            style: { fontSize: '24px', fontWeight: 800, color: dayShiftScore.currentScore > 70 ? '#ef4444' : dayShiftScore.currentScore > 50 ? '#f59e0b' : '#3b82f6' },
+          }, String(dayShiftScore.currentScore))
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, 'ベストスポット'),
+          React.createElement('div', { style: { fontSize: '14px', fontWeight: 700 } }, dayShiftScore.bestSpot.name),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+            `ピーク: ${dayShiftScore.peakHours.map(p => p.hour + '時').join(', ')}`
+          )
+        )
       ),
 
-      // 時間帯別マトリクス (6:00-23:00)
+      // 待機TOP3 + 流しTOP3 コンパクト
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' } },
+        // 待機スポットTOP3
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '待機スポット'),
+          ...waitingSpotData.spots.filter(s => !s.currentDisabled).slice(0, 3).map(spot => {
+            const barColor = spot.currentIndex >= 70 ? '#ef4444' : spot.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
+            return React.createElement('div', {
+              key: `ws-${spot.id}`, style: { marginBottom: '4px' },
+            },
+              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
+                React.createElement('span', { style: { fontWeight: 600 } }, spot.shortName),
+                React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(spot.currentIndex))
+              ),
+              React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
+                React.createElement('div', { style: { width: `${spot.currentIndex}%`, height: '100%', borderRadius: '2px', background: barColor } })
+              )
+            );
+          })
+        ),
+        // 流しエリアTOP3
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '流しエリア'),
+          ...cruisingAreaData.areas.slice(0, 3).map(area => {
+            const barColor = area.currentIndex >= 70 ? '#ef4444' : area.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
+            return React.createElement('div', {
+              key: `ca-${area.id}`, style: { marginBottom: '4px' },
+            },
+              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
+                React.createElement('span', { style: { fontWeight: 600 } }, area.shortName),
+                React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(area.currentIndex))
+              ),
+              React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
+                React.createElement('div', { style: { width: `${area.currentIndex}%`, height: '100%', borderRadius: '2px', background: barColor } })
+              )
+            );
+          })
+        )
+      ),
+
+      // 7-17時コンパクト時間軸
       React.createElement('div', {
         style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' },
       },
         React.createElement('table', {
-          style: { borderCollapse: 'collapse', fontSize: '10px', width: 'max-content', minWidth: '100%' },
+          style: { borderCollapse: 'collapse', fontSize: '10px', width: '100%' },
         },
           React.createElement('thead', null,
             React.createElement('tr', null,
-              React.createElement('th', {
-                style: { position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' },
-              }, 'スポット'),
-              ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
-                const isCurrent = h === waitingSpotData.currentHour;
+              React.createElement('th', { style: { padding: '3px 6px', textAlign: 'left', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.1)' } }, '時'),
+              ...dayShiftScore.hourlyScores.map(hs => {
+                const isCurrent = hs.hour === new Date().getHours();
                 return React.createElement('th', {
-                  key: h,
+                  key: hs.hour,
                   style: {
-                    padding: '4px 5px', fontWeight: isCurrent ? 800 : 500, textAlign: 'center',
-                    borderBottom: '1px solid rgba(255,255,255,0.1)',
-                    background: isCurrent ? 'rgba(59,130,246,0.18)' : 'transparent',
+                    padding: '3px 4px', textAlign: 'center', fontWeight: isCurrent ? 800 : 500,
+                    background: isCurrent ? 'rgba(59,130,246,0.15)' : 'transparent',
                     color: isCurrent ? '#3b82f6' : 'var(--text-muted)',
+                    borderBottom: '1px solid rgba(255,255,255,0.1)',
                   },
-                }, String(h));
+                }, String(hs.hour));
               })
             )
           ),
           React.createElement('tbody', null,
-            ...waitingSpotData.spots.map(spot =>
-              React.createElement('tr', { key: spot.id },
-                React.createElement('td', {
-                  style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
-                }, spot.shortName),
-                ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
-                  const hd = spot.hourlyIndex[h];
-                  const idx = hd ? hd.index : 0;
-                  const disabled = hd ? hd.disabled : false;
-                  const isCurrent = h === waitingSpotData.currentHour;
-                  const cellBg = disabled ? 'rgba(107,114,128,0.08)' : idx >= 80 ? 'rgba(239,68,68,0.25)' : idx >= 60 ? 'rgba(245,158,11,0.22)' : idx >= 40 ? 'rgba(16,185,129,0.18)' : idx >= 20 ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.06)';
-                  const cellColor = disabled ? '#6b7280' : idx >= 80 ? '#fca5a5' : idx >= 60 ? '#fcd34d' : idx >= 40 ? '#6ee7b7' : idx >= 20 ? '#93c5fd' : '#6b7280';
-                  return React.createElement('td', {
-                    key: h,
-                    style: {
-                      padding: '3px 5px', textAlign: 'center', fontWeight: 600,
-                      background: isCurrent ? `linear-gradient(180deg, rgba(59,130,246,0.12), ${cellBg})` : cellBg,
-                      color: cellColor,
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      borderLeft: isCurrent ? '2px solid rgba(59,130,246,0.4)' : 'none',
-                      borderRight: isCurrent ? '2px solid rgba(59,130,246,0.4)' : 'none',
-                    },
-                  }, disabled ? '-' : idx > 0 ? String(idx) : '');
-                })
-              )
+            React.createElement('tr', null,
+              React.createElement('td', { style: { padding: '3px 6px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, 'スコア'),
+              ...dayShiftScore.hourlyScores.map(hs => {
+                const isCurrent = hs.hour === new Date().getHours();
+                const isPast = hs.hour < new Date().getHours();
+                const bg = isPast ? 'rgba(107,114,128,0.08)' : hs.score > 70 ? 'rgba(239,68,68,0.2)' : hs.score > 50 ? 'rgba(245,158,11,0.18)' : hs.score > 30 ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.06)';
+                const color = isPast ? '#6b7280' : hs.score > 70 ? '#fca5a5' : hs.score > 50 ? '#fcd34d' : hs.score > 30 ? '#93c5fd' : '#6b7280';
+                return React.createElement('td', {
+                  key: hs.hour,
+                  style: {
+                    padding: '3px 4px', textAlign: 'center', fontWeight: 700,
+                    background: isCurrent ? `linear-gradient(180deg, rgba(59,130,246,0.12), ${bg})` : bg,
+                    color: color, borderBottom: '1px solid rgba(255,255,255,0.05)',
+                  },
+                }, String(hs.score));
+              })
             )
           )
         )
       )
     ),
 
-    // 待機スポット売上シミュレーション
-    revenueForecast.spots.length > 0 && React.createElement(Card, {
+    // ============================================================
+    // [NEW] 戦略シミュレーションカード (Feature 6)
+    // ============================================================
+    strategyForHour && strategyForHour.strategies.length > 0 && React.createElement(Card, {
       style: {
         marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
         background: 'linear-gradient(135deg, rgba(16,185,129,0.10), rgba(245,158,11,0.06))',
@@ -11133,285 +12024,108 @@ window.DashboardPage = () => {
       },
     },
       // ヘッダー
-      React.createElement('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '6px' },
-      },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '6px' } },
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#10b981' } }, 'calculate'),
-          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機スポット売上シミュレーション')
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#10b981' } }, 'compare_arrows'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '戦略シミュレーション')
         ),
-        React.createElement('span', {
-          style: { fontSize: '10px', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: '4px' },
-        }, `営業${revenueForecast.assumptions.operatingStart}-${revenueForecast.assumptions.operatingEnd}時前提`)
-      ),
-
-      // ベストスポット
-      (() => {
-        const best = revenueForecast.spots.find(s => !s.disabled && s.dailyRevenue > 0);
-        if (!best) return null;
-        return React.createElement('div', {
-          style: {
-            padding: '10px 14px', borderRadius: '8px', marginBottom: '12px',
-            background: 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.06))',
-            border: '1px solid rgba(16,185,129,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          },
-        },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, '1日最高売上予測'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-md)', fontWeight: 700 } }, best.name)
-          ),
-          React.createElement('div', { style: { textAlign: 'right' } },
-            React.createElement('div', { style: { fontSize: '22px', fontWeight: 800, color: '#10b981' } },
-              '\u00A5' + best.dailyRevenue.toLocaleString()
-            ),
-            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
-              `${best.dailyRides}回 / 平均${best.avgWaitMin}分待ち`
-            )
+        // 時間帯セレクタ
+        React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
+          React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, '時間帯:'),
+          ...Array.from({ length: 11 }, (_, i) => 7 + i).map(h =>
+            React.createElement('button', {
+              key: `sh-${h}`,
+              onClick: () => setStrategyHour(h),
+              style: {
+                padding: '2px 5px', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                fontSize: '10px', fontWeight: h === strategyHour ? 700 : 400, fontFamily: 'var(--font-family)',
+                background: h === strategyHour ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.06)',
+                color: h === strategyHour ? '#10b981' : 'var(--text-muted)',
+              },
+            }, String(h))
           )
-        );
-      })(),
-
-      // 全スポット比較グリッド (2列)
-      React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '14px' },
-      },
-        ...revenueForecast.spots.map(spot => {
-          const isTop = !spot.disabled && spot === revenueForecast.spots.find(s => !s.disabled);
-          return React.createElement('div', {
-            key: spot.id,
-            style: {
-              padding: '10px', borderRadius: '8px',
-              background: spot.disabled ? 'rgba(107,114,128,0.1)' : isTop ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.08)',
-              border: isTop ? '1px solid rgba(16,185,129,0.3)' : '1px solid transparent',
-            },
-          },
-            React.createElement('div', {
-              style: { fontSize: '11px', fontWeight: 700, color: spot.disabled ? '#6b7280' : 'var(--text-primary)', marginBottom: '4px' },
-            }, spot.shortName),
-            spot.disabled
-              ? React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: '#ef4444' } }, '待機不可')
-              : React.createElement(React.Fragment, null,
-                  React.createElement('div', {
-                    style: { fontSize: '18px', fontWeight: 800, color: isTop ? '#10b981' : 'var(--text-primary)', marginBottom: '4px' },
-                  }, '\u00A5' + spot.dailyRevenue.toLocaleString()),
-                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', lineHeight: '1.5' } },
-                    `${spot.dailyRides}回乗車 / 客単価\u00A5${spot.avgFare.toLocaleString()}`,
-                    React.createElement('br'),
-                    `平均待ち${spot.avgWaitMin}分`,
-                    spot.peakHours.length > 0 ? ` / 狙い目: ${spot.peakHours.map(h => h + '時').join(', ')}` : ''
-                  )
-                )
-          );
-        })
+        )
       ),
 
-      // 時間帯別詳細テーブル
-      React.createElement('div', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' } }, '時間帯別 予想売上'),
-      React.createElement('div', {
-        style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '10px' },
+      // ベスト戦略ハイライト
+      strategyForHour.bestStrategy !== '---' && React.createElement('div', {
+        style: {
+          padding: '8px 12px', borderRadius: '8px', marginBottom: '10px',
+          background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))',
+          border: '1px solid rgba(16,185,129,0.25)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
       },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#10b981' } }, 'emoji_events'),
+        React.createElement('span', { style: { fontSize: '12px', fontWeight: 700 } }, `${strategyHour}時台のベスト: ${strategyForHour.bestStrategy}`)
+      ),
+
+      // 戦略テーブル
+      React.createElement('div', { style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' } },
         React.createElement('table', {
-          style: { borderCollapse: 'collapse', fontSize: '10px', width: 'max-content', minWidth: '100%' },
+          style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%' },
         },
           React.createElement('thead', null,
             React.createElement('tr', null,
-              React.createElement('th', {
-                style: { position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' },
-              }, 'スポット'),
-              ...Array.from({ length: revenueForecast.assumptions.operatingEnd - revenueForecast.assumptions.operatingStart }, (_, i) => i + revenueForecast.assumptions.operatingStart).map(h => {
-                const isCurrent = h === new Date().getHours();
-                return React.createElement('th', {
-                  key: h,
-                  style: {
-                    padding: '4px 5px', fontWeight: isCurrent ? 800 : 500, textAlign: 'center',
-                    borderBottom: '1px solid rgba(255,255,255,0.1)',
-                    background: isCurrent ? 'rgba(16,185,129,0.18)' : 'transparent',
-                    color: isCurrent ? '#10b981' : 'var(--text-muted)',
-                  },
-                }, String(h));
-              })
+              ...['スポット', '時給予測', '待ち', 'リスク', 'スコア'].map(label =>
+                React.createElement('th', {
+                  key: label,
+                  style: { padding: '5px 8px', fontWeight: 700, textAlign: label === 'スポット' ? 'left' : 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap' },
+                }, label)
+              )
             )
           ),
           React.createElement('tbody', null,
-            ...revenueForecast.spots.map(spot =>
-              React.createElement('tr', { key: spot.id },
+            ...strategyForHour.strategies.filter(s => !s.disabled).slice(0, 8).map((s, i) => {
+              const isBest = s.location === strategyForHour.bestStrategy;
+              const riskColor = s.riskLevel === 'high' ? '#ef4444' : s.riskLevel === 'medium' ? '#f59e0b' : '#10b981';
+              return React.createElement('tr', {
+                key: `strat-${i}`,
+                style: { background: isBest ? 'rgba(16,185,129,0.08)' : 'transparent' },
+              },
                 React.createElement('td', {
-                  style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
-                }, spot.shortName),
-                ...Array.from({ length: revenueForecast.assumptions.operatingEnd - revenueForecast.assumptions.operatingStart }, (_, i) => i + revenueForecast.assumptions.operatingStart).map(h => {
-                  const hd = spot.hourlyDetail[h];
-                  const rev = hd ? hd.revenue : 0;
-                  const disabled = hd ? hd.disabled : false;
-                  const isCurrent = h === new Date().getHours();
-                  const maxRev = Math.max(...revenueForecast.spots.flatMap(s => s.hourlyDetail.filter(d => !d.disabled).map(d => d.revenue)), 1);
-                  const intensity = disabled ? 0 : rev / maxRev;
-                  const cellBg = disabled ? 'rgba(107,114,128,0.08)' : intensity >= 0.7 ? 'rgba(16,185,129,0.25)' : intensity >= 0.4 ? 'rgba(245,158,11,0.18)' : intensity > 0 ? 'rgba(59,130,246,0.10)' : 'rgba(107,114,128,0.04)';
-                  const cellColor = disabled ? '#6b7280' : intensity >= 0.7 ? '#6ee7b7' : intensity >= 0.4 ? '#fcd34d' : intensity > 0 ? '#93c5fd' : '#6b7280';
-                  return React.createElement('td', {
-                    key: h,
-                    style: {
-                      padding: '3px 4px', textAlign: 'center', fontWeight: 600,
-                      background: isCurrent ? `linear-gradient(180deg, rgba(16,185,129,0.12), ${cellBg})` : cellBg,
-                      color: cellColor,
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      borderLeft: isCurrent ? '2px solid rgba(16,185,129,0.4)' : 'none',
-                      borderRight: isCurrent ? '2px solid rgba(16,185,129,0.4)' : 'none',
-                      whiteSpace: 'nowrap',
-                    },
-                  }, disabled ? '-' : rev > 0 ? '\u00A5' + rev.toLocaleString() : '');
-                })
-              )
-            )
+                  style: { padding: '5px 8px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' },
+                },
+                  React.createElement('span', {
+                    style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', marginRight: '6px',
+                      background: s.type === 'waiting' ? '#3b82f6' : '#a855f7' },
+                  }),
+                  s.shortName
+                ),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' },
+                }, `\u00A5${s.expectedHourlyRevenue.toLocaleString()}`),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-secondary)' },
+                }, s.type === 'waiting' ? `${s.expectedWaitMin}分` : '流し'),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                },
+                  React.createElement('span', {
+                    style: { fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: `${riskColor}20`, color: riskColor },
+                  }, s.riskLevel === 'high' ? '高' : s.riskLevel === 'medium' ? '中' : '低')
+                ),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: s.demandScore >= 60 ? '#ef4444' : s.demandScore >= 40 ? '#f59e0b' : '#3b82f6' },
+                }, String(s.demandScore))
+              );
+            })
           )
         )
-      ),
-
-      // 注記
-      React.createElement('div', {
-        style: { fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', lineHeight: '1.4' },
-      },
-        `履歴データ${revenueForecast.assumptions.dataPoints}件に基づく推定値`,
-        revenueForecast.assumptions.dayFactor !== 1.0 ? ` / 曜日係数${revenueForecast.assumptions.dayFactor}x` : '',
-        revenueForecast.assumptions.weatherFactor !== 1.0 ? ` / 天気係数${revenueForecast.assumptions.weatherFactor}x` : ''
-      )
-    ),
-
-    // 流しエリア需要指数カード
-    cruisingAreaData.areas.length > 0 && React.createElement(Card, {
-      style: {
-        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(168,85,247,0.10), rgba(236,72,153,0.06))',
-        border: '1px solid rgba(168,85,247,0.25)',
-      },
-    },
-      // ヘッダー
-      React.createElement('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
-      },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#a855f7' } }, 'directions_car'),
-          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '流しエリア需要指数')
-        )
-      ),
-
-      // 今のおすすめ
-      (() => {
-        const best = cruisingAreaData.areas.find(a => a.currentIndex > 0);
-        if (!best) return null;
-        const indexColor = best.currentIndex >= 80 ? '#ef4444' : best.currentIndex >= 60 ? '#f59e0b' : best.currentIndex >= 40 ? '#10b981' : '#3b82f6';
-        return React.createElement('div', {
-          style: {
-            padding: '10px 14px', borderRadius: '8px', marginBottom: '12px',
-            background: `linear-gradient(135deg, ${indexColor}18, ${indexColor}08)`,
-            border: `1px solid ${indexColor}30`,
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          },
-        },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, '今のおすすめエリア'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-md)', fontWeight: 700 } }, best.name)
-          ),
-          React.createElement('div', {
-            style: { fontSize: '24px', fontWeight: 800, color: indexColor },
-          }, String(best.currentIndex))
-        );
-      })(),
-
-      // 全エリア現在値（2列5行）
-      React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px', marginBottom: '12px' },
-      },
-        ...cruisingAreaData.areas.map(area => {
-          const idx = area.currentIndex;
-          const bg = idx >= 80 ? 'rgba(239,68,68,0.12)' : idx >= 60 ? 'rgba(245,158,11,0.12)' : idx >= 40 ? 'rgba(16,185,129,0.12)' : idx >= 20 ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.08)';
-          const color = idx >= 80 ? '#ef4444' : idx >= 60 ? '#f59e0b' : idx >= 40 ? '#10b981' : idx >= 20 ? '#3b82f6' : '#9ca3af';
-          return React.createElement('div', {
-            key: area.id,
-            style: { padding: '8px 10px', borderRadius: '8px', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-          },
-            React.createElement('span', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' } }, area.shortName),
-            React.createElement('span', { style: { fontSize: '18px', fontWeight: 800, color: color } }, String(idx))
-          );
-        })
       ),
 
       // 凡例
-      React.createElement('div', {
-        style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', justifyContent: 'center' },
-      },
-        ...[
-          { label: '80+ 最高', color: '#ef4444' },
-          { label: '60-79 高い', color: '#f59e0b' },
-          { label: '40-59 普通', color: '#10b981' },
-          { label: '20-39 低い', color: '#3b82f6' },
-          { label: '0-19 ---', color: '#9ca3af' },
-        ].map(leg => React.createElement('span', {
-          key: leg.label,
-          style: { fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' },
-        },
-          React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '2px', background: leg.color, display: 'inline-block' } }),
-          leg.label
-        ))
-      ),
-
-      // 時間帯別マトリクス (6:00-23:00)
-      React.createElement('div', {
-        style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' },
-      },
-        React.createElement('table', {
-          style: { borderCollapse: 'collapse', fontSize: '10px', width: 'max-content', minWidth: '100%' },
-        },
-          React.createElement('thead', null,
-            React.createElement('tr', null,
-              React.createElement('th', {
-                style: { position: 'sticky', left: 0, zIndex: 2, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 700, textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' },
-              }, 'エリア'),
-              ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
-                const isCurrent = h === cruisingAreaData.currentHour;
-                return React.createElement('th', {
-                  key: h,
-                  style: {
-                    padding: '4px 5px', fontWeight: isCurrent ? 800 : 500, textAlign: 'center',
-                    borderBottom: '1px solid rgba(255,255,255,0.1)',
-                    background: isCurrent ? 'rgba(168,85,247,0.18)' : 'transparent',
-                    color: isCurrent ? '#a855f7' : 'var(--text-muted)',
-                  },
-                }, String(h));
-              })
-            )
-          ),
-          React.createElement('tbody', null,
-            ...cruisingAreaData.areas.map(area =>
-              React.createElement('tr', { key: area.id },
-                React.createElement('td', {
-                  style: { position: 'sticky', left: 0, zIndex: 1, background: 'var(--bg-card)', padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.05)' },
-                }, area.shortName),
-                ...Array.from({ length: 18 }, (_, i) => i + 6).map(h => {
-                  const hd = area.hourlyIndex[h];
-                  const idx = hd ? hd.index : 0;
-                  const isCurrent = h === cruisingAreaData.currentHour;
-                  const cellBg = idx >= 80 ? 'rgba(239,68,68,0.25)' : idx >= 60 ? 'rgba(245,158,11,0.22)' : idx >= 40 ? 'rgba(16,185,129,0.18)' : idx >= 20 ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.06)';
-                  const cellColor = idx >= 80 ? '#fca5a5' : idx >= 60 ? '#fcd34d' : idx >= 40 ? '#6ee7b7' : idx >= 20 ? '#93c5fd' : '#6b7280';
-                  return React.createElement('td', {
-                    key: h,
-                    style: {
-                      padding: '3px 5px', textAlign: 'center', fontWeight: 600,
-                      background: isCurrent ? `linear-gradient(180deg, rgba(168,85,247,0.12), ${cellBg})` : cellBg,
-                      color: cellColor,
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      borderLeft: isCurrent ? '2px solid rgba(168,85,247,0.4)' : 'none',
-                      borderRight: isCurrent ? '2px solid rgba(168,85,247,0.4)' : 'none',
-                    },
-                  }, idx > 0 ? String(idx) : '');
-                })
-              )
-            )
-          )
+      React.createElement('div', { style: { display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'center', fontSize: '9px', color: 'var(--text-muted)' } },
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6' } }), '待機'
+        ),
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#a855f7' } }), '流し'
         )
       )
     ),
 
+    // (旧イベント需要アラート → 日勤タイムラインに統合済み)
     // 累計情報
     overallSummary.rideCount > 0 && React.createElement(Card, {
       style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
