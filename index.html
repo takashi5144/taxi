@@ -960,7 +960,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.6.4',
+  VERSION: '2.6.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3546,7 +3546,7 @@ window.DataService = (() => {
       dropoffTime: form.dropoffTime || '',
       passengers: form.passengers || '',
       gender: form.gender || '',
-      purpose: form.purpose || '',
+      purpose: form.purpose || '送迎',
       memo: form.memo || '',
       source: form.source || '',
       pickupCoords: form.pickupCoords || null,
