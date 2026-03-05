@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.1.0',
+  VERSION: '3.1.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6416,18 +6416,29 @@ window.DataService = (() => {
         historyScore = [...waitScores, ...cruiseScores].reduce((s, v) => s + v, 0) / (waitScores.length + cruiseScores.length);
       }
 
-      // 病院スコア
+      // 病院スコア（実態ベース: 1台で回れるのは1病院のみ → 最高スコアの病院を採用）
+      // 休診日は除外、ピーク中心からの距離でガウス減衰
       let hospitalScore = 0;
-      hospitalData.hospitals.forEach(hosp => {
-        const schedules = (APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || []).find(s => s.id === hosp.id);
-        if (!schedules) return;
-        schedules.dischargePeaks.forEach(dp => {
-          const dpStartH = parseInt(dp.start.split(':')[0], 10);
-          const dpEndH = parseInt(dp.end.split(':')[0], 10);
-          if (h >= dpStartH && h <= dpEndH) hospitalScore += dp.weight * 50;
+      const dayOfWeekForScore = now.getDay();
+      const hospScheds = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || [];
+      hospScheds.forEach(sched => {
+        if (sched.closedDays && sched.closedDays.includes(dayOfWeekForScore)) return;
+        sched.dischargePeaks.forEach(dp => {
+          const dpStartMin = parseInt(dp.start.split(':')[0], 10) * 60 + parseInt(dp.start.split(':')[1] || '0', 10);
+          const dpEndMin = parseInt(dp.end.split(':')[0], 10) * 60 + parseInt(dp.end.split(':')[1] || '0', 10);
+          const hMid = h * 60 + 30; // この時間帯の中央（例: 11時台なら11:30）
+          if (hMid < dpStartMin - 30 || hMid > dpEndMin + 30) return;
+          // ピーク中心からの距離でガウス減衰
+          const peakCenter = (dpStartMin + dpEndMin) / 2;
+          const distMin = Math.abs(hMid - peakCenter);
+          const peakHalfWidth = (dpEndMin - dpStartMin) / 2;
+          const sigma = Math.max(peakHalfWidth, 30);
+          const gaussian = Math.exp(-(distMin * distMin) / (2 * sigma * sigma));
+          const thisScore = dp.weight * 35 * gaussian; // 最大35pt（weight=1.0のピーク中心時）
+          hospitalScore = Math.max(hospitalScore, thisScore); // 最高スコアの病院を採用
         });
       });
-      hospitalScore = Math.min(hospitalScore, 100);
+      hospitalScore = Math.min(hospitalScore, 60); // 病院単独で支配しないよう上限60
 
       // ホテルスコア
       let hotelScore = 0;
@@ -6460,14 +6471,14 @@ window.DataService = (() => {
       const timePatterns = { 7: 30, 8: 55, 9: 65, 10: 70, 11: 60, 12: 40, 13: 45, 14: 50, 15: 55, 16: 60, 17: 50 };
       const timeScore = timePatterns[h] || 40;
 
-      // 複合スコア
+      // 複合スコア（履歴重視: 実績データを最も信頼）
       const score = Math.round(
-        historyScore * 0.30 + hospitalScore * 0.20 + hotelScore * 0.15 +
-        transitScore * 0.15 + weatherScore * 0.10 + timeScore * 0.10
+        historyScore * 0.35 + hospitalScore * 0.12 + hotelScore * 0.15 +
+        transitScore * 0.15 + weatherScore * 0.10 + timeScore * 0.13
       );
 
       const topFactors = [];
-      if (hospitalScore > 30) topFactors.push('病院');
+      if (hospitalScore > 20) topFactors.push('病院');
       if (hotelScore > 30) topFactors.push('ホテル');
       if (transitScore > 30) topFactors.push('交通');
       if (weatherScore > 30) topFactors.push('天気');
