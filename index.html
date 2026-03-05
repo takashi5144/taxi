@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.0.0',
+  VERSION: '3.1.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -8554,6 +8554,58 @@ window.GpsLogService = (() => {
     }
   }
 
+  /** 指定時刻に最も近いGPSログエントリを検索 (async)
+   *  @param {string} dateStr - 'YYYY-MM-DD'
+   *  @param {number} targetTime - Date.getTime() ミリ秒
+   *  @param {number} maxRangeMs - 許容範囲（ミリ秒、デフォルト5分）
+   *  @returns {{ lat, lng, acc, t, distance }} | null
+   */
+  async function findNearestEntry(dateStr, targetTime, maxRangeMs) {
+    if (!maxRangeMs) maxRangeMs = 5 * 60 * 1000; // デフォルト5分
+    const log = await getLogForDate(dateStr);
+    if (log.length === 0) return null;
+    let best = null;
+    let bestDiff = Infinity;
+    for (const entry of log) {
+      const diff = Math.abs(new Date(entry.t).getTime() - targetTime);
+      if (diff < bestDiff && diff <= maxRangeMs) {
+        bestDiff = diff;
+        best = entry;
+      }
+    }
+    return best;
+  }
+
+  /** 指定座標に最も近い直近GPSログエントリを検索 (async)
+   *  地図ピッカーで位置修正する際に、近くのGPSログ座標を候補として返す
+   *  @param {string} dateStr - 'YYYY-MM-DD'
+   *  @param {number} lat - タップした緯度
+   *  @param {number} lng - タップした経度
+   *  @param {number} maxDistM - 許容距離（メートル、デフォルト200m）
+   *  @param {number} recentMinutes - 直近何分以内のログを検索（デフォルト30分）
+   *  @returns {{ lat, lng, acc, t, distance }} | null
+   */
+  async function findNearestByLocation(dateStr, lat, lng, maxDistM, recentMinutes) {
+    if (!maxDistM) maxDistM = 200;
+    if (!recentMinutes) recentMinutes = 30;
+    const log = await getLogForDate(dateStr);
+    if (log.length === 0) return null;
+    const now = Date.now();
+    const cutoff = now - recentMinutes * 60 * 1000;
+    let best = null;
+    let bestDist = Infinity;
+    for (const entry of log) {
+      const entryTime = new Date(entry.t).getTime();
+      if (entryTime < cutoff) continue; // 古すぎるエントリは除外
+      const dist = _haversine(lat, lng, entry.lat, entry.lng);
+      if (dist < bestDist && dist <= maxDistM) {
+        bestDist = dist;
+        best = { ...entry, distance: Math.round(dist) };
+      }
+    }
+    return best;
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -8577,6 +8629,9 @@ window.GpsLogService = (() => {
     getAllDailyTrends,
     getTrackData,
     getStandbyPeriods,
+    // 座標検索API
+    findNearestEntry,
+    findNearestByLocation,
   };
 })();
 })();
@@ -12806,8 +12861,7 @@ window.RevenuePage = () => {
   }, [apiKey, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
-  // GPS追跡中はwatchPositionの最新位置を即座に使用（高速＆確認ダイアログなし）
-  // 追跡していない場合はgetAccuratePositionで新規取得
+  // 優先順位: 1. 常時追跡中の最新位置 → 2. GPSログの直近エントリ → 3. 新規位置取得
   const getGpsLocation = useCallback((field) => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -12817,17 +12871,40 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
-    // GPS追跡が有効で最新位置がある場合のみキャッシュを使用
+    // 優先1: GPS追跡が有効で最新位置がある場合は即座に使用
     if (mapCtx.isTracking && mapCtx.currentPosition && mapCtx.currentPosition.lat && mapCtx.currentPosition.lng) {
       const lat = mapCtx.currentPosition.lat;
       const lng = mapCtx.currentPosition.lng;
       const acc = Math.round(mapCtx.accuracy || 0);
-      AppLogger.info(`GPS(追跡中・即時取得): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
+      AppLogger.info(`GPS(常時追跡・即時取得): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
       _reverseGeocodeAndSetForm(lat, lng, acc, field);
       return;
     }
 
-    // 追跡していない場合はgetAccuratePositionで新規取得
+    // 優先2: GPSログから直近60秒以内のエントリを検索
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = Date.now();
+    if (window.GpsLogService) {
+      GpsLogService.findNearestEntry(todayStr, now, 60000).then(entry => {
+        if (entry) {
+          AppLogger.info(`GPS(ログ直近エントリ使用): ${entry.lat.toFixed(6)}, ${entry.lng.toFixed(6)} 精度${entry.acc || '?'}m 記録時刻=${entry.t}`);
+          _reverseGeocodeAndSetForm(entry.lat, entry.lng, entry.acc || 0, field);
+          return;
+        }
+        // 優先3: 新規位置取得
+        _getNewGpsPosition(field);
+      }).catch(() => {
+        _getNewGpsPosition(field);
+      });
+      return;
+    }
+
+    // GpsLogService未ロード時は新規取得
+    _getNewGpsPosition(field);
+  }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
+
+  // 新規GPS位置取得ヘルパー
+  const _getNewGpsPosition = useCallback((field) => {
     getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
       .then((position) => {
         const lat = position.coords.latitude;
@@ -12845,7 +12922,7 @@ window.RevenuePage = () => {
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
         AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
       });
-  }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
+  }, [_reverseGeocodeAndSetForm]);
 
 
   // Geocoding結果から簡潔な住所を抽出
@@ -12888,15 +12965,18 @@ window.RevenuePage = () => {
     const marker = new google.maps.Marker({ map, position: center, visible: false });
     mapPickerMarkerRef.current = marker;
 
-    // GPS現在地を取得してマップの中心に設定
-    if (navigator.geolocation) {
+    // GPS現在地を取得してマップの中心に設定（追跡中は即座に使用）
+    const _showCurrentPos = (lat, lng) => {
+      const pos = { lat, lng };
+      map.setCenter(pos);
+      map.setZoom(15);
+      new google.maps.Marker({ map, position: pos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
+    };
+    if (mapCtx.isTracking && mapCtx.currentPosition && mapCtx.currentPosition.lat) {
+      _showCurrentPos(mapCtx.currentPosition.lat, mapCtx.currentPosition.lng);
+    } else if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const currentPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          map.setCenter(currentPos);
-          map.setZoom(13);
-          new google.maps.Marker({ map, position: currentPos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
-        },
+        (pos) => _showCurrentPos(pos.coords.latitude, pos.coords.longitude),
         () => {},
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
       );
@@ -12904,18 +12984,14 @@ window.RevenuePage = () => {
 
     const _extractAddress = TaxiApp.utils.extractAddress;
 
-    map.addListener('click', (e) => {
-      const lat = e.latLng.lat();
-      const lng = e.latLng.lng();
-      marker.setPosition(e.latLng);
-      marker.setVisible(true);
-
-      const timeField = mapPickerField === 'pickup' ? 'pickupTime' : 'dropoffTime';
+    // 逆ジオコーディング処理（座標確定後に呼ばれる共通関数）
+    const _resolveAddress = (lat, lng, field) => {
+      const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
       // 最優先: 既知場所マッチング
       const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
       if (knownPlace) {
-        setForm(f => ({ ...f, [mapPickerField]: knownPlace, [timeField]: getNowTime() }));
-        setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: knownPlace, accuracy: null } }));
+        setForm(f => ({ ...f, [field]: knownPlace, [timeField]: getNowTime() }));
+        setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: knownPlace, accuracy: null } }));
         return;
       }
       // 逆ジオコーディング
@@ -12924,13 +13000,13 @@ window.RevenuePage = () => {
         if (status === 'OK' && results && results.length > 0) {
           const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
           const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
-          setForm(f => ({ ...f, [mapPickerField]: addr, [timeField]: getNowTime() }));
-          setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: addr, accuracy: null } }));
+          setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
+          setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
           // ランドマーク名で上書き試行
           TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
             if (lm) {
-              setForm(f => f[mapPickerField] === addr ? { ...f, [mapPickerField]: lm } : f);
-              setGpsInfo(prev => ({ ...prev, [mapPickerField]: { ...prev[mapPickerField], address: lm } }));
+              setForm(f => f[field] === addr ? { ...f, [field]: lm } : f);
+              setGpsInfo(prev => ({ ...prev, [field]: { ...prev[field], address: lm } }));
             }
           }).catch(() => {});
         } else {
@@ -12940,14 +13016,42 @@ window.RevenuePage = () => {
               const a = data.address || {};
               const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean);
               const addr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setForm(f => ({ ...f, [mapPickerField]: addr, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: addr, accuracy: null } }));
+              setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
             }).catch(() => {
-              setForm(f => ({ ...f, [mapPickerField]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: null, accuracy: null } }));
+              setForm(f => ({ ...f, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime() }));
+              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null, accuracy: null } }));
             });
         }
       });
+    };
+
+    map.addListener('click', (e) => {
+      const tapLat = e.latLng.lat();
+      const tapLng = e.latLng.lng();
+      marker.setPosition(e.latLng);
+      marker.setVisible(true);
+
+      // GPSログから近くの記録を検索し、より正確な位置に補正
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (window.GpsLogService) {
+        GpsLogService.findNearestByLocation(todayStr, tapLat, tapLng, 200, 60).then(entry => {
+          if (entry) {
+            // GPSログの座標を優先使用（タップ位置より正確）
+            AppLogger.info(`地図修正→GPSログ補正: タップ(${tapLat.toFixed(6)},${tapLng.toFixed(6)}) → ログ(${entry.lat.toFixed(6)},${entry.lng.toFixed(6)}) 差${entry.distance}m 時刻=${entry.t}`);
+            const correctedPos = new google.maps.LatLng(entry.lat, entry.lng);
+            marker.setPosition(correctedPos);
+            _resolveAddress(entry.lat, entry.lng, mapPickerField);
+          } else {
+            // GPSログにない場合はタップ位置をそのまま使用
+            _resolveAddress(tapLat, tapLng, mapPickerField);
+          }
+        }).catch(() => {
+          _resolveAddress(tapLat, tapLng, mapPickerField);
+        });
+      } else {
+        _resolveAddress(tapLat, tapLng, mapPickerField);
+      }
     });
 
     return () => { mapPickerInstanceRef.current = null; mapPickerMarkerRef.current = null; };
