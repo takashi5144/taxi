@@ -880,6 +880,50 @@ window.TaxiApp.utils.nominatimUrl = (lat, lng, zoom = 18) => {
   return `https://nominatim.openstreetmap.org/reverse?${params}`;
 };
 
+// 2点間の距離(m)を計算 (Haversine)
+window.TaxiApp.utils.haversineDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// Google Geocoder結果から、クエリ座標に近い最適な結果を選択
+window.TaxiApp.utils.pickBestGeocoderResult = (results, queryLat, queryLng) => {
+  const dist = TaxiApp.utils.haversineDistance;
+  const MAX_DIST = 300; // 300m以内の結果のみ対象
+
+  // 各結果に距離を付与
+  const withDist = results.map(r => {
+    const loc = r.geometry && r.geometry.location;
+    const rLat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
+    const rLng = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
+    return { result: r, distance: dist(queryLat, queryLng, rLat, rLng) };
+  });
+
+  // 近い結果のみ (300m以内)
+  const nearby = withDist.filter(w => w.distance <= MAX_DIST);
+
+  // 近い結果がなければ最も近い結果を返す
+  if (nearby.length === 0) {
+    withDist.sort((a, b) => a.distance - b.distance);
+    return withDist[0].result;
+  }
+
+  // 近い結果内でタイプ優先選択
+  const typePriority = ['street_address', 'premise', 'sublocality_level_3', 'sublocality_level_2', 'route'];
+  for (const t of typePriority) {
+    const match = nearby.find(w => w.result.types.includes(t));
+    if (match) return match.result;
+  }
+
+  // タイプ一致なしなら最も近い結果
+  nearby.sort((a, b) => a.distance - b.distance);
+  return nearby[0].result;
+};
+
 window.TaxiApp.utils.extractAddress = (result) => {
   const comps = result.address_components;
   let prefecture = '', city = '', ward = '', town = '', sublocality = '', chome = '', banchi = '', route = '';
@@ -904,6 +948,199 @@ window.TaxiApp.utils.extractAddress = (result) => {
     .replace(/^日本\s*/, '');
 };
 
+// 場所名エイリアス適用: 住所文字列に含まれるキーワードを置換
+window.TaxiApp.utils.applyPlaceAlias = (address) => {
+  if (!address) return address;
+  const aliases = APP_CONSTANTS.PLACE_ALIASES;
+  for (const [keyword, replacement] of Object.entries(aliases)) {
+    if (address.includes(keyword)) return replacement;
+  }
+  return address;
+};
+
+// 座標ベースの既知場所マッチング（最優先）
+// KNOWN_PLACESに登録された座標のradius以内なら即座にその名称を返す
+window.TaxiApp.utils.matchKnownPlace = (lat, lng) => {
+  const places = APP_CONSTANTS.KNOWN_PLACES;
+  if (!places || places.length === 0) return null;
+  const dist = TaxiApp.utils.haversineDistance;
+  let best = null;
+  let bestDist = Infinity;
+  for (const place of places) {
+    const d = dist(lat, lng, place.lat, place.lng);
+    if (d <= place.radius && d < bestDist) {
+      best = place.name;
+      bestDist = d;
+    }
+  }
+  return best;
+};
+
+// GPS座標から近くのランドマーク名を取得（Places API + Nominatimフォールバック）
+window.TaxiApp.utils.findNearbyLandmark = (() => {
+  const cache = {};
+  const CACHE_KEY = 'taxi_landmark_cache';
+  const MAX_CACHE = 500;
+  let diskCache = null;
+
+  function _loadDiskCache() {
+    if (diskCache) return diskCache;
+    try { diskCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { diskCache = {}; }
+    return diskCache;
+  }
+  function _saveDiskCache(c) {
+    const keys = Object.keys(c);
+    if (keys.length > MAX_CACHE) keys.slice(0, keys.length - MAX_CACHE).forEach(k => delete c[k]);
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
+  }
+
+  // Places APIで検索する施設タイプ（優先度順）
+  const POI_TYPES = [
+    'train_station', 'bus_station', 'subway_station',
+    'hospital', 'doctor', 'pharmacy',
+    'local_government_office', 'city_hall', 'courthouse', 'police', 'fire_station', 'post_office',
+    'school', 'university', 'library',
+    'tourist_attraction', 'museum', 'park', 'amusement_park', 'zoo', 'aquarium',
+    'shopping_mall', 'department_store', 'supermarket',
+    'hotel', 'lodging',
+    'restaurant', 'cafe',
+    'bank',
+    'gas_station', 'car_repair',
+    'convenience_store',
+    'store',
+  ];
+
+  // 距離(m)に応じた適格判定
+  function isEligible(place, distM) {
+    const t = place.types || [];
+    // 駅・病院・役所・観光地: 200m以内
+    if (t.some(x => ['train_station','bus_station','subway_station','hospital','local_government_office','city_hall','tourist_attraction','museum','park','amusement_park','zoo','aquarium','university'].includes(x))) {
+      return distM <= 200;
+    }
+    // その他の施設: 100m以内
+    return distM <= 100;
+  }
+
+  // Places APIで近くの施設を検索
+  function _searchPlaces(lat, lng) {
+    return new Promise((resolve) => {
+      if (!window.google || !google.maps || !google.maps.places) {
+        resolve(null);
+        return;
+      }
+      // PlacesServiceにはmap要素かdiv要素が必要
+      let attrDiv = document.getElementById('places-attr');
+      if (!attrDiv) {
+        attrDiv = document.createElement('div');
+        attrDiv.id = 'places-attr';
+        attrDiv.style.display = 'none';
+        document.body.appendChild(attrDiv);
+      }
+      const service = new google.maps.places.PlacesService(attrDiv);
+      const location = new google.maps.LatLng(lat, lng);
+      const dist = TaxiApp.utils.haversineDistance;
+
+      service.nearbySearch({
+        location,
+        rankBy: google.maps.places.RankBy.DISTANCE,
+        type: POI_TYPES[0], // typeは1つのみ指定可能、まず駅を試す
+      }, (results, status) => {
+        // 全タイプを一括でkeyword検索（typeフィルタなし）
+        service.nearbySearch({
+          location,
+          radius: 200,
+          language: 'ja',
+        }, (allResults, allStatus) => {
+          const candidates = [];
+          if (allStatus === 'OK' && allResults) {
+            allResults.forEach(p => {
+              if (!p.name || !p.geometry || !p.geometry.location) return;
+              const pLat = typeof p.geometry.location.lat === 'function' ? p.geometry.location.lat() : p.geometry.location.lat;
+              const pLng = typeof p.geometry.location.lng === 'function' ? p.geometry.location.lng() : p.geometry.location.lng;
+              const d = dist(lat, lng, pLat, pLng);
+              if (isEligible(p, d)) {
+                // 優先度スコア: タイプの優先順位
+                const typeScore = Math.min(...(p.types || []).map(t => { const idx = POI_TYPES.indexOf(t); return idx >= 0 ? idx : 999; }));
+                candidates.push({ name: p.name, distance: d, typeScore, types: p.types });
+              }
+            });
+          }
+          if (results && status === 'OK') {
+            results.forEach(p => {
+              if (!p.name || !p.geometry || !p.geometry.location) return;
+              const pLat = typeof p.geometry.location.lat === 'function' ? p.geometry.location.lat() : p.geometry.location.lat;
+              const pLng = typeof p.geometry.location.lng === 'function' ? p.geometry.location.lng() : p.geometry.location.lng;
+              const d = dist(lat, lng, pLat, pLng);
+              if (isEligible(p, d) && !candidates.find(c => c.name === p.name)) {
+                const typeScore = Math.min(...(p.types || []).map(t => { const idx = POI_TYPES.indexOf(t); return idx >= 0 ? idx : 999; }));
+                candidates.push({ name: p.name, distance: d, typeScore, types: p.types });
+              }
+            });
+          }
+
+          if (candidates.length === 0) { resolve(null); return; }
+
+          // 優先度スコア→距離でソート
+          candidates.sort((a, b) => a.typeScore - b.typeScore || a.distance - b.distance);
+          resolve(candidates[0].name);
+        });
+      });
+    });
+  }
+
+  // Nominatimで近くのPOI名を取得（フォールバック）
+  async function _searchNominatim(lat, lng) {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1&namedetails=1&extratags=1&accept-language=ja`,
+        { headers: { 'User-Agent': 'TaxiSupportApp/1.0' } }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      // POI名が直接取得できる場合
+      if (data.namedetails && data.namedetails.name && data.type !== 'residential' && data.type !== 'house') {
+        return data.namedetails.name;
+      }
+      if (data.name && data.class !== 'highway' && data.class !== 'place') {
+        return data.name;
+      }
+      return null;
+    } catch { return null; }
+  }
+
+  return async function findNearbyLandmark(lat, lng) {
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) return knownPlace;
+
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+
+    // メモリキャッシュ
+    if (cache[key] !== undefined) return cache[key];
+
+    // ディスクキャッシュ
+    const dc = _loadDiskCache();
+    if (dc[key] !== undefined) { cache[key] = dc[key]; return dc[key]; }
+
+    // Places API
+    let name = await _searchPlaces(lat, lng);
+
+    // Nominatimフォールバック
+    if (!name) name = await _searchNominatim(lat, lng);
+
+    // エイリアス適用
+    if (name) name = TaxiApp.utils.applyPlaceAlias(name);
+
+    // キャッシュ保存（nullも保存して再検索を防止）
+    cache[key] = name;
+    dc[key] = name;
+    diskCache = dc;
+    _saveDiskCache(dc);
+
+    return name;
+  };
+})();
+
 // 逆ジオコーディング（メモリ+localStorageキャッシュ付き）
 window.TaxiApp.utils.reverseGeocode = (() => {
   const CACHE_KEY = 'taxi_geocode_cache';
@@ -925,6 +1162,10 @@ window.TaxiApp.utils.reverseGeocode = (() => {
   function _roundKey(lat, lng) { return `${lat.toFixed(4)},${lng.toFixed(4)}`; }
 
   return async function reverseGeocode(lat, lng) {
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) return knownPlace;
+
     const cache = _loadCache();
     const key = _roundKey(lat, lng);
     if (cache[key]) return cache[key];
@@ -933,12 +1174,13 @@ window.TaxiApp.utils.reverseGeocode = (() => {
     if (window.google && google.maps && google.maps.Geocoder) {
       try {
         const geocoder = new google.maps.Geocoder();
-        const res = await new Promise((resolve, reject) => {
+        const results = await new Promise((resolve, reject) => {
           geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            if (status === 'OK' && results[0]) resolve(results[0]); else reject(status);
+            if (status === 'OK' && results && results.length > 0) resolve(results); else reject(status);
           });
         });
-        const name = TaxiApp.utils.extractAddress(res);
+        const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+        const name = TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(best));
         cache[key] = name;
         memCache = cache;
         _saveCache(cache);
@@ -970,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '2.9.0',
+  VERSION: '3.0.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1060,7 +1302,23 @@ window.APP_CONSTANTS = {
     TRASH: 'taxi_app_trash',
     GPS_LOG: 'taxi_app_gps_log',
     GPS_BG_ENABLED: 'taxi_gps_bg_enabled',
+    PLACE_ALIASES: 'taxi_app_place_aliases',
   },
+
+  // 場所名エイリアス（逆ジオコーディング結果の自動置換）
+  // キー: 元の住所に含まれる文字列（部分一致）、値: 置換後の名称
+  PLACE_ALIASES: {
+    'タクシープール': '旭川駅前北口',
+    '見本林道路線': '三浦綾子記念館',
+  },
+
+  // 座標ベースの既知場所（GPS座標で正確にマッチング）
+  // radius(m)以内の座標は全てこの名称に変換される
+  // 近接する場所は小さいradiusで区別する
+  KNOWN_PLACES: [
+    { name: '旭川駅前北口', lat: 43.763314, lng: 142.359065, radius: 50 },
+    { name: 'イオン旭川駅前店待機場', lat: 43.76455, lng: 142.35875, radius: 50 },
+  ],
 
   // 旭川市の主要ロケーション（駅・病院）
   KNOWN_LOCATIONS: {
@@ -2112,6 +2370,52 @@ window.DataService = (() => {
         AppLogger.error('売上データの保存に失敗しました', e.message);
       }
       return false;
+    }
+  }
+
+  // 既存データの場所名をエイリアスで一括置換
+  function applyPlaceAliasesToExistingData() {
+    const alias = TaxiApp.utils.applyPlaceAlias;
+    const matchKnown = TaxiApp.utils.matchKnownPlace;
+    let changed = false;
+
+    // 売上記録
+    const entries = getEntries();
+    entries.forEach(e => {
+      // 座標ベースの既知場所マッチング（最優先）
+      if (e.pickupCoords && e.pickupCoords.lat) {
+        const known = matchKnown(e.pickupCoords.lat, e.pickupCoords.lng);
+        if (known && known !== e.pickup) { e.pickup = known; changed = true; return; }
+      }
+      if (e.dropoffCoords && e.dropoffCoords.lat) {
+        const known = matchKnown(e.dropoffCoords.lat, e.dropoffCoords.lng);
+        if (known && known !== e.dropoff) { e.dropoff = known; changed = true; }
+      }
+      // テキストベースのエイリアス
+      const newPickup = alias(e.pickup);
+      const newDropoff = alias(e.dropoff);
+      if (newPickup !== e.pickup) { e.pickup = newPickup; changed = true; }
+      if (newDropoff !== e.dropoff) { e.dropoff = newDropoff; changed = true; }
+    });
+    if (changed) {
+      saveEntries(entries);
+      AppLogger.info(`場所名を既存売上データに適用しました`);
+    }
+
+    // 他社乗車記録
+    let rivalChanged = false;
+    const rivals = getRivalEntries();
+    rivals.forEach(e => {
+      if (e.locationCoords && e.locationCoords.lat) {
+        const known = matchKnown(e.locationCoords.lat, e.locationCoords.lng);
+        if (known && known !== e.location) { e.location = known; rivalChanged = true; return; }
+      }
+      const newLoc = alias(e.location);
+      if (newLoc !== e.location) { e.location = newLoc; rivalChanged = true; }
+    });
+    if (rivalChanged) {
+      saveRivalEntries(rivals);
+      AppLogger.info(`場所名を既存他社乗車データに適用しました`);
     }
   }
 
@@ -4602,7 +4906,7 @@ window.DataService = (() => {
           .map(([name, count]) => ({ name, count }));
 
         return {
-          name: topName ? topName[0] : '不明な場所',
+          name: TaxiApp.utils.applyPlaceAlias(topName ? topName[0] : '不明な場所'),
           count: c.count,
           weightedCount: c.weightedCount,
           avgAmount: Math.round(c.totalAmount / c.count),
@@ -6735,6 +7039,7 @@ window.DataService = (() => {
     getFrequentPickupSpots,
     getFrequentPickupSpotsWithNames,
     reverseGeocodeSpot,
+    applyPlaceAliasesToExistingData,
     getGoalProgress,
     getUpcomingEventAlerts,
     getSmartHeatmapData,
@@ -8738,7 +9043,7 @@ window.useGoogleMaps = () => {
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&libraries=places`;
     script.async = true;
     script.onload = () => {
       setIsLoaded(true);
@@ -9014,7 +9319,7 @@ window._gmapLoader = {
       }
       this.status = 'loading';
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&v=weekly&libraries=visualization`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&v=weekly&libraries=visualization,places`;
       script.async = true;
       script.onload = () => {
         this.status = 'loaded';
@@ -12397,26 +12702,49 @@ window.RevenuePage = () => {
   }, []);
 
   // GPS座標から逆ジオコーディングして住所をフォームに反映
+  // 住所をフォームに反映後、ランドマーク名が見つかれば上書き
+  const _applyLandmarkName = useCallback((lat, lng, field, fallbackAddress) => {
+    TaxiApp.utils.findNearbyLandmark(lat, lng).then(landmark => {
+      if (landmark) {
+        AppLogger.info(`ランドマーク検出 (${field}): ${landmark}`);
+        setForm(prev => {
+          // ユーザーが手動変更していなければ上書き
+          if (prev[field] === fallbackAddress) return { ...prev, [field]: landmark };
+          return prev;
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
   const _reverseGeocodeAndSetForm = useCallback((lat, lng, acc, field) => {
     setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
+
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) {
+      const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+      setGpsLoading(prev => ({ ...prev, [field]: false }));
+      setForm(prev => ({ ...prev, [field]: knownPlace, [timeField]: getNowTime() }));
+      setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: knownPlace } }));
+      AppLogger.info(`既知場所マッチ (${field}): ${knownPlace} (精度${acc}m)`);
+      return;
+    }
 
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(prev => ({ ...prev, [field]: false }));
         if (status === 'OK' && results && results.length > 0) {
-          // 最も精度の高い結果を優先選択
-          const preferred = results.find(r => r.types.includes('street_address'))
-            || results.find(r => r.types.includes('premise'))
-            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
-            || results.find(r => r.types.includes('route'))
-            || results[0];
-          const address = TaxiApp.utils.extractAddress(preferred);
+          // クエリ座標に近い最適な結果を選択（距離検証付き）
+          const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const address = TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(preferred));
           const fullAddress = preferred.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
           const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
           setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
           setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddress } }));
           AppLogger.info(`GPS逆ジオコーディング成功 (${field}): ${address}`);
+          // ランドマーク名で上書き試行
+          _applyLandmarkName(lat, lng, field, address);
         } else {
           const timeField2 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
           const nomUrl2 = TaxiApp.utils.nominatimUrl(lat, lng, 18);
@@ -12426,9 +12754,10 @@ window.RevenuePage = () => {
               if (data2 && data2.address) {
                 const a2 = data2.address;
                 const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
-                const shortAddr2 = parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' ');
+                const shortAddr2 = TaxiApp.utils.applyPlaceAlias(parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' '));
                 setForm(prev => ({ ...prev, [field]: shortAddr2, [timeField2]: getNowTime() }));
                 setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: data2.display_name || shortAddr2 } }));
+                _applyLandmarkName(lat, lng, field, shortAddr2);
               } else {
                 const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
@@ -12453,11 +12782,12 @@ window.RevenuePage = () => {
           if (data && data.address) {
             const a = data.address;
             const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
-            const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
+            const shortAddr = TaxiApp.utils.applyPlaceAlias(parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' '));
             const fullAddr = data.display_name || shortAddr;
             setForm(prev => ({ ...prev, [field]: shortAddr, [timeField3]: getNowTime() }));
             setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddr } }));
             AppLogger.info(`Nominatim逆ジオコーディング成功 (${field}): ${shortAddr}`);
+            _applyLandmarkName(lat, lng, field, shortAddr);
           } else {
             const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
             setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
@@ -12473,7 +12803,7 @@ window.RevenuePage = () => {
           AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
         });
     }
-  }, [apiKey]);
+  }, [apiKey, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
   // GPS追跡中はwatchPositionの最新位置を即座に使用（高速＆確認ダイアログなし）
@@ -12581,18 +12911,28 @@ window.RevenuePage = () => {
       marker.setVisible(true);
 
       const timeField = mapPickerField === 'pickup' ? 'pickupTime' : 'dropoffTime';
+      // 最優先: 既知場所マッチング
+      const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+      if (knownPlace) {
+        setForm(f => ({ ...f, [mapPickerField]: knownPlace, [timeField]: getNowTime() }));
+        setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: knownPlace, accuracy: null } }));
+        return;
+      }
       // 逆ジオコーディング
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
-          const preferred = results.find(r => r.types.includes('street_address'))
-            || results.find(r => r.types.includes('premise'))
-            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
-            || results.find(r => r.types.includes('route'))
-            || results[0];
-          const addr = _extractAddress(preferred);
+          const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
           setForm(f => ({ ...f, [mapPickerField]: addr, [timeField]: getNowTime() }));
           setGpsInfo(prev => ({ ...prev, [mapPickerField]: { lat, lng, address: addr, accuracy: null } }));
+          // ランドマーク名で上書き試行
+          TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+            if (lm) {
+              setForm(f => f[mapPickerField] === addr ? { ...f, [mapPickerField]: lm } : f);
+              setGpsInfo(prev => ({ ...prev, [mapPickerField]: { ...prev[mapPickerField], address: lm } }));
+            }
+          }).catch(() => {});
         } else {
           // Nominatimフォールバック
           fetch(TaxiApp.utils.nominatimUrl(lat, lng, 18))
@@ -14310,19 +14650,51 @@ window.RivalRidePage = () => {
 
   // 逆ジオコーディング共通処理（autoAdd=trueでGPS解決時に自動記録追加）
   const reverseGeocode = (lat, lng, autoAdd) => {
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) {
+      setGpsLoading(false);
+      AppLogger.info(`他社乗車 既知場所マッチ: ${knownPlace}`);
+      if (autoAdd) {
+        autoAddEntry(knownPlace, { lat, lng });
+      } else {
+        setForm(prev => ({ ...prev, location: knownPlace, locationCoords: { lat, lng }, time: getNowTime() }));
+        setGpsInfo(prev => ({ ...prev, lat, lng, address: knownPlace }));
+      }
+      return;
+    }
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(false);
-        if (status === 'OK' && results[0]) {
-          const address = _formatRivalAddress(results[0]);
-          const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+        if (status === 'OK' && results && results.length > 0) {
+          const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const address = _formatRivalAddress(best);
+          const fullAddress = best.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
           AppLogger.info(`他社乗車 GPS逆ジオコーディング成功: ${address}`);
           if (autoAdd) {
             autoAddEntry(address, { lat, lng });
+            // ランドマーク名で後から更新
+            TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+              if (lm && lm !== address) {
+                AppLogger.info(`他社乗車 ランドマーク検出: ${lm}`);
+                // 直近追加エントリの場所名を更新
+                const rivals = DataService.getRivalEntries();
+                if (rivals.length > 0 && rivals[0].location === address) {
+                  DataService.updateRivalEntry(rivals[0].id, { location: lm });
+                }
+              }
+            }).catch(() => {});
           } else {
             setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng }, time: getNowTime() }));
             setGpsInfo(prev => ({ ...prev, lat, lng, address: fullAddress }));
+            // ランドマーク名で上書き試行
+            TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+              if (lm) {
+                AppLogger.info(`他社乗車 ランドマーク検出: ${lm}`);
+                setForm(prev => prev.location === address ? { ...prev, location: lm } : prev);
+              }
+            }).catch(() => {});
           }
         } else {
           nominatimFallback(lat, lng, autoAdd);
@@ -16771,14 +17143,31 @@ window.EventsPage = () => {
   }, [apiKey]);
 
   const reverseGeocode = (lat, lng) => {
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) {
+      setGpsLoading(false);
+      AppLogger.info(`イベント 既知場所マッチ: ${knownPlace}`);
+      setForm(prev => ({ ...prev, location: knownPlace, locationCoords: { lat, lng } }));
+      setGpsInfo({ lat, lng, address: knownPlace });
+      return;
+    }
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(false);
-        if (status === 'OK' && results[0]) {
-          const address = formatAddress(results[0]);
+        if (status === 'OK' && results && results.length > 0) {
+          const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const address = formatAddress(best);
           setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng } }));
-          setGpsInfo({ lat, lng, address: results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '') });
+          setGpsInfo({ lat, lng, address: best.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '') });
+          // ランドマーク名で上書き試行
+          TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+            if (lm) {
+              AppLogger.info(`イベント ランドマーク検出: ${lm}`);
+              setForm(prev => prev.location === address ? { ...prev, location: lm } : prev);
+            }
+          }).catch(() => {});
         } else {
           nominatimFallback(lat, lng);
         }
@@ -20307,8 +20696,8 @@ window.DataManagePage = () => {
             else reject(new Error(status));
           });
         });
-        const preferred = results.find(r => r.types.includes('premise') || r.types.includes('street_address')) || results[0];
-        return TaxiApp.utils.extractAddress(preferred);
+        const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+        return TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(preferred));
       } catch {
         // Google失敗時はNominatimにフォールバック
       }
@@ -20465,17 +20854,20 @@ window.DataManagePage = () => {
       marker.setPosition(e.latLng);
       marker.setVisible(true);
 
+      // 最優先: 既知場所マッチング
+      const knownPlace2 = TaxiApp.utils.matchKnownPlace(lat, lng);
+      if (knownPlace2) {
+        const coordsKey = mapPickerField === 'pickup' ? 'pickupCoords' : 'dropoffCoords';
+        setAddForm(f => ({ ...f, [mapPickerField]: knownPlace2 }));
+        setAddCoords(c => ({ ...c, [coordsKey]: { lat, lng } }));
+        return;
+      }
       // 逆ジオコーディング
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
-          // 最も詳細な結果を選択（street_address > route > sublocality > locality）
-          const preferred = results.find(r => r.types.includes('street_address'))
-            || results.find(r => r.types.includes('premise'))
-            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
-            || results.find(r => r.types.includes('route'))
-            || results[0];
-          const addr = _extractAddress(preferred);
+          const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
           const coordsKey = mapPickerField === 'pickup' ? 'pickupCoords' : 'dropoffCoords';
           setAddForm(f => ({ ...f, [mapPickerField]: addr }));
           setAddCoords(c => ({ ...c, [coordsKey]: { lat, lng } }));
@@ -20535,15 +20927,18 @@ window.DataManagePage = () => {
       marker.setPosition(e.latLng);
       marker.setVisible(true);
 
+      // 最優先: 既知場所マッチング
+      const knownPlace3 = TaxiApp.utils.matchKnownPlace(lat, lng);
+      if (knownPlace3) {
+        const targetField = editMapPickerField === 'dropoff' ? 'dropoff' : 'pickup';
+        setEditForm(f => ({ ...f, [targetField]: knownPlace3 }));
+        return;
+      }
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
-          const preferred = results.find(r => r.types.includes('street_address'))
-            || results.find(r => r.types.includes('premise'))
-            || results.find(r => r.types.includes('sublocality_level_3') || r.types.includes('sublocality_level_2'))
-            || results.find(r => r.types.includes('route'))
-            || results[0];
-          const addr = _extractAddress(preferred);
+          const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
           const targetField = editMapPickerField === 'dropoff' ? 'dropoff' : 'pickup';
           setEditForm(f => ({ ...f, [targetField]: addr }));
         } else {
@@ -22983,6 +23378,9 @@ window.App = () => {
   AppLogger.info('アプリケーション起動中...');
   AppLogger.info(`バージョン: ${APP_CONSTANTS.VERSION}`);
   AppLogger.info(`React バージョン: ${React.version}`);
+
+  // 既存データに場所名エイリアスを適用
+  DataService.applyPlaceAliasesToExistingData();
 
   const root = ReactDOM.createRoot(document.getElementById('root'));
 
