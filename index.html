@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v1.5.0</title>
+  <title>タクシー売上サポート v3.3.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.1.1',
+  VERSION: '3.3.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2693,7 +2693,7 @@ window.DataService = (() => {
     return (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
   }
 
-  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks', 'watchpickups'];
+  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
 
   async function _syncToCloud(type, entries, _retryCount) {
     if (!ALLOWED_SYNC_TYPES.includes(type)) { AppLogger.warn('不正な同期タイプ: ' + type); return; }
@@ -6603,6 +6603,162 @@ window.DataService = (() => {
     };
   }
 
+  // 閑散期流しルート提案
+  function getSlowPeriodCruisingRoutes() {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const dayOfWeek = now.getDay();
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+
+    // 需要スコア取得
+    const demandScore = getDayShiftDemandScore(null);
+    const currentScore = demandScore.currentScore || 0;
+
+    // 売上目標達成率取得
+    const goalProgress = getGoalProgress();
+    const dailyRate = goalProgress ? goalProgress.dailyRate : 100;
+
+    // 勤務時間判定
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const activeShift = shifts.find(s => !s.endTime);
+    const hoursWorked = activeShift ? (Date.now() - new Date(activeShift.startTime).getTime()) / 3600000 : 0;
+
+    // 閑散期判定
+    const isLowDemand = currentScore <= 30;
+    const isLowRevenue = hoursWorked >= 3 && dailyRate < 40;
+    const isSlowPeriod = isLowDemand || isLowRevenue;
+
+    if (!isSlowPeriod) {
+      return { isSlowPeriod: false, trigger: null, currentScore, dailyRate, routes: [], generalTips: [] };
+    }
+
+    const trigger = isLowDemand && isLowRevenue ? '両方' : isLowDemand ? '需要低' : '売上不足';
+    const routes = [];
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const hospSchedules = locs.hospitalSchedules || [];
+    const hotelPeaks = locs.hotelPeakWindows || {};
+    const cruisingAreas = locs.cruisingAreas || [];
+
+    // --- ルート1: 病院帰宅ルート（平日のみ、退院ピーク時間帯） ---
+    if (isWeekday) {
+      const activeHospitals = hospSchedules.filter(sched => {
+        if (sched.closedDays && sched.closedDays.includes(dayOfWeek)) return false;
+        return sched.dischargePeaks.some(dp => {
+          const startH = parseInt(dp.start.split(':')[0], 10);
+          const endH = parseInt(dp.end.split(':')[0], 10);
+          return currentHour >= startH - 1 && currentHour <= endH + 1;
+        });
+      });
+
+      if (activeHospitals.length > 0) {
+        // 最もウェイトの高い病院を選択
+        let bestHosp = activeHospitals[0];
+        let bestWeight = 0;
+        activeHospitals.forEach(h => {
+          h.dischargePeaks.forEach(dp => {
+            if (dp.weight > bestWeight) { bestWeight = dp.weight; bestHosp = h; }
+          });
+        });
+
+        const residentialAreas = cruisingAreas.filter(a =>
+          ['toyooka', 'touko', 'kagura', 'midorimachi', 'shunko'].includes(a.id)
+        );
+        // 需要指数で上位2エリアを選択
+        const rankedResidential = residentialAreas.map(a => {
+          const hourData = (getCruisingAreaDemandIndex().areas.find(ca => ca.id === a.id) || {});
+          const idx = hourData.hourlyIndex ? (hourData.hourlyIndex[currentHour] || {}).index || 0 : 0;
+          return { ...a, demandIdx: idx };
+        }).sort((a, b) => b.demandIdx - a.demandIdx).slice(0, 2);
+
+        if (rankedResidential.length > 0) {
+          const areaNames = [bestHosp.name.replace('旭川', ''), ...rankedResidential.map(a => a.shortName)];
+          routes.push({
+            id: 'hospital_return',
+            label: '病院帰宅ルート',
+            areas: areaNames,
+            stayMinutes: [15, 20, 20],
+            expectedRevenue: Math.round(1800 * 1.5),
+            factor: '退院・通院終了の帰宅需要（長距離が多い）',
+            tip: `${bestHosp.name.replace('旭川', '')}周辺で待機後、流しながら住宅街へ移動`,
+          });
+        }
+      }
+    }
+
+    // --- ルート2: ホテル周辺ルート（CO/CI時間帯） ---
+    const isCheckoutTime = currentHour >= 9 && currentHour <= 11;
+    const isCheckinTime = currentHour >= 15 && currentHour <= 17;
+    if (isCheckoutTime || isCheckinTime) {
+      const timeLabel = isCheckoutTime ? 'チェックアウト' : 'チェックイン';
+      const downtown = cruisingAreas.find(a => a.id === 'downtown');
+      const hotelArea = '駅周辺ホテル';
+      const areaNames = isCheckoutTime
+        ? [hotelArea, downtown ? downtown.shortName : '中心地', '旭川駅']
+        : ['旭川駅', downtown ? downtown.shortName : '中心地', hotelArea];
+
+      routes.push({
+        id: 'hotel_route',
+        label: 'ホテル周辺ルート',
+        areas: areaNames,
+        stayMinutes: [15, 15, 20],
+        expectedRevenue: Math.round(1400 * 1.8),
+        factor: `${timeLabel}時間帯の観光客・ビジネス客需要`,
+        tip: isCheckoutTime
+          ? '駅遠方ホテル（アートホテル・OMO7）周辺から開始し駅方面へ'
+          : '駅前で到着客を拾い、ホテル密集エリアへ',
+      });
+    }
+
+    // --- ルート3: 需要探索ルート（常時、残りエリア） ---
+    const usedAreaIds = new Set();
+    routes.forEach(r => {
+      if (r.id === 'hospital_return') usedAreaIds.add('idai');
+      if (r.id === 'hotel_route') usedAreaIds.add('downtown');
+    });
+
+    const cruisingIndex = getCruisingAreaDemandIndex();
+    const availableAreas = cruisingAreas
+      .filter(a => !usedAreaIds.has(a.id))
+      .map(a => {
+        const areaData = cruisingIndex.areas.find(ca => ca.id === a.id) || {};
+        const idx = areaData.hourlyIndex ? (areaData.hourlyIndex[currentHour] || {}).index || 0 : 0;
+        return { ...a, demandIdx: idx };
+      })
+      .sort((a, b) => b.demandIdx - a.demandIdx)
+      .slice(0, 3);
+
+    if (availableAreas.length >= 2) {
+      const avgDemand = availableAreas.reduce((s, a) => s + a.demandIdx, 0) / availableAreas.length;
+      routes.push({
+        id: 'demand_explore',
+        label: '需要探索ルート',
+        areas: availableAreas.map(a => a.shortName),
+        stayMinutes: availableAreas.map(() => 15),
+        expectedRevenue: Math.round(1200 * (avgDemand >= 30 ? 2 : 1.2)),
+        factor: '相対的に需要が高いエリアを巡回',
+        tip: `${availableAreas[0].shortName}から開始し、反応がなければ${availableAreas.length >= 2 ? availableAreas[1].shortName : '次'}へ移動`,
+      });
+    }
+
+    // --- 一般アドバイス ---
+    const generalTips = [];
+    if (currentHour >= 7 && currentHour <= 9) {
+      generalTips.push('朝は通勤・通院需要が中心。病院方面と駅周辺を重点的に');
+    } else if (currentHour >= 10 && currentHour <= 14) {
+      generalTips.push('昼間は需要が分散。移動距離を抑え、中心地周辺で効率重視');
+    } else if (currentHour >= 15 && currentHour <= 17) {
+      generalTips.push('午後はホテルCI・買物帰りが増加。駅周辺〜中心地が有望');
+    }
+    if (!isWeekday) {
+      generalTips.push('土日は病院需要激減。ホテル・観光スポット周辺にシフト');
+    }
+    if (isLowRevenue) {
+      generalTips.push('売上ペース低下中。1回の長距離より回転数重視で中心部を流す');
+    }
+
+    return { isSlowPeriod: true, trigger, currentScore, dailyRate, routes, generalTips };
+  }
+
   // 交通到着データ + 病院ピークからヒートマップポイントを生成
   function getTransitHeatmapData() {
     const schedule = getDailyDemandSchedule();
@@ -7078,6 +7234,7 @@ window.DataService = (() => {
     getNextOptimalAction,
     getChainSuggestion,
     getStrategySimulation,
+    getSlowPeriodCruisingRoutes,
 
     // ホテル価格
     getHotelPriceHistory,
@@ -8617,6 +8774,49 @@ window.GpsLogService = (() => {
     return best;
   }
 
+  /** 売上記録保存後に乗車/降車イベントをGPSログに記録 */
+  async function recordEvent(dateStr, eventType, lat, lng, time, entryId) {
+    if (!dateStr || lat == null || lng == null) return;
+    const entry = {
+      t: time ? new Date(dateStr + 'T' + time + ':00').toISOString() : new Date().toISOString(),
+      lat: Math.round(lat * 1e6) / 1e6,
+      lng: Math.round(lng * 1e6) / 1e6,
+      acc: null,
+      spd: null,
+      w: _weatherCache ? _weatherCache.w : null,
+      tp: _weatherCache ? _weatherCache.tp : null,
+      event: eventType,  // 'pickup' or 'dropoff'
+      entryId: entryId || null,
+    };
+    if (!_buffer[dateStr]) _buffer[dateStr] = [];
+    _buffer[dateStr].push(entry);
+    await _flush();
+  }
+
+  /** 売上記録編集後に乗車/降車イベントをGPSログ上で更新 */
+  async function updateEvent(dateStr, entryId, eventType, coords, time) {
+    if (!dateStr || !entryId) return;
+    // まずバッファをフラッシュしてからIndexedDBのデータのみを操作（二重書き込み防止）
+    await _flush();
+    const stored = (await _idbGet(dateStr)) || [];
+    let changed = false;
+    for (const p of stored) {
+      if (p.entryId === entryId && p.event === eventType) {
+        if (coords && coords.lat != null) {
+          p.lat = Math.round(coords.lat * 1e6) / 1e6;
+          p.lng = Math.round(coords.lng * 1e6) / 1e6;
+        }
+        if (time) {
+          p.t = new Date(dateStr + 'T' + time + ':00').toISOString();
+        }
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _idbPut(dateStr, stored);
+    }
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -8643,6 +8843,9 @@ window.GpsLogService = (() => {
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
+    // 乗車/降車イベント記録
+    recordEvent,
+    updateEvent,
   };
 })();
 })();
@@ -11267,6 +11470,7 @@ window.DashboardPage = () => {
   const strategyData = useMemo(() => DataService.getStrategySimulation(new Date().getHours()), [refreshKey]);
   const [strategyHour, setStrategyHour] = useState(new Date().getHours());
   const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
+  const slowPeriodRoutes = useMemo(() => DataService.getSlowPeriodCruisingRoutes(), [refreshKey, weatherImpact]);
 
   // 始業/終業シフト管理
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
@@ -12497,6 +12701,82 @@ window.DashboardPage = () => {
     ),
 
     // (旧イベント需要アラート → 日勤タイムラインに統合済み)
+
+    // 閑散期流しルート
+    slowPeriodRoutes && slowPeriodRoutes.isSlowPeriod && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)', border: '1px solid rgba(245,158,11,0.3)', background: 'linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(217,119,6,0.04) 100%)' },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: '#f59e0b', border: '1.5px solid #f59e0b', borderRadius: '4px', padding: '1px 4px' } }, '流'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)', color: '#f59e0b' } }, '閑散期流しルート')
+        ),
+        React.createElement('span', {
+          style: { fontSize: '9px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
+        }, slowPeriodRoutes.trigger === '両方' ? '需要低+売上不足' : slowPeriodRoutes.trigger === '需要低' ? '需要低' : '売上不足')
+      ),
+
+      // ステータス行
+      React.createElement('div', { style: { display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '11px' } },
+        React.createElement('span', { style: { color: 'var(--text-secondary)' } },
+          '需要スコア: ',
+          React.createElement('span', { style: { fontWeight: 700, color: slowPeriodRoutes.currentScore <= 20 ? '#ef4444' : '#f59e0b' } }, String(slowPeriodRoutes.currentScore))
+        ),
+        React.createElement('span', { style: { color: 'var(--text-secondary)' } },
+          '目標達成率: ',
+          React.createElement('span', { style: { fontWeight: 700, color: slowPeriodRoutes.dailyRate < 40 ? '#ef4444' : '#f59e0b' } }, `${slowPeriodRoutes.dailyRate}%`)
+        )
+      ),
+
+      // ルートリスト
+      ...slowPeriodRoutes.routes.map((route, idx) =>
+        React.createElement('div', {
+          key: route.id,
+          style: { marginBottom: '12px', padding: '10px', borderRadius: '8px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.12)' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
+            React.createElement('span', {
+              style: { width: '20px', height: '20px', borderRadius: '50%', background: '#f59e0b', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 },
+            }, String(idx + 1)),
+            React.createElement('span', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' } }, route.label)
+          ),
+          // エリア矢印表示
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '6px', fontSize: '11px' } },
+            ...route.areas.flatMap((area, aIdx) => {
+              const items = [React.createElement('span', {
+                key: `a-${aIdx}`,
+                style: { padding: '2px 6px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#d97706', fontWeight: 600, fontSize: '10px' },
+              }, area)];
+              if (aIdx < route.areas.length - 1) {
+                items.push(React.createElement('span', { key: `arr-${aIdx}`, style: { color: '#f59e0b', fontSize: '10px' } }, '\u2192'));
+              }
+              return items;
+            })
+          ),
+          // 詳細行
+          React.createElement('div', { style: { display: 'flex', gap: '12px', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px' } },
+            React.createElement('span', null, `滞在: ${route.stayMinutes.join('→')}分`),
+            React.createElement('span', { style: { fontWeight: 600, color: '#f59e0b' } }, `期待: ¥${route.expectedRevenue.toLocaleString()}/h`)
+          ),
+          // 要因
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' } }, route.factor),
+          // Tip
+          React.createElement('div', { style: { fontSize: '10px', color: '#d97706', fontStyle: 'italic' } }, `Tip: ${route.tip}`)
+        )
+      ),
+
+      // 一般アドバイス
+      slowPeriodRoutes.generalTips.length > 0 && React.createElement('div', {
+        style: { marginTop: '8px', padding: '8px 10px', borderRadius: '6px', background: 'rgba(245,158,11,0.05)', borderLeft: '3px solid #f59e0b' },
+      },
+        React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: '#f59e0b', marginBottom: '4px' } }, 'ポイント'),
+        ...slowPeriodRoutes.generalTips.map((tip, i) =>
+          React.createElement('div', { key: i, style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, `・${tip}`)
+        )
+      )
+    ),
+
     // 累計情報
     overallSummary.rideCount > 0 && React.createElement(Card, {
       style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
@@ -12872,7 +13152,7 @@ window.RevenuePage = () => {
   }, [apiKey, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
-  // 優先順位: 1. 常時追跡中の最新位置 → 2. GPSログの直近エントリ → 3. 新規位置取得
+  // ボタン押下時は常にその場で新規GPS位置を取得する（キャッシュは使わない）
   const getGpsLocation = useCallback((field) => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -12882,40 +13162,7 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
-    // 優先1: GPS追跡が有効で最新位置がある場合は即座に使用
-    if (mapCtx.isTracking && mapCtx.currentPosition && mapCtx.currentPosition.lat && mapCtx.currentPosition.lng) {
-      const lat = mapCtx.currentPosition.lat;
-      const lng = mapCtx.currentPosition.lng;
-      const acc = Math.round(mapCtx.accuracy || 0);
-      AppLogger.info(`GPS(常時追跡・即時取得): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
-      _reverseGeocodeAndSetForm(lat, lng, acc, field);
-      return;
-    }
-
-    // 優先2: GPSログから直近60秒以内のエントリを検索
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const now = Date.now();
-    if (window.GpsLogService) {
-      GpsLogService.findNearestEntry(todayStr, now, 60000).then(entry => {
-        if (entry) {
-          AppLogger.info(`GPS(ログ直近エントリ使用): ${entry.lat.toFixed(6)}, ${entry.lng.toFixed(6)} 精度${entry.acc || '?'}m 記録時刻=${entry.t}`);
-          _reverseGeocodeAndSetForm(entry.lat, entry.lng, entry.acc || 0, field);
-          return;
-        }
-        // 優先3: 新規位置取得
-        _getNewGpsPosition(field);
-      }).catch(() => {
-        _getNewGpsPosition(field);
-      });
-      return;
-    }
-
-    // GpsLogService未ロード時は新規取得
-    _getNewGpsPosition(field);
-  }, [apiKey, mapCtx.isTracking, mapCtx.currentPosition, mapCtx.accuracy, _reverseGeocodeAndSetForm]);
-
-  // 新規GPS位置取得ヘルパー
-  const _getNewGpsPosition = useCallback((field) => {
+    // 常に新規GPS位置を取得（乗車地・降車地それぞれでボタンを押した瞬間の位置を使う）
     getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
       .then((position) => {
         const lat = position.coords.latitude;
@@ -13088,6 +13335,18 @@ window.RevenuePage = () => {
       return;
     }
 
+    // 保存後: GPSログに乗車/降車イベントを記録
+    if (window.GpsLogService && result.entry) {
+      const entry = result.entry;
+      const dateStr = entry.date || getLocalDateString();
+      if (entry.pickupCoords && entry.pickupCoords.lat) {
+        GpsLogService.recordEvent(dateStr, 'pickup', entry.pickupCoords.lat, entry.pickupCoords.lng, entry.pickupTime, entry.id);
+      }
+      if (entry.dropoffCoords && entry.dropoffCoords.lat) {
+        GpsLogService.recordEvent(dateStr, 'dropoff', entry.dropoffCoords.lat, entry.dropoffCoords.lng, entry.dropoffTime, entry.id);
+      }
+    }
+
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setMapPickerField(null);
@@ -13193,15 +13452,81 @@ window.RevenuePage = () => {
       purpose: entry.purpose || '',
       memo: entry.memo || '',
       source: entry.source || '',
+      pickupCoords: entry.pickupCoords || null,
+      dropoffCoords: entry.dropoffCoords || null,
     });
     setEditingId(entry.id);
     setEditErrors([]);
+  }, []);
+
+  const [editGpsLoading, setEditGpsLoading] = useState({ pickup: false, dropoff: false });
+
+  const getEditGpsLocation = useCallback((field) => {
+    if (!navigator.geolocation) {
+      setEditErrors(['このブラウザではGPS機能が使えません']);
+      return;
+    }
+    setEditGpsLoading(prev => ({ ...prev, [field]: true }));
+    setEditErrors([]);
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
+      .then((position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const acc = Math.round(position.coords.accuracy);
+        const coordsKey = field === 'pickup' ? 'pickupCoords' : 'dropoffCoords';
+        const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
+        AppLogger.info(`編集GPS取得 (${field}): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
+        // 逆ジオコーディングで住所取得
+        const apiKey = TaxiApp.utils.getGoogleMapsApiKey ? TaxiApp.utils.getGoogleMapsApiKey() : (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GOOGLE_MAPS_API_KEY) || '');
+        if (apiKey && window.google && window.google.maps) {
+          const geocoder = new google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+            if (status === 'OK' && results && results.length > 0) {
+              const preferred = TaxiApp.utils.pickBestGeocoderResult ? TaxiApp.utils.pickBestGeocoderResult(results, lat, lng) : results[0];
+              const addr = TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(preferred));
+              setEditForm(prev => ({ ...prev, [field]: addr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+              // ランドマーク名で上書き試行
+              if (TaxiApp.utils.findNearbyLandmark) {
+                TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+                  if (lm) setEditForm(prev => prev[field] === addr ? { ...prev, [field]: lm } : prev);
+                }).catch(() => {});
+              }
+            } else {
+              setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+            }
+          });
+        } else {
+          // Nominatimフォールバック
+          const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
+          fetch(nomUrl).then(r => r.json()).then(data => {
+            setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+            if (data && data.address) {
+              const a = data.address;
+              const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
+              const shortAddr = TaxiApp.utils.applyPlaceAlias(parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+              setEditForm(prev => ({ ...prev, [field]: shortAddr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+            } else {
+              setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+            }
+          }).catch(() => {
+            setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+            setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+          });
+        }
+      })
+      .catch((error) => {
+        setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+        const messages = { 1: 'GPS使用が許可されていません。', 2: '現在地を取得できませんでした。', 3: 'GPS取得がタイムアウトしました。' };
+        setEditErrors([messages[error.code] || 'GPS取得に失敗しました']);
+      });
   }, []);
 
   const cancelEdit = useCallback(() => {
     setEditingId(null);
     setEditForm({});
     setEditErrors([]);
+    setEditGpsLoading({ pickup: false, dropoff: false });
   }, []);
 
   const saveEdit = useCallback(() => {
@@ -13225,6 +13550,8 @@ window.RevenuePage = () => {
       discounts,
       discountAmount,
       discountType,
+      pickupCoords: editForm.pickupCoords || null,
+      dropoffCoords: editForm.dropoffCoords || null,
     };
     delete updates.discounts; // 一旦削除してからセット
     updates.discounts = discounts;
@@ -13234,9 +13561,19 @@ window.RevenuePage = () => {
       setEditErrors((result && result.errors) || ['保存に失敗しました']);
       return;
     }
+
+    // 編集後: GPSログの乗車/降車イベントも更新
+    if (window.GpsLogService && result.entry) {
+      const entry = result.entry;
+      const dateStr = entry.date || getLocalDateString();
+      GpsLogService.updateEvent(dateStr, entry.id, 'pickup', entry.pickupCoords, entry.pickupTime);
+      GpsLogService.updateEvent(dateStr, entry.id, 'dropoff', entry.dropoffCoords, entry.dropoffTime);
+    }
+
     setEditingId(null);
     setEditForm({});
     setEditErrors([]);
+    setEditGpsLoading({ pickup: false, dropoff: false });
     setRefreshKey(k => k + 1);
   }, [editingId, editForm]);
 
@@ -14242,20 +14579,44 @@ window.RevenuePage = () => {
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--color-primary-light)' } }, 'edit'),
               React.createElement('span', { style: { fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-light)' } }, '記録を編集')
             ),
-            // 乗車地
+            // 乗車地（GPS付き）
             React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '乗車地'),
-              React.createElement('input', { type: 'text', value: editForm.pickup || '', onChange: (e) => setEditForm({ ...editForm, pickup: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: '乗車地' })
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' } },
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, '乗車地'),
+                React.createElement('button', {
+                  type: 'button',
+                  onClick: () => getEditGpsLocation('pickup'),
+                  disabled: editGpsLoading.pickup,
+                  style: { display: 'flex', alignItems: 'center', gap: '3px', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(0,200,83,0.4)', background: 'rgba(0,200,83,0.1)', color: 'var(--color-accent)', fontSize: '11px', cursor: 'pointer' },
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, editGpsLoading.pickup ? 'hourglass_top' : 'gps_fixed'),
+                  editGpsLoading.pickup ? 'GPS取得中...' : 'GPS'
+                )
+              ),
+              React.createElement('input', { type: 'text', value: editForm.pickup || '', onChange: (e) => setEditForm({ ...editForm, pickup: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: '乗車地' }),
+              editForm.pickupCoords && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', marginTop: '2px' } }, `${editForm.pickupCoords.lat.toFixed(5)}, ${editForm.pickupCoords.lng.toFixed(5)}`)
             ),
             // 乗車時間
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '乗車時間'),
               React.createElement('input', { type: 'time', value: editForm.pickupTime || '', onChange: (e) => setEditForm({ ...editForm, pickupTime: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
             ),
-            // 降車地
+            // 降車地（GPS付き）
             React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '降車地'),
-              React.createElement('input', { type: 'text', value: editForm.dropoff || '', onChange: (e) => setEditForm({ ...editForm, dropoff: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: '降車地' })
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' } },
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, '降車地'),
+                React.createElement('button', {
+                  type: 'button',
+                  onClick: () => getEditGpsLocation('dropoff'),
+                  disabled: editGpsLoading.dropoff,
+                  style: { display: 'flex', alignItems: 'center', gap: '3px', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(0,200,83,0.4)', background: 'rgba(0,200,83,0.1)', color: 'var(--color-accent)', fontSize: '11px', cursor: 'pointer' },
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, editGpsLoading.dropoff ? 'hourglass_top' : 'gps_fixed'),
+                  editGpsLoading.dropoff ? 'GPS取得中...' : 'GPS'
+                )
+              ),
+              React.createElement('input', { type: 'text', value: editForm.dropoff || '', onChange: (e) => setEditForm({ ...editForm, dropoff: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: '降車地' }),
+              editForm.dropoffCoords && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', marginTop: '2px' } }, `${editForm.dropoffCoords.lat.toFixed(5)}, ${editForm.dropoffCoords.lng.toFixed(5)}`)
             ),
             // 降車時間
             React.createElement('div', { style: { marginBottom: '8px' } },
