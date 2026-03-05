@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.3.0</title>
+  <title>タクシー売上サポート v3.4.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1180,7 +1180,7 @@ window.TaxiApp.utils.reverseGeocode = (() => {
           });
         });
         const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-        const name = TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(best));
+        const name = TaxiApp.utils.extractAddress(best);
         cache[key] = name;
         memCache = cache;
         _saveCache(cache);
@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.3.0',
+  VERSION: '3.4.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2373,49 +2373,53 @@ window.DataService = (() => {
     }
   }
 
-  // 既存データの場所名をエイリアスで一括置換
+  // 既存データにランドマーク情報を補完（pickup/dropoffは住所のまま維持）
   function applyPlaceAliasesToExistingData() {
     const alias = TaxiApp.utils.applyPlaceAlias;
     const matchKnown = TaxiApp.utils.matchKnownPlace;
     let changed = false;
 
-    // 売上記録
+    // 売上記録: ランドマークフィールドが未設定の場合に補完
     const entries = getEntries();
     entries.forEach(e => {
-      // 座標ベースの既知場所マッチング（最優先）
-      if (e.pickupCoords && e.pickupCoords.lat) {
+      if (!e.pickupLandmark && e.pickupCoords && e.pickupCoords.lat) {
         const known = matchKnown(e.pickupCoords.lat, e.pickupCoords.lng);
-        if (known && known !== e.pickup) { e.pickup = known; changed = true; return; }
+        if (known) { e.pickupLandmark = known; changed = true; }
       }
-      if (e.dropoffCoords && e.dropoffCoords.lat) {
+      if (!e.pickupLandmark && e.pickup) {
+        const aliased = alias(e.pickup);
+        if (aliased !== e.pickup) { e.pickupLandmark = aliased; changed = true; }
+      }
+      if (!e.dropoffLandmark && e.dropoffCoords && e.dropoffCoords.lat) {
         const known = matchKnown(e.dropoffCoords.lat, e.dropoffCoords.lng);
-        if (known && known !== e.dropoff) { e.dropoff = known; changed = true; }
+        if (known) { e.dropoffLandmark = known; changed = true; }
       }
-      // テキストベースのエイリアス
-      const newPickup = alias(e.pickup);
-      const newDropoff = alias(e.dropoff);
-      if (newPickup !== e.pickup) { e.pickup = newPickup; changed = true; }
-      if (newDropoff !== e.dropoff) { e.dropoff = newDropoff; changed = true; }
+      if (!e.dropoffLandmark && e.dropoff) {
+        const aliased = alias(e.dropoff);
+        if (aliased !== e.dropoff) { e.dropoffLandmark = aliased; changed = true; }
+      }
     });
     if (changed) {
       saveEntries(entries);
-      AppLogger.info(`場所名を既存売上データに適用しました`);
+      AppLogger.info(`ランドマーク情報を既存売上データに補完しました`);
     }
 
-    // 他社乗車記録
+    // 他社乗車記録: ランドマーク情報を補完
     let rivalChanged = false;
     const rivals = getRivalEntries();
     rivals.forEach(e => {
-      if (e.locationCoords && e.locationCoords.lat) {
-        const known = matchKnown(e.locationCoords.lat, e.locationCoords.lng);
-        if (known && known !== e.location) { e.location = known; rivalChanged = true; return; }
+      if (!e.locationLandmark) {
+        if (e.locationCoords && e.locationCoords.lat) {
+          const known = matchKnown(e.locationCoords.lat, e.locationCoords.lng);
+          if (known) { e.locationLandmark = known; rivalChanged = true; return; }
+        }
+        const newLoc = alias(e.location);
+        if (newLoc !== e.location) { e.locationLandmark = newLoc; rivalChanged = true; }
       }
-      const newLoc = alias(e.location);
-      if (newLoc !== e.location) { e.location = newLoc; rivalChanged = true; }
     });
     if (rivalChanged) {
       saveRivalEntries(rivals);
-      AppLogger.info(`場所名を既存他社乗車データに適用しました`);
+      AppLogger.info(`ランドマーク情報を既存他社乗車データに補完しました`);
     }
   }
 
@@ -2631,6 +2635,8 @@ window.DataService = (() => {
       source: stripHtml(entry.source),
       pickupCoords: entry.pickupCoords && typeof entry.pickupCoords.lat === 'number' ? { lat: entry.pickupCoords.lat, lng: entry.pickupCoords.lng } : null,
       dropoffCoords: entry.dropoffCoords && typeof entry.dropoffCoords.lat === 'number' ? { lat: entry.dropoffCoords.lat, lng: entry.dropoffCoords.lng } : null,
+      pickupLandmark: stripHtml(entry.pickupLandmark),
+      dropoffLandmark: stripHtml(entry.dropoffLandmark),
       timestamp: typeof entry.timestamp === 'string' ? entry.timestamp.slice(0, 30) : new Date().toISOString(),
     };
   }
@@ -3803,7 +3809,7 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車緯度,乗車経度,乗車時間,待機時間,降車地,降車緯度,降車経度,降車時間,人数,性別,用途,配車方法,メモ';
+    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車ランドマーク,乗車緯度,乗車経度,乗車時間,待機時間,降車地,降車ランドマーク,降車緯度,降車経度,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
@@ -3831,7 +3837,9 @@ window.DataService = (() => {
       const pickupLng = e.pickupCoords ? e.pickupCoords.lng : '';
       const dropoffLat = e.dropoffCoords ? e.dropoffCoords.lat : '';
       const dropoffLng = e.dropoffCoords ? e.dropoffCoords.lng : '';
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupLat},${pickupLng},${pickupTime},${waitingTime},${dropoff},${dropoffLat},${dropoffLng},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
+      const pickupLandmark = (e.pickupLandmark || '').replace(/,/g, '、');
+      const dropoffLandmark = (e.dropoffLandmark || '').replace(/,/g, '、');
+      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupLandmark},${pickupLat},${pickupLng},${pickupTime},${waitingTime},${dropoff},${dropoffLandmark},${dropoffLat},${dropoffLng},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8
@@ -3927,6 +3935,8 @@ window.DataService = (() => {
       source: form.source || '',
       pickupCoords: form.pickupCoords || null,
       dropoffCoords: form.dropoffCoords || null,
+      pickupLandmark: form.pickupLandmark || '',
+      dropoffLandmark: form.dropoffLandmark || '',
       noPassenger: form.noPassenger || false,
       paymentMethod: form.paymentMethod || 'cash',
       discounts: (() => {
@@ -12832,6 +12842,9 @@ window.DashboardPage = () => {
             React.createElement('div', { style: { fontSize: 'var(--font-size-sm)' } },
               `${entry.pickup || '---'} → ${entry.dropoff || '---'}`
             ),
+            (entry.pickupLandmark || entry.dropoffLandmark) && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', opacity: 0.8 } },
+              `${entry.pickupLandmark || ''} → ${entry.dropoffLandmark || ''}`
+            ),
             React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
               new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
             )
@@ -13047,17 +13060,12 @@ window.RevenuePage = () => {
     };
   }, []);
 
-  // GPS座標から逆ジオコーディングして住所をフォームに反映
-  // 住所をフォームに反映後、ランドマーク名が見つかれば上書き
-  const _applyLandmarkName = useCallback((lat, lng, field, fallbackAddress) => {
+  // GPS座標から近くのランドマーク名を取得し、gpsInfoに保存（フォームの住所は上書きしない）
+  const _applyLandmarkName = useCallback((lat, lng, field) => {
     TaxiApp.utils.findNearbyLandmark(lat, lng).then(landmark => {
       if (landmark) {
         AppLogger.info(`ランドマーク検出 (${field}): ${landmark}`);
-        setForm(prev => {
-          // ユーザーが手動変更していなければ上書き
-          if (prev[field] === fallbackAddress) return { ...prev, [field]: landmark };
-          return prev;
-        });
+        setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), landmark } }));
       }
     }).catch(() => {});
   }, []);
@@ -13083,14 +13091,14 @@ window.RevenuePage = () => {
         if (status === 'OK' && results && results.length > 0) {
           // クエリ座標に近い最適な結果を選択（距離検証付き）
           const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-          const address = TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(preferred));
+          const address = TaxiApp.utils.extractAddress(preferred);
           const fullAddress = preferred.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
           const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
           setForm(prev => ({ ...prev, [field]: address, [timeField]: getNowTime() }));
           setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddress } }));
           AppLogger.info(`GPS逆ジオコーディング成功 (${field}): ${address}`);
-          // ランドマーク名で上書き試行
-          _applyLandmarkName(lat, lng, field, address);
+          // ランドマーク名をgpsInfoに保存（住所は上書きしない）
+          _applyLandmarkName(lat, lng, field);
         } else {
           const timeField2 = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
           const nomUrl2 = TaxiApp.utils.nominatimUrl(lat, lng, 18);
@@ -13100,10 +13108,10 @@ window.RevenuePage = () => {
               if (data2 && data2.address) {
                 const a2 = data2.address;
                 const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
-                const shortAddr2 = TaxiApp.utils.applyPlaceAlias(parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' '));
+                const shortAddr2 = parts2.join(' ') || data2.display_name.split(',').slice(0, 3).join(' ');
                 setForm(prev => ({ ...prev, [field]: shortAddr2, [timeField2]: getNowTime() }));
                 setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: data2.display_name || shortAddr2 } }));
-                _applyLandmarkName(lat, lng, field, shortAddr2);
+                _applyLandmarkName(lat, lng, field);
               } else {
                 const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 setForm(prev => ({ ...prev, [field]: coordStr, [timeField2]: getNowTime() }));
@@ -13128,12 +13136,12 @@ window.RevenuePage = () => {
           if (data && data.address) {
             const a = data.address;
             const parts = [a.city || a.town || a.village || a.county || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
-            const shortAddr = TaxiApp.utils.applyPlaceAlias(parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' '));
+            const shortAddr = parts.join(' ') || data.display_name.split(',').slice(0, 3).join(' ');
             const fullAddr = data.display_name || shortAddr;
             setForm(prev => ({ ...prev, [field]: shortAddr, [timeField3]: getNowTime() }));
             setGpsInfo(prev => ({ ...prev, [field]: { ...(prev[field] || {}), lat, lng, address: fullAddr } }));
             AppLogger.info(`Nominatim逆ジオコーディング成功 (${field}): ${shortAddr}`);
-            _applyLandmarkName(lat, lng, field, shortAddr);
+            _applyLandmarkName(lat, lng, field);
           } else {
             const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
             setForm(prev => ({ ...prev, [field]: coordStr, [timeField3]: getNowTime() }));
@@ -13257,14 +13265,13 @@ window.RevenuePage = () => {
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
           const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-          const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
+          const addr = _extractAddress(preferred);
           setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
           setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
-          // ランドマーク名で上書き試行
+          // ランドマーク名をgpsInfoに保存（住所は上書きしない）
           TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
             if (lm) {
-              setForm(f => f[field] === addr ? { ...f, [field]: lm } : f);
-              setGpsInfo(prev => ({ ...prev, [field]: { ...prev[field], address: lm } }));
+              setGpsInfo(prev => ({ ...prev, [field]: { ...prev[field], landmark: lm } }));
             }
           }).catch(() => {});
         } else {
@@ -13319,13 +13326,19 @@ window.RevenuePage = () => {
     e.preventDefault();
     setErrors([]);
 
-    // GPS座標をformに注入
+    // GPS座標とランドマーク情報をformに注入
     const formWithCoords = { ...form };
     if (gpsInfo.pickup && gpsInfo.pickup.lat != null) {
       formWithCoords.pickupCoords = { lat: gpsInfo.pickup.lat, lng: gpsInfo.pickup.lng };
     }
     if (gpsInfo.dropoff && gpsInfo.dropoff.lat != null) {
       formWithCoords.dropoffCoords = { lat: gpsInfo.dropoff.lat, lng: gpsInfo.dropoff.lng };
+    }
+    if (gpsInfo.pickup && gpsInfo.pickup.landmark) {
+      formWithCoords.pickupLandmark = gpsInfo.pickup.landmark;
+    }
+    if (gpsInfo.dropoff && gpsInfo.dropoff.landmark) {
+      formWithCoords.dropoffLandmark = gpsInfo.dropoff.landmark;
     }
 
     // DataServiceのaddEntryに完全委譲（バリデーション含む）
@@ -13454,6 +13467,8 @@ window.RevenuePage = () => {
       source: entry.source || '',
       pickupCoords: entry.pickupCoords || null,
       dropoffCoords: entry.dropoffCoords || null,
+      pickupLandmark: entry.pickupLandmark || null,
+      dropoffLandmark: entry.dropoffLandmark || null,
     });
     setEditingId(entry.id);
     setEditErrors([]);
@@ -13484,12 +13499,13 @@ window.RevenuePage = () => {
             setEditGpsLoading(prev => ({ ...prev, [field]: false }));
             if (status === 'OK' && results && results.length > 0) {
               const preferred = TaxiApp.utils.pickBestGeocoderResult ? TaxiApp.utils.pickBestGeocoderResult(results, lat, lng) : results[0];
-              const addr = TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(preferred));
+              const addr = TaxiApp.utils.extractAddress(preferred);
               setEditForm(prev => ({ ...prev, [field]: addr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
-              // ランドマーク名で上書き試行
+              // ランドマーク名を別フィールドに保存（住所は上書きしない）
               if (TaxiApp.utils.findNearbyLandmark) {
+                const lmKey = field === 'pickup' ? 'pickupLandmark' : 'dropoffLandmark';
                 TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
-                  if (lm) setEditForm(prev => prev[field] === addr ? { ...prev, [field]: lm } : prev);
+                  if (lm) setEditForm(prev => ({ ...prev, [lmKey]: lm }));
                 }).catch(() => {});
               }
             } else {
@@ -13504,7 +13520,7 @@ window.RevenuePage = () => {
             if (data && data.address) {
               const a = data.address;
               const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
-              const shortAddr = TaxiApp.utils.applyPlaceAlias(parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+              const shortAddr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
               setEditForm(prev => ({ ...prev, [field]: shortAddr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
             } else {
               setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
@@ -13552,6 +13568,8 @@ window.RevenuePage = () => {
       discountType,
       pickupCoords: editForm.pickupCoords || null,
       dropoffCoords: editForm.dropoffCoords || null,
+      pickupLandmark: editForm.pickupLandmark || null,
+      dropoffLandmark: editForm.dropoffLandmark || null,
     };
     delete updates.discounts; // 一旦削除してからセット
     updates.discounts = discounts;
@@ -21173,7 +21191,7 @@ window.DataManagePage = () => {
           });
         });
         const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-        return TaxiApp.utils.applyPlaceAlias(TaxiApp.utils.extractAddress(preferred));
+        return TaxiApp.utils.extractAddress(preferred);
       } catch {
         // Google失敗時はNominatimにフォールバック
       }
@@ -21343,7 +21361,7 @@ window.DataManagePage = () => {
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
           const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-          const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
+          const addr = _extractAddress(preferred);
           const coordsKey = mapPickerField === 'pickup' ? 'pickupCoords' : 'dropoffCoords';
           setAddForm(f => ({ ...f, [mapPickerField]: addr }));
           setAddCoords(c => ({ ...c, [coordsKey]: { lat, lng } }));
@@ -21414,7 +21432,7 @@ window.DataManagePage = () => {
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === 'OK' && results && results.length > 0) {
           const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-          const addr = TaxiApp.utils.applyPlaceAlias(_extractAddress(preferred));
+          const addr = _extractAddress(preferred);
           const targetField = editMapPickerField === 'dropoff' ? 'dropoff' : 'pickup';
           setEditForm(f => ({ ...f, [targetField]: addr }));
         } else {
