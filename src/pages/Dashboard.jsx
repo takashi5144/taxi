@@ -6,6 +6,9 @@ window.DashboardPage = () => {
   const { currentPosition, isTracking } = useMapContext();
   const geo = useGeolocation();
 
+  // 日種別フィルタ: null=全て, 'weekday'=平日, 'holiday'=土日祝
+  const [dayTypeFilter, setDayTypeFilter] = useState(null);
+
   // DataServiceからリアルタイムデータを取得
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -48,19 +51,19 @@ window.DashboardPage = () => {
 
   const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
-  const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(), [refreshKey]);
-  const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots(), [refreshKey]);
-  const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true }), [refreshKey]);
+  const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
+  const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots({ dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
+  const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true, dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
   // 機能8: 逆ジオコーディング（非同期）
   const [spotsWithGeoNames, setSpotsWithGeoNames] = useState(null);
   useEffect(() => {
     let cancelled = false;
     setSpotsWithGeoNames(null); // refreshKey変更時に古いデータをクリア
-    DataService.getFrequentPickupSpotsWithNames().then(result => {
+    DataService.getFrequentPickupSpotsWithNames({ dayType: dayTypeFilter }).then(result => {
       if (!cancelled) setSpotsWithGeoNames(result);
     });
     return () => { cancelled = true; };
-  }, [refreshKey]);
+  }, [refreshKey, dayTypeFilter]);
   // 表示用: geoName があればそちらを優先
   const displaySpots = useMemo(() => {
     const base = frequentSpots;
@@ -459,6 +462,41 @@ window.DashboardPage = () => {
           )
         )
       )
+    ),
+
+    // 日種別フィルタ切替
+    React.createElement('div', {
+      style: {
+        display: 'flex', gap: '4px', marginBottom: 'var(--space-md)',
+        background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px',
+      },
+    },
+      [
+        { key: null, label: '全て' },
+        { key: 'weekday', label: '平日' },
+        { key: 'holiday', label: '土日祝' },
+      ].map(opt =>
+        React.createElement('button', {
+          key: String(opt.key),
+          onClick: () => setDayTypeFilter(opt.key),
+          style: {
+            flex: 1, padding: '8px 0', border: 'none', borderRadius: '10px',
+            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: 'var(--font-family)',
+            background: dayTypeFilter === opt.key ? 'rgba(26,115,232,0.2)' : 'transparent',
+            color: dayTypeFilter === opt.key ? 'var(--color-primary-light)' : 'var(--text-muted)',
+            transition: 'all 0.2s ease',
+          },
+        }, opt.label)
+      )
+    ),
+
+    // フィルタ表示ラベル
+    dayTypeFilter && React.createElement('div', {
+      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
+      dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
     ),
 
     // リアルタイム時給

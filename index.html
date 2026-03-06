@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.5.2',
+  VERSION: '3.6.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2312,6 +2312,55 @@ window.LightGBMService = (() => {
 
 window.DataService = (() => {
   // ============================================================
+  // 日種別判定（平日/休日/大型連休）— 全分析関数から共有
+  // ============================================================
+  const _dayTypeCache = {};
+  function classifyDayType(dateStr) {
+    if (_dayTypeCache[dateStr]) return _dayTypeCache[dateStr];
+    const info = JapaneseHolidays.getDateInfo(dateStr);
+    const dayIdx = new Date(dateStr + 'T00:00:00').getDay();
+    const isOff = info.isHoliday || dayIdx === 0 || dayIdx === 6;
+    if (!isOff) { _dayTypeCache[dateStr] = 'weekday'; return 'weekday'; }
+    let streak = 1;
+    for (let d = 1; d <= 5; d++) {
+      const prev = new Date(dateStr + 'T00:00:00');
+      prev.setDate(prev.getDate() - d);
+      const ps = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prev.getDate()).padStart(2,'0')}`;
+      const pi = JapaneseHolidays.getDateInfo(ps);
+      if (pi.isHoliday || prev.getDay() === 0 || prev.getDay() === 6) streak++; else break;
+    }
+    for (let d = 1; d <= 5; d++) {
+      const next = new Date(dateStr + 'T00:00:00');
+      next.setDate(next.getDate() + d);
+      const ns = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
+      const ni = JapaneseHolidays.getDateInfo(ns);
+      if (ni.isHoliday || next.getDay() === 0 || next.getDay() === 6) streak++; else break;
+    }
+    const result = streak >= 3 ? 'longHoliday' : 'holiday';
+    _dayTypeCache[dateStr] = result;
+    return result;
+  }
+
+  // 今日の日種別を返す（UI用）: 'weekday' or 'holiday'
+  function getTodayDayType() {
+    const today = getLocalDateString();
+    const dt = classifyDayType(today);
+    return dt === 'weekday' ? 'weekday' : 'holiday';
+  }
+
+  // dayTypeフィルタ: 'weekday'=平日のみ, 'holiday'=土日祝(longHoliday含む), null/undefined=全て
+  function _filterByDayType(entries, dayType) {
+    if (!dayType) return entries;
+    return entries.filter(e => {
+      const dateStr = e.date || toDateStr(e.timestamp);
+      if (!dateStr) return true;
+      const dt = classifyDayType(dateStr);
+      if (dayType === 'weekday') return dt === 'weekday';
+      return dt === 'holiday' || dt === 'longHoliday';
+    });
+  }
+
+  // ============================================================
   // データ取得（キャッシュ付き）
   // ============================================================
   let _entriesCache = null;
@@ -3033,8 +3082,8 @@ window.DataService = (() => {
   // ============================================================
   // 全期間サマリー
   // ============================================================
-  function getOverallSummary() {
-    const entries = getEntries();
+  function getOverallSummary(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const totalAmount = entries.reduce((sum, e) => sum + (e.amount || 0), 0);
     const rideCount = entries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
@@ -3056,8 +3105,8 @@ window.DataService = (() => {
   // ============================================================
   // 日別集計（Analytics用）
   // ============================================================
-  function getDailyBreakdown(days = 30) {
-    const entries = getEntries();
+  function getDailyBreakdown(days = 30, dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const result = {};
 
     // 過去N日分の枠を作る
@@ -3082,8 +3131,8 @@ window.DataService = (() => {
   // ============================================================
   // 曜日別集計（Analytics用）
   // ============================================================
-  function getDayOfWeekBreakdown() {
-    const entries = getEntries();
+  function getDayOfWeekBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const days = ['日', '月', '火', '水', '木', '金', '土'];
     const result = days.map((name, i) => ({ name, index: i, amount: 0, count: 0, avg: 0 }));
 
@@ -3104,8 +3153,8 @@ window.DataService = (() => {
   // ============================================================
   // 時間帯別集計（Analytics用）
   // ============================================================
-  function getHourlyBreakdown() {
-    const entries = getEntries();
+  function getHourlyBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const result = [];
 
     for (let h = 0; h < 24; h++) {
@@ -3131,8 +3180,8 @@ window.DataService = (() => {
   // ============================================================
   // エリア別集計（乗車地・降車地の頻度）
   // ============================================================
-  function getAreaBreakdown() {
-    const entries = getEntries();
+  function getAreaBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const alias = TaxiApp.utils.applyPlaceAlias;
     const pickups = {};
     const dropoffs = {};
@@ -3161,8 +3210,8 @@ window.DataService = (() => {
   // ============================================================
   // 天候別集計
   // ============================================================
-  function getWeatherBreakdown() {
-    const entries = getEntries();
+  function getWeatherBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
     const result = {};
     weathers.forEach(w => { result[w] = { name: w, amount: 0, count: 0, avg: 0 }; });
@@ -3183,8 +3232,8 @@ window.DataService = (() => {
   // ============================================================
   // 配車方法別集計
   // ============================================================
-  function getSourceBreakdown() {
-    const entries = getEntries();
+  function getSourceBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const sources = ['Go', 'Uber', 'DIDI', '電話', '流し', '未設定'];
     const result = {};
     sources.forEach(s => { result[s] = { name: s, amount: 0, count: 0, avg: 0 }; });
@@ -3205,8 +3254,8 @@ window.DataService = (() => {
   // ============================================================
   // 用途別集計
   // ============================================================
-  function getPurposeBreakdown() {
-    const entries = getEntries();
+  function getPurposeBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '未設定'];
     const result = {};
     purposes.forEach(p => { result[p] = { name: p, amount: 0, count: 0, avg: 0 }; });
@@ -3232,33 +3281,7 @@ window.DataService = (() => {
     const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'];
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
-    // 大型連休判定（3日以上連続する祝日/休日をlong holidayとする）
-    function classifyDayType(dateStr) {
-      const info = JapaneseHolidays.getDateInfo(dateStr);
-      const dayIdx = new Date(dateStr + 'T00:00:00').getDay();
-      // 祝日または土日
-      const isOff = info.isHoliday || dayIdx === 0 || dayIdx === 6;
-      if (!isOff) return 'weekday';
-      // 大型連休判定: 前後に連続する休日を数える
-      let streak = 1;
-      for (let d = 1; d <= 5; d++) {
-        const prev = new Date(dateStr + 'T00:00:00');
-        prev.setDate(prev.getDate() - d);
-        const ps = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prev.getDate()).padStart(2,'0')}`;
-        const pi = JapaneseHolidays.getDateInfo(ps);
-        const pd = prev.getDay();
-        if (pi.isHoliday || pd === 0 || pd === 6) streak++; else break;
-      }
-      for (let d = 1; d <= 5; d++) {
-        const next = new Date(dateStr + 'T00:00:00');
-        next.setDate(next.getDate() + d);
-        const ns = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-${String(next.getDate()).padStart(2,'0')}`;
-        const ni = JapaneseHolidays.getDateInfo(ns);
-        const nd = next.getDay();
-        if (ni.isHoliday || nd === 0 || nd === 6) streak++; else break;
-      }
-      return streak >= 3 ? 'longHoliday' : 'holiday';
-    }
+    // classifyDayType は上部で共有定義済み
 
     // 用途×曜日マトリクス
     const matrix = {};
@@ -3367,8 +3390,8 @@ window.DataService = (() => {
   // ============================================================
   // エリア×時間帯クロス集計
   // ============================================================
-  function getAreaTimeBreakdown() {
-    const entries = getEntries();
+  function getAreaTimeBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const _alias = TaxiApp.utils.applyPlaceAlias;
     const areaMap = {};
 
@@ -3404,8 +3427,8 @@ window.DataService = (() => {
   // ============================================================
   // 客単価分析
   // ============================================================
-  function getUnitPriceAnalysis() {
-    const entries = getEntries();
+  function getUnitPriceAnalysis(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
     const byDow = {};
@@ -3466,13 +3489,13 @@ window.DataService = (() => {
   // ============================================================
   // 今日のおすすめ（業務推奨）
   // ============================================================
-  function getBusinessRecommendation() {
+  function getBusinessRecommendation(dayType) {
     const now = new Date();
     const currentHour = now.getHours();
     const currentDow = getDayOfWeek(now.toISOString());
     const currentDowIndex = now.getDay();
 
-    const entries = getEntries();
+    const entries = _filterByDayType(getEntries(), dayType);
 
     // 現在の時間帯で売上が高いエリアTOP3
     const alias = TaxiApp.utils.applyPlaceAlias;
@@ -3530,8 +3553,8 @@ window.DataService = (() => {
   // ============================================================
   // 配車方法×エリア×単価ランク クロス分析
   // ============================================================
-  function getSourceAreaPriceBreakdown() {
-    const entries = getEntries();
+  function getSourceAreaPriceBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const sources = ['Go', 'Uber', 'DIDI', '電話', '流し'];
     const priceTiers = [
       { key: 'short', label: '¥1,000以下', min: 0, max: 1000 },
@@ -3775,8 +3798,8 @@ window.DataService = (() => {
   // ============================================================
   // 週別集計
   // ============================================================
-  function getWeeklyBreakdown(weeks = 12) {
-    const entries = getEntries();
+  function getWeeklyBreakdown(weeks = 12, dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const result = {};
 
     for (let i = weeks - 1; i >= 0; i--) {
@@ -3800,8 +3823,8 @@ window.DataService = (() => {
   // ============================================================
   // 月別集計
   // ============================================================
-  function getMonthlyBreakdown() {
-    const entries = getEntries();
+  function getMonthlyBreakdown(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const result = {};
 
     entries.forEach(e => {
@@ -4684,8 +4707,8 @@ window.DataService = (() => {
     };
   }
 
-  function getTopPickupAreasForNow() {
-    const entries = getEntries();
+  function getTopPickupAreasForNow(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const now = new Date();
     const currentHour = now.getHours();
     const currentDow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -4775,7 +4798,7 @@ window.DataService = (() => {
   function getFrequentPickupSpots(options) {
     options = options || {};
     const forNow = !!options.forNow;
-    const entries = getEntries();
+    const entries = _filterByDayType(getEntries(), options.dayType);
     const now = new Date();
     const currentHour = now.getHours();
     const currentDow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -6957,10 +6980,20 @@ window.DataService = (() => {
   // ============================================================
   // シフト生産性分析
   // ============================================================
-  function getShiftProductivity() {
-    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+  function getShiftProductivity(dayType) {
+    let shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
     const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-    const entries = getEntries();
+    const entries = _filterByDayType(getEntries(), dayType);
+    // シフト自体も日種別でフィルタ
+    if (dayType) {
+      shifts = shifts.filter(s => {
+        if (!s.startTime) return true;
+        const dateStr = s.startTime.slice(0, 10);
+        const dt = classifyDayType(dateStr);
+        if (dayType === 'weekday') return dt === 'weekday';
+        return dt === 'holiday' || dt === 'longHoliday';
+      });
+    }
     if (shifts.length === 0) return { shifts: [], totals: null };
 
     const results = [];
@@ -7035,8 +7068,8 @@ window.DataService = (() => {
   // ============================================================
   // 天気×売上相関
   // ============================================================
-  function getWeatherRevenueCorrelation() {
-    const entries = getEntries();
+  function getWeatherRevenueCorrelation(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const weathers = ['晴れ', '曇り', '雨', '雪'];
     const byWeather = {};
     weathers.forEach(w => { byWeather[w] = { name: w, totalAmount: 0, totalRides: 0, days: new Set() }; });
@@ -7267,6 +7300,10 @@ window.DataService = (() => {
     getHotelPriceHistory,
     saveHotelPrices,
     analyzeHotelPrices,
+
+    // 日種別
+    getTodayDayType,
+    classifyDayType,
   };
 })();
 
@@ -11411,6 +11448,9 @@ window.DashboardPage = () => {
   const { currentPosition, isTracking } = useMapContext();
   const geo = useGeolocation();
 
+  // 日種別フィルタ: null=全て, 'weekday'=平日, 'holiday'=土日祝
+  const [dayTypeFilter, setDayTypeFilter] = useState(null);
+
   // DataServiceからリアルタイムデータを取得
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -11453,19 +11493,19 @@ window.DashboardPage = () => {
 
   const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
-  const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(), [refreshKey]);
-  const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots(), [refreshKey]);
-  const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true }), [refreshKey]);
+  const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
+  const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots({ dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
+  const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true, dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
   // 機能8: 逆ジオコーディング（非同期）
   const [spotsWithGeoNames, setSpotsWithGeoNames] = useState(null);
   useEffect(() => {
     let cancelled = false;
     setSpotsWithGeoNames(null); // refreshKey変更時に古いデータをクリア
-    DataService.getFrequentPickupSpotsWithNames().then(result => {
+    DataService.getFrequentPickupSpotsWithNames({ dayType: dayTypeFilter }).then(result => {
       if (!cancelled) setSpotsWithGeoNames(result);
     });
     return () => { cancelled = true; };
-  }, [refreshKey]);
+  }, [refreshKey, dayTypeFilter]);
   // 表示用: geoName があればそちらを優先
   const displaySpots = useMemo(() => {
     const base = frequentSpots;
@@ -11864,6 +11904,41 @@ window.DashboardPage = () => {
           )
         )
       )
+    ),
+
+    // 日種別フィルタ切替
+    React.createElement('div', {
+      style: {
+        display: 'flex', gap: '4px', marginBottom: 'var(--space-md)',
+        background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px',
+      },
+    },
+      [
+        { key: null, label: '全て' },
+        { key: 'weekday', label: '平日' },
+        { key: 'holiday', label: '土日祝' },
+      ].map(opt =>
+        React.createElement('button', {
+          key: String(opt.key),
+          onClick: () => setDayTypeFilter(opt.key),
+          style: {
+            flex: 1, padding: '8px 0', border: 'none', borderRadius: '10px',
+            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: 'var(--font-family)',
+            background: dayTypeFilter === opt.key ? 'rgba(26,115,232,0.2)' : 'transparent',
+            color: dayTypeFilter === opt.key ? 'var(--color-primary-light)' : 'var(--text-muted)',
+            transition: 'all 0.2s ease',
+          },
+        }, opt.label)
+      )
+    ),
+
+    // フィルタ表示ラベル
+    dayTypeFilter && React.createElement('div', {
+      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
+      dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
     ),
 
     // リアルタイム時給
@@ -18420,6 +18495,7 @@ window.AnalyticsPage = () => {
   const { useState, useEffect, useMemo } = React;
   const [tab, setTab] = useState('daily');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [dayTypeFilter, setDayTypeFilter] = useState(null);
 
   // localStorageの変更を監視して自動更新（Dashboardと同じパターン）
   useEffect(() => {
@@ -18447,17 +18523,18 @@ window.AnalyticsPage = () => {
   }, []);
 
   // 常に必要なデータ
-  const overall = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
+  const overall = useMemo(() => DataService.getOverallSummary(dayTypeFilter), [refreshKey, dayTypeFilter]);
 
   // アクティブタブのデータのみ計算（遅延評価）
-  const daily = useMemo(() => tab === 'daily' ? DataService.getDailyBreakdown(30) : [], [refreshKey, tab]);
-  const monthly = useMemo(() => tab === 'daily' ? DataService.getMonthlyBreakdown() : [], [refreshKey, tab]);
-  const dayOfWeek = useMemo(() => tab === 'dayOfWeek' ? DataService.getDayOfWeekBreakdown() : [], [refreshKey, tab]);
-  const hourly = useMemo(() => tab === 'hourly' ? DataService.getHourlyBreakdown() : [], [refreshKey, tab]);
-  const areas = useMemo(() => tab === 'area' ? DataService.getAreaBreakdown() : { pickups: [], dropoffs: [] }, [refreshKey, tab]);
-  const weather = useMemo(() => tab === 'weather' ? DataService.getWeatherBreakdown() : [], [refreshKey, tab]);
-  const weatherCorrelation = useMemo(() => tab === 'weather' ? DataService.getWeatherRevenueCorrelation() : [], [refreshKey, tab]);
-  const shiftProductivity = useMemo(() => tab === 'shift' ? DataService.getShiftProductivity() : { shifts: [], totals: null }, [refreshKey, tab]);
+  const dt = dayTypeFilter;
+  const daily = useMemo(() => tab === 'daily' ? DataService.getDailyBreakdown(30, dt) : [], [refreshKey, tab, dt]);
+  const monthly = useMemo(() => tab === 'daily' ? DataService.getMonthlyBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const dayOfWeek = useMemo(() => tab === 'dayOfWeek' ? DataService.getDayOfWeekBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const hourly = useMemo(() => tab === 'hourly' ? DataService.getHourlyBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const areas = useMemo(() => tab === 'area' ? DataService.getAreaBreakdown(dt) : { pickups: [], dropoffs: [] }, [refreshKey, tab, dt]);
+  const weather = useMemo(() => tab === 'weather' ? DataService.getWeatherBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const weatherCorrelation = useMemo(() => tab === 'weather' ? DataService.getWeatherRevenueCorrelation(dt) : [], [refreshKey, tab, dt]);
+  const shiftProductivity = useMemo(() => tab === 'shift' ? DataService.getShiftProductivity(dt) : { shifts: [], totals: null }, [refreshKey, tab, dt]);
 
   const rivalHourly = useMemo(() => tab === 'rival' ? DataService.getRivalHourlyBreakdown() : [], [refreshKey, tab]);
   const rivalDow = useMemo(() => tab === 'rival' ? DataService.getRivalDayOfWeekBreakdown() : [], [refreshKey, tab]);
@@ -18465,12 +18542,12 @@ window.AnalyticsPage = () => {
   const rivalWeather = useMemo(() => tab === 'rival' ? DataService.getRivalWeatherBreakdown() : [], [refreshKey, tab]);
   const rivalTotal = useMemo(() => tab === 'rival' ? DataService.getRivalEntries().length : 0, [refreshKey, tab]);
 
-  const sourceData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceBreakdown() : [], [refreshKey, tab]);
-  const purposeData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getPurposeBreakdown() : [], [refreshKey, tab]);
-  const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown() : [], [refreshKey, tab]);
-  const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis() : null, [refreshKey, tab]);
-  const recommendation = useMemo(() => DataService.getBusinessRecommendation(), [refreshKey]);
-  const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown() : null, [refreshKey, tab]);
+  const sourceData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const purposeData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getPurposeBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis(dt) : null, [refreshKey, tab, dt]);
+  const recommendation = useMemo(() => DataService.getBusinessRecommendation(dt), [refreshKey, dt]);
+  const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown(dt) : null, [refreshKey, tab, dt]);
   const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis() : null, [refreshKey, tab]);
 
   const hasData = overall.rideCount > 0;
@@ -18511,6 +18588,14 @@ window.AnalyticsPage = () => {
     React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'analytics'),
       '売上分析'
+    ),
+
+    // フィルタ表示ラベル
+    dayTypeFilter && React.createElement('div', {
+      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
+      dayTypeFilter === 'weekday' ? '平日のデータのみ表示中' : '土日祝のデータのみ表示中'
     ),
 
     // サマリーカード
@@ -18558,6 +18643,33 @@ window.AnalyticsPage = () => {
         )
       );
     })(),
+
+    // 日種別フィルタ切替
+    React.createElement('div', {
+      style: {
+        display: 'flex', gap: '4px', marginBottom: 'var(--space-md)',
+        background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px',
+      },
+    },
+      [
+        { key: null, label: '全て' },
+        { key: 'weekday', label: '平日' },
+        { key: 'holiday', label: '土日祝' },
+      ].map(opt =>
+        React.createElement('button', {
+          key: String(opt.key),
+          onClick: () => setDayTypeFilter(opt.key),
+          style: {
+            flex: 1, padding: '8px 0', border: 'none', borderRadius: '10px',
+            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: 'var(--font-family)',
+            background: dayTypeFilter === opt.key ? 'rgba(26,115,232,0.2)' : 'transparent',
+            color: dayTypeFilter === opt.key ? 'var(--color-primary-light)' : 'var(--text-muted)',
+            transition: 'all 0.2s ease',
+          },
+        }, opt.label)
+      )
+    ),
 
     // タブ切り替え
     React.createElement('div', {

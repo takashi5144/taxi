@@ -95,6 +95,7 @@ window.AnalyticsPage = () => {
   const { useState, useEffect, useMemo } = React;
   const [tab, setTab] = useState('daily');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [dayTypeFilter, setDayTypeFilter] = useState(null);
 
   // localStorageの変更を監視して自動更新（Dashboardと同じパターン）
   useEffect(() => {
@@ -122,17 +123,18 @@ window.AnalyticsPage = () => {
   }, []);
 
   // 常に必要なデータ
-  const overall = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
+  const overall = useMemo(() => DataService.getOverallSummary(dayTypeFilter), [refreshKey, dayTypeFilter]);
 
   // アクティブタブのデータのみ計算（遅延評価）
-  const daily = useMemo(() => tab === 'daily' ? DataService.getDailyBreakdown(30) : [], [refreshKey, tab]);
-  const monthly = useMemo(() => tab === 'daily' ? DataService.getMonthlyBreakdown() : [], [refreshKey, tab]);
-  const dayOfWeek = useMemo(() => tab === 'dayOfWeek' ? DataService.getDayOfWeekBreakdown() : [], [refreshKey, tab]);
-  const hourly = useMemo(() => tab === 'hourly' ? DataService.getHourlyBreakdown() : [], [refreshKey, tab]);
-  const areas = useMemo(() => tab === 'area' ? DataService.getAreaBreakdown() : { pickups: [], dropoffs: [] }, [refreshKey, tab]);
-  const weather = useMemo(() => tab === 'weather' ? DataService.getWeatherBreakdown() : [], [refreshKey, tab]);
-  const weatherCorrelation = useMemo(() => tab === 'weather' ? DataService.getWeatherRevenueCorrelation() : [], [refreshKey, tab]);
-  const shiftProductivity = useMemo(() => tab === 'shift' ? DataService.getShiftProductivity() : { shifts: [], totals: null }, [refreshKey, tab]);
+  const dt = dayTypeFilter;
+  const daily = useMemo(() => tab === 'daily' ? DataService.getDailyBreakdown(30, dt) : [], [refreshKey, tab, dt]);
+  const monthly = useMemo(() => tab === 'daily' ? DataService.getMonthlyBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const dayOfWeek = useMemo(() => tab === 'dayOfWeek' ? DataService.getDayOfWeekBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const hourly = useMemo(() => tab === 'hourly' ? DataService.getHourlyBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const areas = useMemo(() => tab === 'area' ? DataService.getAreaBreakdown(dt) : { pickups: [], dropoffs: [] }, [refreshKey, tab, dt]);
+  const weather = useMemo(() => tab === 'weather' ? DataService.getWeatherBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const weatherCorrelation = useMemo(() => tab === 'weather' ? DataService.getWeatherRevenueCorrelation(dt) : [], [refreshKey, tab, dt]);
+  const shiftProductivity = useMemo(() => tab === 'shift' ? DataService.getShiftProductivity(dt) : { shifts: [], totals: null }, [refreshKey, tab, dt]);
 
   const rivalHourly = useMemo(() => tab === 'rival' ? DataService.getRivalHourlyBreakdown() : [], [refreshKey, tab]);
   const rivalDow = useMemo(() => tab === 'rival' ? DataService.getRivalDayOfWeekBreakdown() : [], [refreshKey, tab]);
@@ -140,12 +142,12 @@ window.AnalyticsPage = () => {
   const rivalWeather = useMemo(() => tab === 'rival' ? DataService.getRivalWeatherBreakdown() : [], [refreshKey, tab]);
   const rivalTotal = useMemo(() => tab === 'rival' ? DataService.getRivalEntries().length : 0, [refreshKey, tab]);
 
-  const sourceData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceBreakdown() : [], [refreshKey, tab]);
-  const purposeData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getPurposeBreakdown() : [], [refreshKey, tab]);
-  const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown() : [], [refreshKey, tab]);
-  const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis() : null, [refreshKey, tab]);
-  const recommendation = useMemo(() => DataService.getBusinessRecommendation(), [refreshKey]);
-  const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown() : null, [refreshKey, tab]);
+  const sourceData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const purposeData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getPurposeBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown(dt) : [], [refreshKey, tab, dt]);
+  const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis(dt) : null, [refreshKey, tab, dt]);
+  const recommendation = useMemo(() => DataService.getBusinessRecommendation(dt), [refreshKey, dt]);
+  const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown(dt) : null, [refreshKey, tab, dt]);
   const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis() : null, [refreshKey, tab]);
 
   const hasData = overall.rideCount > 0;
@@ -186,6 +188,14 @@ window.AnalyticsPage = () => {
     React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'analytics'),
       '売上分析'
+    ),
+
+    // フィルタ表示ラベル
+    dayTypeFilter && React.createElement('div', {
+      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
+      dayTypeFilter === 'weekday' ? '平日のデータのみ表示中' : '土日祝のデータのみ表示中'
     ),
 
     // サマリーカード
@@ -233,6 +243,33 @@ window.AnalyticsPage = () => {
         )
       );
     })(),
+
+    // 日種別フィルタ切替
+    React.createElement('div', {
+      style: {
+        display: 'flex', gap: '4px', marginBottom: 'var(--space-md)',
+        background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px',
+      },
+    },
+      [
+        { key: null, label: '全て' },
+        { key: 'weekday', label: '平日' },
+        { key: 'holiday', label: '土日祝' },
+      ].map(opt =>
+        React.createElement('button', {
+          key: String(opt.key),
+          onClick: () => setDayTypeFilter(opt.key),
+          style: {
+            flex: 1, padding: '8px 0', border: 'none', borderRadius: '10px',
+            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+            fontFamily: 'var(--font-family)',
+            background: dayTypeFilter === opt.key ? 'rgba(26,115,232,0.2)' : 'transparent',
+            color: dayTypeFilter === opt.key ? 'var(--color-primary-light)' : 'var(--text-muted)',
+            transition: 'all 0.2s ease',
+          },
+        }, opt.label)
+      )
+    ),
 
     // タブ切り替え
     React.createElement('div', {
