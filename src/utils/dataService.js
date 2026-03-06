@@ -4604,6 +4604,159 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 待機 vs 流し 効率比較分析
+  // ============================================================
+  function getWaitingVsCruisingEfficiency(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const waitingSpots = locs.waitingSpots || [];
+    const alias = TaxiApp.utils.applyPlaceAlias;
+
+    // 乗車方法の分類
+    function classifyMethod(e) {
+      const source = e.source || '';
+      const pickup = e.pickup ? alias(e.pickup) : '';
+      // 配車アプリ
+      if (['Go', 'Uber', 'DIDI', '電話'].includes(source)) return 'app';
+      // 待機スポットマッチ
+      const isWaitingSpot = waitingSpots.some(spot => {
+        if (spot.id === 'station' && /駅前|駅/.test(pickup)) return true;
+        if (spot.id === 'asahikawa_medical' && /医大|医科大/.test(pickup)) return true;
+        if (spot.id === 'red_cross' && /赤十字/.test(pickup)) return true;
+        if (spot.id === 'kosei' && /厚生/.test(pickup)) return true;
+        if (spot.id === 'shiritsu' && /市立/.test(pickup)) return true;
+        if (spot.id === 'aeon' && /イオン/.test(pickup)) return true;
+        if (e.pickupCoords && spot.lat && spot.lng) {
+          if (Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003) return true;
+        }
+        return false;
+      });
+      if (source === '流し') return 'cruising';
+      if (isWaitingSpot) return 'waiting';
+      return 'other';
+    }
+
+    // 日付+時刻順にソート
+    const sorted = [...entries]
+      .filter(e => e.pickupTime && e.dropoffTime && e.date)
+      .sort((a, b) => {
+        const da = a.date + (a.pickupTime || '');
+        const db = b.date + (b.pickupTime || '');
+        return da.localeCompare(db);
+      });
+
+    // 空車時間を付与
+    const enriched = sorted.map((e, i) => {
+      const method = classifyMethod(e);
+      let vacantMin = null;
+      if (i > 0) {
+        const prev = sorted[i - 1];
+        if (prev.date === e.date && prev.dropoffTime && e.pickupTime) {
+          const prevDrop = _timeToMinutes(prev.dropoffTime);
+          const thisPickup = _timeToMinutes(e.pickupTime);
+          if (prevDrop !== null && thisPickup !== null && thisPickup > prevDrop) {
+            vacantMin = thisPickup - prevDrop;
+            if (vacantMin > 120) vacantMin = null;
+          }
+        }
+      }
+      if (vacantMin === null && e.waitingTime && !isNaN(Number(e.waitingTime)) && Number(e.waitingTime) > 0) {
+        vacantMin = Number(e.waitingTime);
+      }
+      return { ...e, method, vacantMin };
+    });
+
+    // グループ化
+    const groups = { waiting: [], cruising: [], app: [], other: [] };
+    enriched.forEach(e => { if (groups[e.method]) groups[e.method].push(e); });
+
+    function summarize(rides) {
+      if (rides.length === 0) return { count: 0, totalRevenue: 0, avgFare: 0, avgVacantMin: null, hourlyRevenue: 0, topSpots: [] };
+      const totalRevenue = rides.reduce((s, e) => s + (e.amount || 0), 0);
+      const avgFare = Math.round(totalRevenue / rides.length);
+      const withVacant = rides.filter(e => e.vacantMin !== null);
+      const avgVacantMin = withVacant.length > 0
+        ? Math.round(withVacant.reduce((s, e) => s + e.vacantMin, 0) / withVacant.length)
+        : null;
+      // 時給推定
+      let hourlyRevenue = 0;
+      if (avgVacantMin !== null) {
+        const durations = rides.filter(e => e.pickupTime && e.dropoffTime).map(e => {
+          const p = _timeToMinutes(e.pickupTime);
+          const d = _timeToMinutes(e.dropoffTime);
+          return (p !== null && d !== null && d > p) ? d - p : null;
+        }).filter(d => d !== null && d < 120);
+        const avgRideDur = durations.length > 0
+          ? durations.reduce((s, d) => s + d, 0) / durations.length : 15;
+        const cycleMin = avgVacantMin + avgRideDur;
+        if (cycleMin > 0) hourlyRevenue = Math.round((60 / cycleMin) * avgFare);
+      }
+      // 上位乗車地
+      const spotMap = {};
+      rides.forEach(e => {
+        const name = e.pickup ? alias(e.pickup) : '不明';
+        if (!spotMap[name]) spotMap[name] = { name, count: 0, total: 0 };
+        spotMap[name].count++;
+        spotMap[name].total += e.amount || 0;
+      });
+      const topSpots = Object.values(spotMap)
+        .sort((a, b) => b.count - a.count).slice(0, 3)
+        .map(s => ({ ...s, avg: Math.round(s.total / s.count) }));
+      return { count: rides.length, totalRevenue, avgFare, avgVacantMin, hourlyRevenue, topSpots };
+    }
+
+    const waiting = summarize(groups.waiting);
+    const cruising = summarize(groups.cruising);
+    const app = summarize(groups.app);
+
+    // 推奨判定
+    let recommendation = '';
+    let recommendationType = 'nodata';
+    if (waiting.count < 3 && cruising.count < 3) {
+      recommendation = 'データ不足です。配車方法と乗車地を記録して分析精度を高めましょう。';
+    } else if (waiting.hourlyRevenue > 0 && cruising.hourlyRevenue > 0) {
+      const diff = waiting.hourlyRevenue - cruising.hourlyRevenue;
+      if (diff > waiting.hourlyRevenue * 0.12) {
+        recommendation = `待機の方が時給¥${diff.toLocaleString()}高く効率的です。空車時に${waiting.topSpots[0] ? waiting.topSpots[0].name : '待機スポット'}へ向かいましょう。`;
+        recommendationType = 'waiting';
+      } else if (-diff > cruising.hourlyRevenue * 0.12) {
+        recommendation = `流しの方が時給¥${(-diff).toLocaleString()}高い実績です。流し営業を継続しましょう。`;
+        recommendationType = 'cruising';
+      } else {
+        recommendation = '待機と流しの効率差は僅かです。需要スコアが高い方を選んでください。';
+        recommendationType = 'balanced';
+      }
+    } else if (waiting.count >= cruising.count && waiting.avgFare > 0) {
+      if (cruising.avgFare > 0 && cruising.avgFare > waiting.avgFare * 1.1) {
+        recommendation = `流しの方が平均単価¥${(cruising.avgFare - waiting.avgFare).toLocaleString()}高い実績です。`;
+        recommendationType = 'cruising';
+      } else if (waiting.avgFare > cruising.avgFare * 1.1) {
+        recommendation = `待機の方が平均単価¥${(waiting.avgFare - (cruising.avgFare || 0)).toLocaleString()}高い実績です。`;
+        recommendationType = 'waiting';
+      } else {
+        recommendation = '空車時間が短い方法を選びましょう。';
+        recommendationType = 'balanced';
+      }
+    }
+
+    // 時間帯別比較
+    const hourlyComparison = [];
+    for (let h = 6; h <= 21; h++) {
+      const wR = groups.waiting.filter(e => parseInt((e.pickupTime || '').split(':')[0], 10) === h);
+      const cR = groups.cruising.filter(e => parseInt((e.pickupTime || '').split(':')[0], 10) === h);
+      hourlyComparison.push({
+        hour: h,
+        waitingCount: wR.length,
+        waitingAvg: wR.length > 0 ? Math.round(wR.reduce((s, e) => s + (e.amount || 0), 0) / wR.length) : 0,
+        cruisingCount: cR.length,
+        cruisingAvg: cR.length > 0 ? Math.round(cR.reduce((s, e) => s + (e.amount || 0), 0) / cR.length) : 0,
+      });
+    }
+
+    return { waiting, cruising, app, recommendation, recommendationType, hourlyComparison, totalRides: enriched.length };
+  }
+
+  // ============================================================
   // ホテル価格蓄積・分析
   // ============================================================
   function getHotelPriceHistory() {
@@ -4989,6 +5142,9 @@ window.DataService = (() => {
     getChainSuggestion,
     getStrategySimulation,
     getSlowPeriodCruisingRoutes,
+
+    // 待機 vs 流し効率分析
+    getWaitingVsCruisingEfficiency,
 
     // ホテル価格
     getHotelPriceHistory,

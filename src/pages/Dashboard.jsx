@@ -125,6 +125,7 @@ window.DashboardPage = () => {
   const [strategyHour, setStrategyHour] = useState(new Date().getHours());
   const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
   const slowPeriodRoutes = useMemo(() => DataService.getSlowPeriodCruisingRoutes(), [refreshKey, weatherImpact]);
+  const waitVsCruise = useMemo(() => DataService.getWaitingVsCruisingEfficiency(dayTypeFilter), [refreshKey, dayTypeFilter]);
 
   // 始業/終業シフト管理
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
@@ -590,6 +591,139 @@ window.DashboardPage = () => {
           transition: 'width 0.5s ease',
         } })
       )
+    ),
+
+    // ============================================================
+    // 待機 vs 流し 効率比較カード
+    // ============================================================
+    waitVsCruise && waitVsCruise.totalRides >= 5 && (waitVsCruise.waiting.count >= 2 || waitVsCruise.cruising.count >= 2) && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: waitVsCruise.recommendationType === 'waiting'
+          ? 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(16,185,129,0.06))'
+          : waitVsCruise.recommendationType === 'cruising'
+            ? 'linear-gradient(135deg, rgba(168,85,247,0.10), rgba(245,158,11,0.06))'
+            : 'linear-gradient(135deg, rgba(107,114,128,0.08), rgba(59,130,246,0.06))',
+        border: waitVsCruise.recommendationType === 'waiting'
+          ? '1px solid rgba(59,130,246,0.3)'
+          : waitVsCruise.recommendationType === 'cruising'
+            ? '1px solid rgba(168,85,247,0.3)'
+            : '1px solid rgba(107,114,128,0.2)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#10b981' } }, 'analytics'),
+        React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機 vs 流し 効率比較')
+      ),
+
+      // 比較テーブル
+      React.createElement('div', { style: { overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '12px' } },
+        React.createElement('table', { style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%' } },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              ...['', '待機', '流し', '配車アプリ'].map(label =>
+                React.createElement('th', {
+                  key: label || 'h',
+                  style: { padding: '6px 8px', fontWeight: 700, textAlign: label ? 'center' : 'left', borderBottom: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap',
+                    color: label === '待機' ? '#3b82f6' : label === '流し' ? '#a855f7' : label === '配車アプリ' ? '#f59e0b' : 'var(--text-primary)' },
+                }, label || '指標')
+              )
+            )
+          ),
+          React.createElement('tbody', null,
+            // 乗車回数
+            React.createElement('tr', null,
+              React.createElement('td', { style: { padding: '5px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, '乗車回数'),
+              ...[waitVsCruise.waiting, waitVsCruise.cruising, waitVsCruise.app].map((g, i) =>
+                React.createElement('td', { key: i, style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                  g.count > 0 ? `${g.count}回` : '-'
+                )
+              )
+            ),
+            // 平均単価
+            React.createElement('tr', null,
+              React.createElement('td', { style: { padding: '5px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, '平均単価'),
+              ...[waitVsCruise.waiting, waitVsCruise.cruising, waitVsCruise.app].map((g, i) => {
+                const best = Math.max(waitVsCruise.waiting.avgFare, waitVsCruise.cruising.avgFare, waitVsCruise.app.avgFare);
+                const isBest = g.avgFare > 0 && g.avgFare === best;
+                return React.createElement('td', { key: i, style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' } },
+                  g.avgFare > 0 ? `\u00A5${g.avgFare.toLocaleString()}` : '-'
+                );
+              })
+            ),
+            // 平均空車時間
+            React.createElement('tr', null,
+              React.createElement('td', { style: { padding: '5px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, '平均空車時間'),
+              ...[waitVsCruise.waiting, waitVsCruise.cruising, waitVsCruise.app].map((g, i) => {
+                const vals = [waitVsCruise.waiting.avgVacantMin, waitVsCruise.cruising.avgVacantMin, waitVsCruise.app.avgVacantMin].filter(v => v !== null);
+                const best = vals.length > 0 ? Math.min(...vals) : null;
+                const isBest = g.avgVacantMin !== null && g.avgVacantMin === best;
+                return React.createElement('td', { key: i, style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' } },
+                  g.avgVacantMin !== null ? `${g.avgVacantMin}分` : '-'
+                );
+              })
+            ),
+            // 推定時給
+            React.createElement('tr', null,
+              React.createElement('td', { style: { padding: '5px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, '推定時給'),
+              ...[waitVsCruise.waiting, waitVsCruise.cruising, waitVsCruise.app].map((g, i) => {
+                const best = Math.max(waitVsCruise.waiting.hourlyRevenue, waitVsCruise.cruising.hourlyRevenue, waitVsCruise.app.hourlyRevenue);
+                const isBest = g.hourlyRevenue > 0 && g.hourlyRevenue === best;
+                return React.createElement('td', { key: i, style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' } },
+                  g.hourlyRevenue > 0 ? `\u00A5${g.hourlyRevenue.toLocaleString()}` : '-'
+                );
+              })
+            )
+          )
+        )
+      ),
+
+      // 推奨アクション
+      React.createElement('div', {
+        style: {
+          padding: '10px 12px', borderRadius: '8px',
+          background: waitVsCruise.recommendationType === 'waiting' ? 'rgba(59,130,246,0.1)' : waitVsCruise.recommendationType === 'cruising' ? 'rgba(168,85,247,0.1)' : 'rgba(107,114,128,0.08)',
+          border: `1px solid ${waitVsCruise.recommendationType === 'waiting' ? 'rgba(59,130,246,0.2)' : waitVsCruise.recommendationType === 'cruising' ? 'rgba(168,85,247,0.2)' : 'rgba(107,114,128,0.15)'}`,
+          marginBottom: '10px',
+        },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: waitVsCruise.recommendationType === 'waiting' ? '#3b82f6' : waitVsCruise.recommendationType === 'cruising' ? '#a855f7' : '#6b7280' } },
+            waitVsCruise.recommendationType === 'waiting' ? 'pin_drop' : waitVsCruise.recommendationType === 'cruising' ? 'directions_car' : 'info'
+          ),
+          React.createElement('span', { style: { fontSize: '12px', fontWeight: 600 } }, waitVsCruise.recommendation)
+        )
+      ),
+
+      // 時間帯別ミニ棒グラフ（待機vs流し件数比較）
+      (() => {
+        const hours = waitVsCruise.hourlyComparison.filter(h => h.waitingCount > 0 || h.cruisingCount > 0);
+        if (hours.length === 0) return null;
+        const maxCount = Math.max(...hours.map(h => Math.max(h.waitingCount, h.cruisingCount)), 1);
+        return React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' } }, '時間帯別 乗車件数'),
+          React.createElement('div', { style: { display: 'flex', gap: '2px', alignItems: 'flex-end', height: '40px' } },
+            ...hours.map(h =>
+              React.createElement('div', { key: h.hour, style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1px', justifyContent: 'flex-end', height: '100%' } },
+                React.createElement('div', { style: { display: 'flex', gap: '1px', alignItems: 'flex-end', width: '100%', justifyContent: 'center', flex: 1 } },
+                  React.createElement('div', { style: { width: '4px', height: `${Math.max(2, (h.waitingCount / maxCount) * 30)}px`, background: '#3b82f6', borderRadius: '1px' } }),
+                  React.createElement('div', { style: { width: '4px', height: `${Math.max(2, (h.cruisingCount / maxCount) * 30)}px`, background: '#a855f7', borderRadius: '1px' } })
+                ),
+                React.createElement('span', { style: { fontSize: '8px', color: 'var(--text-muted)' } }, String(h.hour))
+              )
+            )
+          ),
+          React.createElement('div', { style: { display: 'flex', gap: '12px', marginTop: '4px', justifyContent: 'center', fontSize: '9px', color: 'var(--text-muted)' } },
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+              React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '1px', background: '#3b82f6' } }), '待機'
+            ),
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+              React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '1px', background: '#a855f7' } }), '流し'
+            )
+          )
+        );
+      })()
     ),
 
     // ============================================================
