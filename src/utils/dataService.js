@@ -67,53 +67,61 @@ window.DataService = (() => {
     }
   }
 
-  // 既存データにランドマーク情報を補完（pickup/dropoffは住所のまま維持）
+  // 既存データの場所名をエイリアス・座標マッチで統一 + ランドマーク補完
   function applyPlaceAliasesToExistingData() {
     const alias = TaxiApp.utils.applyPlaceAlias;
     const matchKnown = TaxiApp.utils.matchKnownPlace;
     let changed = false;
 
-    // 売上記録: ランドマークフィールドが未設定の場合に補完
     const entries = getEntries();
     entries.forEach(e => {
-      if (!e.pickupLandmark && e.pickupCoords && e.pickupCoords.lat) {
+      // pickup テキスト自体をエイリアス/座標で統一
+      if (e.pickupCoords && e.pickupCoords.lat) {
         const known = matchKnown(e.pickupCoords.lat, e.pickupCoords.lng);
-        if (known) { e.pickupLandmark = known; changed = true; }
+        if (known && e.pickup !== known) { e.pickup = known; changed = true; }
+        if (!e.pickupLandmark && known) { e.pickupLandmark = known; changed = true; }
       }
-      if (!e.pickupLandmark && e.pickup) {
+      if (e.pickup) {
         const aliased = alias(e.pickup);
-        if (aliased !== e.pickup) { e.pickupLandmark = aliased; changed = true; }
+        if (aliased !== e.pickup) { e.pickup = aliased; changed = true; }
+        if (!e.pickupLandmark) { e.pickupLandmark = aliased; changed = true; }
       }
-      if (!e.dropoffLandmark && e.dropoffCoords && e.dropoffCoords.lat) {
+      // dropoff テキスト自体をエイリアス/座標で統一
+      if (e.dropoffCoords && e.dropoffCoords.lat) {
         const known = matchKnown(e.dropoffCoords.lat, e.dropoffCoords.lng);
-        if (known) { e.dropoffLandmark = known; changed = true; }
+        if (known && e.dropoff !== known) { e.dropoff = known; changed = true; }
+        if (!e.dropoffLandmark && known) { e.dropoffLandmark = known; changed = true; }
       }
-      if (!e.dropoffLandmark && e.dropoff) {
+      if (e.dropoff) {
         const aliased = alias(e.dropoff);
-        if (aliased !== e.dropoff) { e.dropoffLandmark = aliased; changed = true; }
+        if (aliased !== e.dropoff) { e.dropoff = aliased; changed = true; }
+        if (!e.dropoffLandmark) { e.dropoffLandmark = aliased; changed = true; }
       }
     });
     if (changed) {
       saveEntries(entries);
-      AppLogger.info(`ランドマーク情報を既存売上データに補完しました`);
+      AppLogger.info(`場所名を統一しました（エイリアス・座標マッチ適用）`);
     }
 
-    // 他社乗車記録: ランドマーク情報を補完
+    // 他社乗車記録: 場所名統一 + ランドマーク補完
     let rivalChanged = false;
     const rivals = getRivalEntries();
     rivals.forEach(e => {
-      if (!e.locationLandmark) {
-        if (e.locationCoords && e.locationCoords.lat) {
-          const known = matchKnown(e.locationCoords.lat, e.locationCoords.lng);
-          if (known) { e.locationLandmark = known; rivalChanged = true; return; }
-        }
-        const newLoc = alias(e.location);
-        if (newLoc !== e.location) { e.locationLandmark = newLoc; rivalChanged = true; }
+      // location テキスト自体もエイリアス/座標で統一
+      if (e.locationCoords && e.locationCoords.lat) {
+        const known = matchKnown(e.locationCoords.lat, e.locationCoords.lng);
+        if (known && e.location !== known) { e.location = known; rivalChanged = true; }
+        if (!e.locationLandmark && known) { e.locationLandmark = known; rivalChanged = true; }
+      }
+      if (e.location) {
+        const aliased = alias(e.location);
+        if (aliased !== e.location) { e.location = aliased; rivalChanged = true; }
+        if (!e.locationLandmark) { e.locationLandmark = aliased; rivalChanged = true; }
       }
     });
     if (rivalChanged) {
       saveRivalEntries(rivals);
-      AppLogger.info(`ランドマーク情報を既存他社乗車データに補完しました`);
+      AppLogger.info(`他社乗車データの場所名を統一しました`);
     }
   }
 
@@ -819,19 +827,22 @@ window.DataService = (() => {
   // ============================================================
   function getAreaBreakdown() {
     const entries = getEntries();
+    const alias = TaxiApp.utils.applyPlaceAlias;
     const pickups = {};
     const dropoffs = {};
 
     entries.forEach(e => {
       if (e.pickup) {
-        pickups[e.pickup] = (pickups[e.pickup] || { name: e.pickup, count: 0, amount: 0 });
-        pickups[e.pickup].count += 1;
-        pickups[e.pickup].amount += e.amount || 0;
+        const p = alias(e.pickup);
+        pickups[p] = (pickups[p] || { name: p, count: 0, amount: 0 });
+        pickups[p].count += 1;
+        pickups[p].amount += e.amount || 0;
       }
       if (e.dropoff) {
-        dropoffs[e.dropoff] = (dropoffs[e.dropoff] || { name: e.dropoff, count: 0, amount: 0 });
-        dropoffs[e.dropoff].count += 1;
-        dropoffs[e.dropoff].amount += e.amount || 0;
+        const d = alias(e.dropoff);
+        dropoffs[d] = (dropoffs[d] || { name: d, count: 0, amount: 0 });
+        dropoffs[d].count += 1;
+        dropoffs[d].amount += e.amount || 0;
       }
     });
 
@@ -1052,10 +1063,11 @@ window.DataService = (() => {
   // ============================================================
   function getAreaTimeBreakdown() {
     const entries = getEntries();
+    const _alias = TaxiApp.utils.applyPlaceAlias;
     const areaMap = {};
 
     entries.forEach(e => {
-      const area = e.pickup || '';
+      const area = e.pickup ? _alias(e.pickup) : '';
       if (!area) return;
       const hour = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
 
@@ -1157,13 +1169,15 @@ window.DataService = (() => {
     const entries = getEntries();
 
     // 現在の時間帯で売上が高いエリアTOP3
+    const alias = TaxiApp.utils.applyPlaceAlias;
     const areaByHour = {};
     entries.forEach(e => {
       const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
       if (hr === currentHour && e.pickup) {
-        if (!areaByHour[e.pickup]) areaByHour[e.pickup] = { name: e.pickup, amount: 0, count: 0 };
-        areaByHour[e.pickup].amount += e.amount || 0;
-        areaByHour[e.pickup].count += 1;
+        const name = alias(e.pickup);
+        if (!areaByHour[name]) areaByHour[name] = { name, amount: 0, count: 0 };
+        areaByHour[name].amount += e.amount || 0;
+        areaByHour[name].count += 1;
       }
     });
     // 奇数日は駅前エリアを除外
@@ -1232,7 +1246,7 @@ window.DataService = (() => {
 
     entries.forEach(e => {
       const src = e.source && sources.includes(e.source) ? e.source : null;
-      const area = e.pickup || '';
+      const area = e.pickup ? TaxiApp.utils.applyPlaceAlias(e.pickup) : '';
       const amt = e.amount || 0;
       const tier = amt <= 1000 ? 'short' : amt <= 1999 ? 'mid' : 'long';
 
@@ -1329,7 +1343,7 @@ window.DataService = (() => {
         amount: amt,
         tier,
         source: e.source || '未設定',
-        area: e.pickup || '',
+        area: e.pickup ? TaxiApp.utils.applyPlaceAlias(e.pickup) : '',
         hour: e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp),
       });
     });
@@ -1369,7 +1383,7 @@ window.DataService = (() => {
       tierCounts[tier] += 1;
       const src = e.source || '未設定';
       sources[src] = (sources[src] || 0) + 1;
-      if (e.pickup) areaCounts[e.pickup] = (areaCounts[e.pickup] || 0) + 1;
+      if (e.pickup) { const _p = TaxiApp.utils.applyPlaceAlias(e.pickup); areaCounts[_p] = (areaCounts[_p] || 0) + 1; }
     });
 
     const topArea = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])[0];
@@ -2369,6 +2383,7 @@ window.DataService = (() => {
     const now = new Date();
     const currentHour = now.getHours();
     const currentDow = ['日','月','火','水','木','金','土'][now.getDay()];
+    const alias = TaxiApp.utils.applyPlaceAlias;
     const areas = {};
     entries.forEach(e => {
       if (!e.pickup || !e.amount) return;
@@ -2376,9 +2391,10 @@ window.DataService = (() => {
       if (hr === null) return;
       if (Math.abs(hr - currentHour) > 1 && Math.abs(hr - currentHour) < 23) return;
       if (e.dayOfWeek !== currentDow) return;
-      if (!areas[e.pickup]) areas[e.pickup] = { name: e.pickup, total: 0, count: 0 };
-      areas[e.pickup].total += e.amount;
-      areas[e.pickup].count += 1;
+      const name = alias(e.pickup);
+      if (!areas[name]) areas[name] = { name, total: 0, count: 0 };
+      areas[name].total += e.amount;
+      areas[name].count += 1;
     });
     // 奇数日は駅前エリアを除外
     const isOddDay = now.getDate() % 2 !== 0;
@@ -2508,8 +2524,8 @@ window.DataService = (() => {
       const isRecent = entryDate ? new Date(entryDate) >= thirtyDaysAgo : false;
       cell.weightedCount += isRecent ? 2 : 1;
 
-      // 名前集計
-      if (e.pickup) cell.names[e.pickup] = (cell.names[e.pickup] || 0) + 1;
+      // 名前集計（エイリアス適用済みの名前で集計）
+      if (e.pickup) { const _pn = TaxiApp.utils.applyPlaceAlias(e.pickup); cell.names[_pn] = (cell.names[_pn] || 0) + 1; }
 
       // 機能5: 時間帯ヒストグラム
       const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : NaN;
@@ -2537,7 +2553,8 @@ window.DataService = (() => {
 
       // 機能9: 行き先パターン
       if (e.dropoff) {
-        cell.dropoffs[e.dropoff] = (cell.dropoffs[e.dropoff] || 0) + 1;
+        const _dn = TaxiApp.utils.applyPlaceAlias(e.dropoff);
+        cell.dropoffs[_dn] = (cell.dropoffs[_dn] || 0) + 1;
       }
     });
 
