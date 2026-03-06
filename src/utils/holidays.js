@@ -1,3 +1,4 @@
+(function() {
 // holidays.js - 日本の祝日判定ユーティリティ
 // 固定祝日・ハッピーマンデー・春分/秋分の日・振替休日・国民の休日に対応
 
@@ -114,11 +115,11 @@ window.JapaneseHolidays = (() => {
       if (d.getDay() === 0) { // 日曜日
         let next = new Date(d);
         next.setDate(next.getDate() + 1);
-        let nextStr = next.toISOString().split('T')[0];
+        let nextStr = getLocalDateString(next);
         // 翌日も祝日なら更に翌日へ
         while (holidays.has(nextStr)) {
           next.setDate(next.getDate() + 1);
-          nextStr = next.toISOString().split('T')[0];
+          nextStr = getLocalDateString(next);
         }
         holidays.set(nextStr, '振替休日');
       }
@@ -133,7 +134,7 @@ window.JapaneseHolidays = (() => {
       if (diff === 2) {
         const between = new Date(curr);
         between.setDate(between.getDate() + 1);
-        const betweenStr = between.toISOString().split('T')[0];
+        const betweenStr = getLocalDateString(between);
         if (!holidays.has(betweenStr) && between.getDay() !== 0) {
           holidays.set(betweenStr, '国民の休日');
         }
@@ -177,4 +178,6 @@ window.JapaneseHolidays = (() => {
     getDateInfo,
     getHolidaysForYear,
   };
+})();
+
 })();

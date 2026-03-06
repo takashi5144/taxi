@@ -1,3 +1,4 @@
+(function() {
 // useGoogleMaps.js - Google Maps API管理フック
 //
 // GoogleMap.jsx内のローダーロジックをフックとして公開し、
@@ -42,7 +43,7 @@ window.useGoogleMaps = () => {
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&libraries=places`;
     script.async = true;
     script.onload = () => {
       setIsLoaded(true);
@@ -70,3 +71,5 @@ window.useGoogleMaps = () => {
     reload: loadApi,
   };
 };
+
+})();

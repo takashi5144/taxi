@@ -1,3 +1,4 @@
+(function() {
 // MapControls.jsx - 地図操作コントロール
 //
 // 地図上に表示する操作ボタン群（渋滞情報トグル、現在地移動、外部マップ起動）
@@ -116,3 +117,5 @@ window.TrafficLegend = ({ visible }) => {
     )
   );
 };
+
+})();

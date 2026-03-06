@@ -1,23 +1,13 @@
+(function() {
 // RivalRide.jsx - 他社乗車情報記録ページ
-// 他社タクシーの乗車状況を記録するための簡易フォーム
 window.RivalRidePage = () => {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  const todayDefault = new Date().toISOString().split('T')[0];
+  const todayDefault = getLocalDateString();
 
-  const getNowTime = () => {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  };
+  const getNowTime = TaxiApp.utils.getNowTime;
 
-  const wmoToWeather = (code) => {
-    if (code === undefined || code === null) return '';
-    if (code <= 1) return '晴れ';
-    if (code <= 3 || code === 45 || code === 48) return '曇り';
-    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code === 95 || code === 96 || code === 99) return '雨';
-    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '雪';
-    return '曇り';
-  };
+  const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState({ date: todayDefault, time: getNowTime(), weather: '', location: '', locationCoords: null, memo: '' });
@@ -33,10 +23,18 @@ window.RivalRidePage = () => {
 
   const { apiKey } = useAppContext();
 
-  // ページロード時に天気を自動取得
+  // ページロード時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
     if (weatherFetched.current) return;
     weatherFetched.current = true;
+
+    // GPSキャッシュから天気取得を試みる
+    const cached = GpsLogService.getCurrentWeather();
+    if (cached && cached.weather) {
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      AppLogger.info(`他社乗車 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
+      return;
+    }
 
     if (!navigator.geolocation) return;
     setWeatherLoading(true);
@@ -44,7 +42,8 @@ window.RivalRidePage = () => {
       .then((position) => {
         const lat = position.coords.latitude.toFixed(4);
         const lng = position.coords.longitude.toFixed(4);
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia%2FTokyo`;
+        const meteoParams = new URLSearchParams({ latitude: lat, longitude: lng, current_weather: 'true', timezone: 'Asia/Tokyo' });
+        const url = `https://api.open-meteo.com/v1/forecast?${meteoParams}`;
         return fetch(url).then(res => res.json());
       })
       .then(data => {
@@ -67,7 +66,6 @@ window.RivalRidePage = () => {
     getGpsLocationAuto();
   }, []);
 
-  // GPS逆ジオコーディング（自動取得用）
   const getGpsLocationAuto = () => {
     if (!navigator.geolocation) return;
     setGpsLoading(true);
@@ -79,7 +77,6 @@ window.RivalRidePage = () => {
       .catch(() => setGpsLoading(false));
   };
 
-  // GPS場所再取得（ボタン用 — 自動記録追加）
   const getGpsLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -109,7 +106,7 @@ window.RivalRidePage = () => {
     const entryData = { date: cur.date, time: getNowTime(), weather: cur.weather, location, locationCoords: coords, memo: cur.memo };
     const result = DataService.addRivalEntry(entryData);
     if (result.success) {
-      setForm({ date: todayDefault, time: getNowTime(), weather: cur.weather, location: '', locationCoords: null, memo: '' });
+      setForm({ date: getLocalDateString(), time: getNowTime(), weather: cur.weather, location: '', locationCoords: null, memo: '' });
       setGpsInfo(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -119,19 +116,51 @@ window.RivalRidePage = () => {
 
   // 逆ジオコーディング共通処理（autoAdd=trueでGPS解決時に自動記録追加）
   const reverseGeocode = (lat, lng, autoAdd) => {
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) {
+      setGpsLoading(false);
+      AppLogger.info(`他社乗車 既知場所マッチ: ${knownPlace}`);
+      if (autoAdd) {
+        autoAddEntry(knownPlace, { lat, lng });
+      } else {
+        setForm(prev => ({ ...prev, location: knownPlace, locationCoords: { lat, lng }, time: getNowTime() }));
+        setGpsInfo(prev => ({ ...prev, lat, lng, address: knownPlace }));
+      }
+      return;
+    }
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(false);
-        if (status === 'OK' && results[0]) {
-          const address = formatAddress(results[0]);
-          const fullAddress = results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+        if (status === 'OK' && results && results.length > 0) {
+          const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const address = _formatRivalAddress(best);
+          const fullAddress = best.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
           AppLogger.info(`他社乗車 GPS逆ジオコーディング成功: ${address}`);
           if (autoAdd) {
             autoAddEntry(address, { lat, lng });
+            // ランドマーク名で後から更新
+            TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+              if (lm && lm !== address) {
+                AppLogger.info(`他社乗車 ランドマーク検出: ${lm}`);
+                // 直近追加エントリの場所名を更新
+                const rivals = DataService.getRivalEntries();
+                if (rivals.length > 0 && rivals[0].location === address) {
+                  DataService.updateRivalEntry(rivals[0].id, { location: lm });
+                }
+              }
+            }).catch(() => {});
           } else {
             setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng }, time: getNowTime() }));
             setGpsInfo(prev => ({ ...prev, lat, lng, address: fullAddress }));
+            // ランドマーク名で上書き試行
+            TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+              if (lm) {
+                AppLogger.info(`他社乗車 ランドマーク検出: ${lm}`);
+                setForm(prev => prev.location === address ? { ...prev, location: lm } : prev);
+              }
+            }).catch(() => {});
           }
         } else {
           nominatimFallback(lat, lng, autoAdd);
@@ -143,7 +172,7 @@ window.RivalRidePage = () => {
   };
 
   const nominatimFallback = (lat, lng, autoAdd) => {
-    const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`;
+    const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
     fetch(nomUrl)
       .then(res => res.json())
       .then(data => {
@@ -181,7 +210,7 @@ window.RivalRidePage = () => {
       });
   };
 
-  function formatAddress(result) {
+  function _formatRivalAddress(result) {
     const comps = result.address_components;
     let prefecture = '', city = '', ward = '', town = '', sublocality = '';
     for (const c of comps) {
@@ -196,7 +225,7 @@ window.RivalRidePage = () => {
     return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
   }
 
-  const entries = DataService.getRivalEntries();
+  const entries = useMemo(() => DataService.getRivalEntries(), [refreshKey]);
 
   useEffect(() => {
     const handleStorage = (e) => {
@@ -209,9 +238,12 @@ window.RivalRidePage = () => {
       if (!document.hidden) setRefreshKey(k => k + 1);
     };
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       window.removeEventListener('storage', handleStorage);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 
@@ -223,7 +255,7 @@ window.RivalRidePage = () => {
       setErrors(result.errors);
       return;
     }
-    setForm({ date: todayDefault, time: getNowTime(), weather: form.weather, location: '', locationCoords: null, memo: '' });
+    setForm({ date: getLocalDateString(), time: getNowTime(), weather: form.weather, location: '', locationCoords: null, memo: '' });
     setGpsInfo(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -278,7 +310,6 @@ window.RivalRidePage = () => {
 
     // 入力フォーム
     React.createElement(Card, { title: '他社乗車を記録', style: { marginBottom: 'var(--space-lg)' } },
-      // エラー表示
       errors.length > 0 && React.createElement('div', {
         style: {
           background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
@@ -295,7 +326,6 @@ window.RivalRidePage = () => {
         )
       ),
 
-      // 保存成功メッセージ
       saved && React.createElement('div', {
         style: {
           background: 'rgba(0,200,83,0.1)', border: '1px solid rgba(0,200,83,0.3)',
@@ -527,6 +557,15 @@ window.RivalRidePage = () => {
               value: form.memo,
               onChange: (e) => setForm({ ...form, memo: e.target.value }),
             })
+          ),
+
+          // 送信ボタン
+          React.createElement('div', { style: { gridColumn: '1 / -1', marginTop: 'var(--space-sm)' } },
+            React.createElement(Button, {
+              variant: 'primary',
+              icon: 'add',
+              type: 'submit',
+            }, '記録')
           )
         )
       )
@@ -645,3 +684,5 @@ window.RivalRidePage = () => {
     )
   );
 };
+
+})();

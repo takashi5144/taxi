@@ -1,3 +1,4 @@
+(function() {
 // Structure.jsx - サイト構造ビューアページ
 window.StructurePage = () => {
   const { useState } = React;
@@ -53,6 +54,7 @@ window.StructurePage = () => {
     { path: '/map', page: 'map', desc: 'Google Maps + GPS地図表示' },
     { path: '/revenue', page: 'revenue', desc: '売上記録・管理' },
     { path: '/analytics', page: 'analytics', desc: '売上分析・統計' },
+    { path: '/gathering-memo', page: 'gathering-memo', desc: '集客メモ（音声入力対応）' },
     { path: '/settings', page: 'settings', desc: '設定（APIキー設定含む）' },
     { path: '/dev', page: 'dev', desc: '開発者ツールハブ' },
     { path: '/dev/structure', page: 'dev-structure', desc: 'サイト構造ビューア（このページ）' },
@@ -138,6 +140,7 @@ window.StructurePage = () => {
 │   │               │   └── GpsTracker
 │   │               ├── RevenuePage
 │   │               ├── AnalyticsPage
+│   │               ├── GatheringMemoPage
 │   │               ├── SettingsPage
 │   │               └── DevToolsPage
 │   │                   ├── StructurePage
@@ -147,3 +150,5 @@ window.StructurePage = () => {
     )
   );
 };
+
+})();

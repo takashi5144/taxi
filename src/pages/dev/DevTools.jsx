@@ -1,3 +1,4 @@
+(function() {
 // DevTools.jsx - 開発者ツールハブ
 window.DevToolsPage = () => {
   const { navigate } = useAppContext();
@@ -110,3 +111,5 @@ window.DevToolsPage = () => {
     )
   );
 };
+
+})();

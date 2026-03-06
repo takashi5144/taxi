@@ -1,3 +1,4 @@
+(function() {
 // Settings.jsx - 設定ページ
 window.SettingsPage = () => {
   const { useState } = React;
@@ -15,6 +16,46 @@ window.SettingsPage = () => {
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncTestResult, setSyncTestResult] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const [dailyGoal, setDailyGoal] = useState(() => {
+    const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+    return s.dailyGoal || '';
+  });
+  const [goalSaved, setGoalSaved] = useState(false);
+
+
+  // GPS設定state - MapContextから取得（独自watchPositionは不要）
+  const { useEffect, useCallback } = React;
+  const { currentPosition, isTracking, accuracy } = useMapContext();
+  const [gpsPermission, setGpsPermission] = useState('unknown');
+  const [gpsRecordCount, setGpsRecordCount] = useState(0);
+  const [gpsBgEnabled, setGpsBgEnabled] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false');
+
+  // GPS権限チェック
+  useEffect(() => {
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        setGpsPermission(result.state);
+        result.onchange = () => setGpsPermission(result.state);
+      }).catch(() => {});
+    }
+  }, []);
+
+  // GPS記録数をロード
+  useEffect(() => {
+    if (window.GpsLogService) {
+      GpsLogService.getLogDates().then(dates => {
+        setGpsRecordCount(dates.length);
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleGpsBgToggle = useCallback(() => {
+    const next = !gpsBgEnabled;
+    setGpsBgEnabled(next);
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, next ? 'true' : 'false');
+  }, [gpsBgEnabled]);
 
   const handleSave = () => {
     setApiKey(inputKey.trim());
@@ -25,7 +66,7 @@ window.SettingsPage = () => {
   const handleClear = () => {
     setApiKey('');
     setInputKey('');
-    _gmapLoader.reset();
+    window._gmapLoader.reset();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -46,7 +87,7 @@ window.SettingsPage = () => {
         React.createElement('label', { className: 'form-label' }, 'APIキー'),
         React.createElement('input', {
           className: 'form-input',
-          type: 'text',
+          type: 'password',
           placeholder: 'AIzaSy...',
           value: inputKey,
           onChange: (e) => setInputKey(e.target.value),
@@ -186,7 +227,6 @@ window.SettingsPage = () => {
         !geminiApiKey && React.createElement('span', { className: 'badge badge--warning' }, '未設定')
       ),
 
-      // 接続テスト結果
       geminiTestResult && React.createElement('div', {
         style: {
           marginTop: 'var(--space-md)', padding: '8px 12px', borderRadius: '8px',
@@ -204,7 +244,6 @@ window.SettingsPage = () => {
         }, geminiTestResult === 'success' ? 'Gemini APIに正常に接続できました' : geminiTestResult)
       ),
 
-      // 取得手順
       React.createElement('details', {
         style: { marginTop: 'var(--space-md)', cursor: 'pointer' },
       },
@@ -231,6 +270,32 @@ window.SettingsPage = () => {
       React.createElement('p', {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
       }, 'Vercel Blob Storageを使用してデータをクラウドに保存・同期します。記録追加時に自動的にクラウドへ保存されます。'),
+
+      React.createElement('div', { className: 'form-group', style: { marginBottom: 'var(--space-md)' } },
+        React.createElement('label', { className: 'form-label' }, '同期シークレット'),
+        React.createElement('input', {
+          className: 'form-input',
+          type: 'password',
+          placeholder: 'Vercel環境変数のSYNC_SECRETと同じ値',
+          value: syncSecret,
+          onChange: (e) => setSyncSecret(e.target.value),
+          style: { fontFamily: 'monospace' },
+        }),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' } },
+          React.createElement(Button, {
+            variant: 'primary',
+            icon: 'save',
+            onClick: () => {
+              localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, syncSecret.trim());
+              setSyncStatus('シークレットを保存しました');
+              setTimeout(() => setSyncStatus(null), 2000);
+            },
+          }, '保存'),
+          React.createElement('span', {
+            style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' },
+          }, '※ Vercelダッシュボードの環境変数SYNC_SECRETと同じ値を設定')
+        )
+      ),
 
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
         React.createElement(Button, {
@@ -275,6 +340,21 @@ window.SettingsPage = () => {
         }, syncTestResult === 'success' ? 'クラウドに正常に接続できました' : syncTestResult)
       ),
 
+      // 自動同期ステータス
+      React.createElement('div', {
+        style: {
+          padding: '8px 12px', borderRadius: '8px', marginBottom: 'var(--space-md)',
+          background: syncSecret ? 'rgba(0, 200, 83, 0.1)' : 'rgba(255, 152, 0, 0.1)',
+          border: `1px solid ${syncSecret ? 'rgba(0, 200, 83, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
+          display: 'flex', alignItems: 'center', gap: '8px',
+          fontSize: 'var(--font-size-sm)',
+          color: syncSecret ? 'var(--color-accent)' : 'var(--color-warning)',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, syncSecret ? 'sync' : 'sync_disabled'),
+        syncSecret ? '自動同期: 有効（起動時・タブ復帰時・5分間隔）' : '自動同期: SYNC_SECRET未設定のため無効'
+      ),
+
       // 手動同期ボタン
       React.createElement('div', {
         style: { display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' },
@@ -287,18 +367,23 @@ window.SettingsPage = () => {
             try {
               const revenueEntries = DataService.getEntries();
               const rivalEntries = DataService.getRivalEntries();
-              const headers = { 'Content-Type': 'application/json' };
-              const [r1, r2] = await Promise.all([
-                fetch('/api/data?type=revenue', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: revenueEntries.length, entries: revenueEntries }) }),
-                fetch('/api/data?type=rival', { method: 'POST', headers, body: JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: rivalEntries.length, entries: rivalEntries }) }),
+              const gatheringEntries = DataService.getGatheringMemos();
+              const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
+              const headers = { 'Content-Type': 'application/json', ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}) };
+              const mkBody = (entries) => JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: entries.length, entries });
+              const [r1, r2, r3] = await Promise.all([
+                fetch('/api/data?type=revenue', { method: 'POST', headers, body: mkBody(revenueEntries) }),
+                fetch('/api/data?type=rival', { method: 'POST', headers, body: mkBody(rivalEntries) }),
+                fetch('/api/data?type=gathering', { method: 'POST', headers, body: mkBody(gatheringEntries) }),
               ]);
-              if (r1.ok && r2.ok) {
-                setSyncStatus(`送信完了: 売上${revenueEntries.length}件, 他社${rivalEntries.length}件`);
+              if (r1.ok && r2.ok && r3.ok) {
+                setSyncStatus(`送信完了: 売上${revenueEntries.length}件, 他社${rivalEntries.length}件, 集客${gatheringEntries.length}件`);
               } else {
-                let d1 = '', d2 = '';
+                let d1 = '', d2 = '', d3 = '';
                 try { const j = await r1.json(); d1 = j.detail || j.error || ''; } catch {}
                 try { const j = await r2.json(); d2 = j.detail || j.error || ''; } catch {}
-                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}, rival=${r2.status}${d2 ? '(' + d2 + ')' : ''}`);
+                try { const j = await r3.json(); d3 = j.detail || j.error || ''; } catch {}
+                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}, rival=${r2.status}${d2 ? '(' + d2 + ')' : ''}, gathering=${r3.status}${d3 ? '(' + d3 + ')' : ''}`);
               }
             } catch (e) {
               setSyncStatus('送信エラー: ' + e.message);
@@ -311,11 +396,12 @@ window.SettingsPage = () => {
           onClick: async () => {
             setSyncStatus('取得中...');
             try {
-              const [r1, r2] = await Promise.all([
+              const [r1, r2, r3] = await Promise.all([
                 DataService.syncFromCloud('revenue'),
                 DataService.syncFromCloud('rival'),
+                DataService.syncFromCloud('gathering'),
               ]);
-              setSyncStatus(`取得完了: 売上+${r1.merged}件, 他社+${r2.merged}件`);
+              setSyncStatus(`取得完了: 売上+${r1.merged}件, 他社+${r2.merged}件, 集客+${r3.merged}件`);
             } catch (e) {
               setSyncStatus('取得エラー: ' + e.message);
             }
@@ -337,23 +423,170 @@ window.SettingsPage = () => {
       )
     ),
 
+    // プッシュ通知設定
+    React.createElement(Card, { title: 'プッシュ通知', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, '交通機関の遅延・トラブル情報をブラウザ通知でお知らせします。'),
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '通知'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+            !NotificationService.isSupported() ? 'このブラウザは通知に対応していません'
+              : NotificationService.getPermission() === 'denied' ? 'ブラウザの通知が拒否されています。ブラウザ設定から許可してください'
+              : '遅延・運休・事故などの交通情報を自動通知'
+          )
+        ),
+        React.createElement('button', {
+          onClick: async () => {
+            if (!NotificationService.isSupported()) return;
+            if (NotificationService.isEnabled()) {
+              NotificationService.setEnabled(false);
+              setRefreshKey(k => k + 1);
+            } else {
+              const perm = await NotificationService.requestPermission();
+              if (perm === 'granted') {
+                NotificationService.setEnabled(true);
+                NotificationService.send('通知テスト', { body: '通知が有効になりました' });
+              }
+              setRefreshKey(k => k + 1);
+            }
+          },
+          disabled: !NotificationService.isSupported() || NotificationService.getPermission() === 'denied',
+          style: {
+            padding: '8px 20px', borderRadius: '20px', border: 'none', cursor: 'pointer',
+            fontWeight: 700, fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-family)',
+            background: NotificationService.isEnabled() ? 'var(--color-accent)' : 'rgba(255,255,255,0.1)',
+            color: NotificationService.isEnabled() ? '#fff' : 'var(--text-secondary)',
+            opacity: (!NotificationService.isSupported() || NotificationService.getPermission() === 'denied') ? 0.5 : 1,
+            transition: 'all 0.2s ease',
+          },
+        }, NotificationService.isEnabled() ? 'ON' : 'OFF')
+      )
+    ),
+
+    // 日額目標金額設定
+    React.createElement(Card, { title: '日額目標金額', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, '1日の売上目標金額を設定します。月間目標は日額×稼働日数で自動計算されます。'),
+      React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+        React.createElement('span', { style: { color: 'var(--text-secondary)', fontWeight: 500 } }, '¥'),
+        React.createElement('input', {
+          type: 'number',
+          value: dailyGoal,
+          onChange: (e) => setDailyGoal(e.target.value),
+          placeholder: '例: 50000',
+          style: {
+            flex: 1, padding: '10px 12px', borderRadius: '8px',
+            border: '1px solid rgba(255,255,255,0.15)',
+            background: 'rgba(255,255,255,0.06)',
+            color: 'var(--text-primary)',
+            fontSize: 'var(--font-size-md)',
+            fontFamily: 'var(--font-family)',
+          },
+        }),
+        React.createElement(Button, {
+          variant: 'primary',
+          onClick: () => {
+            const settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+            settings.dailyGoal = Number(dailyGoal) || 0;
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+            setGoalSaved(true);
+            setTimeout(() => setGoalSaved(false), 2000);
+          },
+        }, goalSaved ? '保存済み' : '保存')
+      )
+    ),
+
     // GPS設定
     React.createElement(Card, { title: 'GPS設定', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
+      // 位置情報権限
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '位置情報権限'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'ブラウザの位置情報アクセス許可')
+        ),
+        React.createElement('span', {
+          className: 'badge badge--' + (gpsPermission === 'granted' ? 'success' : gpsPermission === 'denied' ? 'danger' : 'warning'),
+        }, gpsPermission === 'granted' ? '許可済み' : gpsPermission === 'denied' ? '拒否' : gpsPermission === 'prompt' ? '未許可' : '確認中')
+      ),
+
+      // 高精度モード
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
         React.createElement('div', null,
           React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '高精度モード'),
           React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPSの精度を最大にする（バッテリー消費が増えます）')
         ),
-        React.createElement('span', { className: 'badge badge--success' }, '有効')
+        React.createElement('span', { className: 'badge badge--success' }, '常時有効')
       ),
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
+
+      // バックグラウンド追跡（トグル付き）
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
         React.createElement('div', null,
           React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'バックグラウンド追跡'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'アプリがバックグラウンドでも位置を追跡')
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+            'アプリを開いている間、位置を常時追跡',
+            isTracking ? ' (稼働中)' : ''
+          )
         ),
-        React.createElement('span', { className: 'badge badge--warning' }, 'PWA必要')
+        React.createElement('button', {
+          onClick: handleGpsBgToggle,
+          style: {
+            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
+            background: gpsBgEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
+            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          },
+        },
+          React.createElement('span', {
+            style: {
+              position: 'absolute', top: '3px',
+              left: gpsBgEnabled ? '24px' : '3px',
+              width: '20px', height: '20px', borderRadius: '50%',
+              background: '#fff', transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            },
+          })
+        )
+      ),
+
+      // 記録間隔
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '記録間隔'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPS軌跡の記録頻度（始業中・スマホのみ）')
+        ),
+        React.createElement('span', { className: 'badge badge--info' }, '1秒')
+      ),
+
+      // 保存期間
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '保存期間'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'IndexedDBに保存（自動削除なし）')
+        ),
+        React.createElement('span', { className: 'badge badge--info' }, '無期限')
+      ),
+
+      // 現在の状態サマリ
+      React.createElement('div', {
+        style: {
+          marginTop: '12px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(255,255,255,0.04)',
+          fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', lineHeight: 1.8,
+        },
+      },
+        React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' } }, '現在の状態'),
+        React.createElement('div', null, '追跡: ', React.createElement('span', { style: { color: isTracking ? '#4caf50' : '#ff9800' } }, isTracking ? '稼働中' : '停止中')),
+        currentPosition && React.createElement('div', null,
+          '最終位置: ', currentPosition.lat.toFixed(5), ', ', currentPosition.lng.toFixed(5),
+          ' (精度: ', Math.round(accuracy || 0), 'm)'
+        ),
+        React.createElement('div', null, '記録日数: ', gpsRecordCount, '日分'),
+        React.createElement('div', null, '記録条件: スマホ + 始業中 + 休憩外')
       )
     ),
+
 
     // アプリをインストール（PWA）
     React.createElement(Card, { title: 'アプリをインストール', style: { marginBottom: 'var(--space-lg)' } },
@@ -375,7 +608,7 @@ window.SettingsPage = () => {
         onClick: async () => {
           const result = await window.triggerPwaInstall();
           if (!result.success && result.reason === 'prompt_not_available') {
-            alert('手動インストール方法:\\n\\n【Android Chrome】\\nメニュー（⋮）→「ホーム画面に追加」\\n\\n【iPhone Safari】\\n共有ボタン（□↑）→「ホーム画面に追加」');
+            alert('手動インストール方法:\n\n【Android Chrome】\nメニュー（⋮）→「ホーム画面に追加」\n\n【iPhone Safari】\n共有ボタン（□↑）→「ホーム画面に追加」');
           }
         },
       }, 'インストール'),
@@ -419,3 +652,5 @@ window.SettingsPage = () => {
     )
   );
 };
+
+})();

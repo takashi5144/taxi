@@ -1,3 +1,4 @@
+(function() {
 // Logs.jsx - ログビューアページ
 window.LogsPage = () => {
   const { useState, useMemo } = React;
@@ -86,3 +87,5 @@ window.LogsPage = () => {
     )
   );
 };
+
+})();

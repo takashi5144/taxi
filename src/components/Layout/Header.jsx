@@ -1,3 +1,4 @@
+(function() {
 // Header.jsx - ヘッダーナビゲーション
 window.Header = () => {
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
@@ -16,8 +17,7 @@ window.Header = () => {
       className: 'header__logo',
       onClick: () => navigate('dashboard'),
     },
-      React.createElement('span', { className: 'material-icons-round' }, 'local_taxi'),
-      React.createElement('span', null, 'タクシー売上サポート')
+      React.createElement('span', { className: 'material-icons-round' }, 'local_taxi')
     ),
 
     // ナビゲーション（PC用）
@@ -58,3 +58,5 @@ window.Header = () => {
     )
   );
 };
+
+})();

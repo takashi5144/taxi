@@ -1,20 +1,23 @@
+(function() {
 // Dashboard.jsx - ダッシュボード（DataServiceからリアルタイムデータ取得）
 window.DashboardPage = () => {
-  const { useState, useEffect, useMemo } = React;
-  const { navigate } = useAppContext();
+  const { useState, useEffect, useMemo, useCallback, useRef } = React;
+  const { navigate, geminiApiKey } = useAppContext();
   const { currentPosition, isTracking } = useMapContext();
+  const geo = useGeolocation();
 
   // DataServiceからリアルタイムデータを取得
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // localStorageの変更を監視して自動更新
+  // localStorageの変更・データ変更イベントを監視して自動更新
   useEffect(() => {
+    const syncKeys = [APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, APP_CONSTANTS.STORAGE_KEYS.SHIFTS, APP_CONSTANTS.STORAGE_KEYS.BREAKS, APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS];
     const handleStorage = (e) => {
-      if (e.key === APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA) {
-        setRefreshKey(k => k + 1);
-      }
+      if (syncKeys.includes(e.key)) setRefreshKey(k => k + 1);
     };
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
 
     // 画面に戻った時も更新
     const handleVisibility = () => {
@@ -22,19 +25,257 @@ window.DashboardPage = () => {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    // 稼働時間をリアルタイム更新（1分間隔）
+    const timer = setInterval(() => setRefreshKey(k => k + 1), 60000);
+
     return () => {
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
       document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(timer);
     };
   }, []);
 
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
   const overallSummary = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
 
+  const hourlyRate = useMemo(() => {
+    if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 1) {
+      return Math.round(todaySummary.totalAmount / (todaySummary.workMinutes / 60));
+    }
+    return null;
+  }, [refreshKey]);
+
+  const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
+  const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
+  const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(), [refreshKey]);
+  const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots(), [refreshKey]);
+  const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true }), [refreshKey]);
+  // 機能8: 逆ジオコーディング（非同期）
+  const [spotsWithGeoNames, setSpotsWithGeoNames] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    setSpotsWithGeoNames(null); // refreshKey変更時に古いデータをクリア
+    DataService.getFrequentPickupSpotsWithNames().then(result => {
+      if (!cancelled) setSpotsWithGeoNames(result);
+    });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+  // 表示用: geoName があればそちらを優先
+  const displaySpots = useMemo(() => {
+    const base = frequentSpots;
+    if (!spotsWithGeoNames) return base;
+    return base.map((s, i) => {
+      const geo = spotsWithGeoNames[i];
+      return geo && geo.geoName ? { ...s, displayName: geo.geoName, originalName: s.name } : s;
+    });
+  }, [frequentSpots, spotsWithGeoNames]);
+  // スポット詳細の展開状態（修正7: refreshKeyでリセットしない）
+  const expandedSpotIdxRef = useRef(null);
+  const [expandedSpotIdx, setExpandedSpotIdx] = useState(null);
+  const stableSetExpandedSpotIdx = useCallback((v) => { expandedSpotIdxRef.current = v; setExpandedSpotIdx(v); }, []);
+  // 修正6: 全期間スポット初期5件表示
+  const [showAllSpots, setShowAllSpots] = useState(false);
+  // 改善1: topAreas + frequentSpotsNow を統合した「今おすすめスポット」
+  const mergedNowSpots = useMemo(() => {
+    const merged = [];
+    const usedNames = new Set();
+    topAreas.forEach(a => {
+      merged.push({ name: a.name, count: a.count, avgAmount: a.avg, tags: ['高単価'] });
+      usedNames.add(a.name);
+    });
+    frequentSpotsNow.forEach(s => {
+      const dup = [...usedNames].find(n => n.includes(s.name) || s.name.includes(n));
+      if (dup) {
+        const ex = merged.find(m => m.name === dup);
+        if (ex && !ex.tags.includes('頻出')) { ex.tags.push('頻出'); ex.count = Math.max(ex.count, s.count); }
+      } else {
+        merged.push({ name: s.name, count: s.count, avgAmount: s.avgAmount, tags: ['頻出'] });
+        usedNames.add(s.name);
+      }
+    });
+    return merged.slice(0, 5);
+  }, [topAreas, frequentSpotsNow]);
+  const eventAlerts = useMemo(() => DataService.getUpcomingEventAlerts(), [refreshKey]);
+
+  // 待機スポット需要指数
+  const waitingSpotData = useMemo(() => DataService.getWaitingSpotDemandIndex(), [refreshKey]);
+  const revenueForecast = useMemo(() => DataService.getWaitingSpotRevenueForecast(), [refreshKey]);
+
+  // 流しエリア需要指数
+  const cruisingAreaData = useMemo(() => DataService.getCruisingAreaDemandIndex(), [refreshKey]);
+
+  // 日勤集客強化: 病院・天気・タイムライン・アクション提案
+  const hospitalData = useMemo(() => DataService.getHospitalScheduleData(), [refreshKey]);
+  const [weatherImpact, setWeatherImpact] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    GpsLogService.fetchHourlyForecast().then(forecast => {
+      if (!cancelled) setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
+    });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+  const dayShiftScore = useMemo(() => DataService.getDayShiftDemandScore(weatherImpact), [refreshKey, weatherImpact]);
+  const timeline = useMemo(() => DataService.getDayShiftTimeline(weatherImpact), [refreshKey, weatherImpact]);
+  const nextAction = useMemo(() => DataService.getNextOptimalAction(currentPosition, weatherImpact), [refreshKey, weatherImpact, currentPosition]);
+  const strategyData = useMemo(() => DataService.getStrategySimulation(new Date().getHours()), [refreshKey]);
+  const [strategyHour, setStrategyHour] = useState(new Date().getHours());
+  const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
+  const slowPeriodRoutes = useMemo(() => DataService.getSlowPeriodCruisingRoutes(), [refreshKey, weatherImpact]);
+
+  // 始業/終業シフト管理
+  const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
+  // 休憩管理
+  const [breakInfo, setBreakInfo] = useState({ active: false, startTime: null });
+
+  useEffect(() => {
+    try {
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        setShiftInfo({ active: true, startTime: activeShift.startTime });
+      }
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const activeBreak = breaks.find(b => !b.endTime);
+      if (activeBreak) {
+        setBreakInfo({ active: true, startTime: activeBreak.startTime });
+      }
+    } catch (e) {
+      AppLogger.warn('シフト/休憩データの読み込みに失敗', e.message);
+    }
+  }, []);
+
+  const handleShiftStart = useCallback(() => {
+    try {
+      const now = new Date();
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        activeShift.endTime = now.toISOString();
+      }
+      // 休憩中なら終了させる
+      if (breakInfo.active) {
+        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        const ab = breaks.find(b => !b.endTime);
+        if (ab) ab.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+        DataService.syncBreaksToCloud();
+        setBreakInfo({ active: false, startTime: null });
+      }
+      const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
+      shifts.push(newShift);
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+      DataService.syncShiftsToCloud();
+      setShiftInfo({ active: true, startTime: now.toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      // GPS追跡を開始
+      if (!geo.isTracking) geo.startTracking();
+      GpsLogService.startWeatherPolling();
+      AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e) {
+      AppLogger.error('始業処理に失敗', e.message);
+    }
+  }, [breakInfo.active, geo]);
+
+  const handleShiftEnd = useCallback(() => {
+    try {
+      const now = new Date();
+      // 休憩中なら終了させる
+      if (breakInfo.active) {
+        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        const ab = breaks.find(b => !b.endTime);
+        if (ab) ab.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+        DataService.syncBreaksToCloud();
+        setBreakInfo({ active: false, startTime: null });
+      }
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        activeShift.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+        DataService.syncShiftsToCloud();
+        AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+      }
+      setShiftInfo({ active: false, startTime: null });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      // GPS追跡を停止
+      if (geo.isTracking) geo.stopTracking();
+      GpsLogService.stopWeatherPolling();
+      AppLogger.info('GPS追跡を停止（終業）');
+    } catch (e) {
+      AppLogger.error('終業処理に失敗', e.message);
+    }
+  }, [breakInfo.active, geo]);
+
+  const handleBreakStart = useCallback(() => {
+    if (!shiftInfo.active) return;
+    try {
+      const now = new Date();
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
+      breaks.push(newBreak);
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      DataService.syncBreaksToCloud();
+      setBreakInfo({ active: true, startTime: now.toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      AppLogger.info(`休憩開始: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e) {
+      AppLogger.error('休憩開始処理に失敗', e.message);
+    }
+  }, [shiftInfo.active]);
+
+  const handleBreakEnd = useCallback(() => {
+    try {
+      const now = new Date();
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const activeBreak = breaks.find(b => !b.endTime);
+      if (activeBreak) {
+        activeBreak.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+        DataService.syncBreaksToCloud();
+        AppLogger.info(`休憩終了: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+      }
+      setBreakInfo({ active: false, startTime: null });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+    } catch (e) {
+      AppLogger.error('休憩終了処理に失敗', e.message);
+    }
+  }, []);
+
+  // 営業プラン関連
+  const dailySchedule = useMemo(() => DataService.getDailyDemandSchedule(), [refreshKey]);
+  const [demandPlanLoading, setDemandPlanLoading] = useState(false);
+  const demandPlanFetched = useRef(false);
+  const demandPlanLoadingRef = useRef(false);
+
+  const handleFetchDemandPlan = useCallback(async () => {
+    if (!geminiApiKey || demandPlanLoadingRef.current) return;
+    demandPlanLoadingRef.current = true;
+    setDemandPlanLoading(true);
+    const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, '旭川');
+    if (result.success && result.data) {
+      const today = new Date().toISOString().slice(0, 10);
+      AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'demand-plan' } }));
+    }
+    demandPlanLoadingRef.current = false;
+    setDemandPlanLoading(false);
+  }, [geminiApiKey]);
+
+  // Gemini APIキーがありプランが未取得なら初回自動fetch
+  useEffect(() => {
+    if (geminiApiKey && !dailySchedule.available && !demandPlanFetched.current) {
+      demandPlanFetched.current = true;
+      handleFetchDemandPlan();
+    }
+  }, [geminiApiKey, dailySchedule.available, handleFetchDemandPlan]);
+
   const stats = [
     {
-      label: '本日の売上',
+      label: '本日の売上（税込）',
       value: `¥${todaySummary.totalAmount.toLocaleString()}`,
+      sub: `税抜¥${Math.floor(todaySummary.totalAmount / 1.1).toLocaleString()} 税¥${(todaySummary.totalAmount - Math.floor(todaySummary.totalAmount / 1.1)).toLocaleString()}`,
       icon: 'payments',
       color: 'var(--color-secondary)',
     },
@@ -72,6 +313,132 @@ window.DashboardPage = () => {
       'ダッシュボード'
     ),
 
+    // 始業/終業ボタン
+    React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
+    },
+      // 始業・終業行
+      React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+        // 始業ボタン
+        React.createElement('button', {
+          type: 'button',
+          onClick: handleShiftStart,
+          style: {
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '14px 12px', borderRadius: '10px',
+            fontSize: '15px', fontWeight: '700', cursor: 'pointer',
+            border: shiftInfo.active ? '2px solid var(--color-accent)' : '2px solid var(--color-warning)',
+            background: shiftInfo.active ? 'rgba(0,200,83,0.12)' : 'rgba(255,152,0,0.15)',
+            color: shiftInfo.active ? 'var(--color-accent)' : 'var(--color-warning)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } },
+            shiftInfo.active ? 'work' : 'play_arrow'),
+          shiftInfo.active
+            ? `始業中 ${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}~`
+            : '始業'
+        ),
+        // 終業ボタン（始業中のみ表示）
+        shiftInfo.active && React.createElement('button', {
+          type: 'button',
+          onClick: handleShiftEnd,
+          style: {
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '14px 12px', borderRadius: '10px',
+            fontSize: '15px', fontWeight: '700', cursor: 'pointer',
+            border: '2px solid #ef4444',
+            background: 'rgba(239,68,68,0.12)',
+            color: '#ef4444',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'stop'),
+          '終業'
+        )
+      ),
+      // 休憩開始・休憩終了行（始業中のみ表示）
+      shiftInfo.active && React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } },
+        // 休憩開始ボタン（休憩中でないとき）
+        !breakInfo.active && React.createElement('button', {
+          type: 'button',
+          onClick: handleBreakStart,
+          style: {
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '10px 12px', borderRadius: '10px',
+            fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+            border: '2px solid #78909c',
+            background: 'rgba(120,144,156,0.1)',
+            color: '#78909c',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'free_breakfast'),
+          '休憩開始'
+        ),
+        // 休憩中表示 + 休憩終了ボタン（休憩中のとき）
+        breakInfo.active && React.createElement('button', {
+          type: 'button',
+          onClick: handleBreakEnd,
+          style: {
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            padding: '10px 12px', borderRadius: '10px',
+            fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+            border: '2px solid #42a5f5',
+            background: 'rgba(66,165,245,0.12)',
+            color: '#42a5f5',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'play_arrow'),
+          '休憩終了'
+        )
+      ),
+      // 休憩中の表示
+      breakInfo.active && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '8px 12px', borderRadius: '8px',
+          background: 'rgba(66,165,245,0.06)', border: '1px solid rgba(66,165,245,0.2)',
+          fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#42a5f5' } }, 'free_breakfast'),
+        `${new Date(breakInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} から休憩中`,
+        (() => {
+          const elapsed = Date.now() - new Date(breakInfo.startTime).getTime();
+          const mins = Math.floor(elapsed / 60000);
+          return React.createElement('span', {
+            style: { fontWeight: '600', color: '#42a5f5', padding: '1px 8px', borderRadius: '4px', background: 'rgba(66,165,245,0.12)' },
+          }, `${mins}分`);
+        })()
+      ),
+      // 勤務中の経過時間表示（休憩中でないとき）
+      shiftInfo.active && !breakInfo.active && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '8px 12px', borderRadius: '8px',
+          background: 'rgba(0,200,83,0.06)', border: '1px solid rgba(0,200,83,0.15)',
+          fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: 'var(--color-accent)' } }, 'schedule'),
+        `${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} から勤務中`,
+        (() => {
+          const elapsed = Date.now() - new Date(shiftInfo.startTime).getTime();
+          const hours = Math.floor(elapsed / 3600000);
+          const mins = Math.floor((elapsed % 3600000) / 60000);
+          return React.createElement('span', {
+            style: { fontWeight: '600', color: 'var(--color-accent)', padding: '1px 8px', borderRadius: '4px', background: 'rgba(0,200,83,0.12)' },
+          }, `${hours}時間${mins}分`);
+        })()
+      )
+    ),
+
     // GPS状態
     React.createElement(Card, {
       style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
@@ -94,6 +461,24 @@ window.DashboardPage = () => {
       )
     ),
 
+    // リアルタイム時給
+    hourlyRate !== null && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(249,168,37,0.15), rgba(255,152,0,0.08))',
+        border: '1px solid rgba(249,168,37,0.3)',
+        textAlign: 'center',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)' } }, 'speed'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'リアルタイム時給')
+      ),
+      React.createElement('div', {
+        style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-secondary)' },
+      }, `¥${hourlyRate.toLocaleString()}/h`)
+    ),
+
     // 本日の統計カード
     React.createElement('div', { className: 'grid grid--4', style: { marginBottom: 'var(--space-lg)' } },
       stats.map((stat, i) =>
@@ -103,7 +488,966 @@ window.DashboardPage = () => {
             style: { fontSize: '32px', color: stat.color, marginBottom: '8px' },
           }, stat.icon),
           React.createElement('div', { className: 'stat-card__value' }, stat.value),
+          stat.sub && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, stat.sub),
           React.createElement('div', { className: 'stat-card__label' }, stat.label)
+        )
+      )
+    ),
+
+    // 目標ペーストラッカー
+    goalProgress && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: goalProgress.dailyRate >= 100
+          ? 'linear-gradient(135deg, rgba(76,175,80,0.15), rgba(76,175,80,0.05))'
+          : 'linear-gradient(135deg, rgba(33,150,243,0.15), rgba(33,150,243,0.05))',
+        border: goalProgress.dailyRate >= 100
+          ? '1px solid rgba(76,175,80,0.3)'
+          : '1px solid rgba(33,150,243,0.3)',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: goalProgress.dailyRate >= 100 ? '#4CAF50' : '#2196F3' } },
+          goalProgress.dailyRate >= 100 ? 'emoji_events' : 'flag'
+        ),
+        React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '日額目標進捗')
+      ),
+      // プログレスバー
+      React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '12px', overflow: 'hidden', marginBottom: '8px' } },
+        React.createElement('div', { style: {
+          width: `${Math.min(goalProgress.dailyRate, 100)}%`,
+          height: '100%', borderRadius: '8px',
+          background: goalProgress.dailyRate >= 100 ? '#4CAF50' : '#2196F3',
+          transition: 'width 0.5s ease',
+        } })
+      ),
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)' } },
+        React.createElement('span', null, `¥${goalProgress.todayAmount.toLocaleString()} / ¥${goalProgress.dailyGoal.toLocaleString()}`),
+        React.createElement('span', { style: { fontWeight: 700, color: goalProgress.dailyRate >= 100 ? '#4CAF50' : '#2196F3' } }, `${goalProgress.dailyRate}%`)
+      ),
+      // 月間進捗
+      goalProgress.monthDays > 0 && React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+        `今月: ¥${goalProgress.monthAmount.toLocaleString()} / ¥${goalProgress.monthlyGoal.toLocaleString()} (${goalProgress.monthlyRate}%) — ${goalProgress.monthDays}日稼働`
+      )
+    ),
+
+    // 実車率トラッキング
+    utilization.rideCount >= 2 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: 'var(--color-accent)' } }, 'local_taxi'),
+        React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '実車率')
+      ),
+      React.createElement('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' } },
+        React.createElement('span', { style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-accent)' } }, `${utilization.rate}%`),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+          `実車${utilization.occupiedMin}分 / 空車${utilization.vacantMin}分`
+        )
+      ),
+      React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '8px', overflow: 'hidden' } },
+        React.createElement('div', { style: {
+          width: `${utilization.rate}%`, height: '100%', borderRadius: '8px',
+          background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
+          transition: 'width 0.5s ease',
+        } })
+      )
+    ),
+
+    // ============================================================
+    // [NEW] 次の行動ヒーローカード (Feature 2)
+    // ============================================================
+    nextAction && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: nextAction.urgency === 'now'
+          ? 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(249,115,22,0.10))'
+          : nextAction.urgency === 'soon'
+            ? 'linear-gradient(135deg, rgba(245,158,11,0.18), rgba(234,179,8,0.10))'
+            : 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(59,130,246,0.10))',
+        border: nextAction.urgency === 'now'
+          ? '2px solid rgba(239,68,68,0.5)'
+          : nextAction.urgency === 'soon'
+            ? '2px solid rgba(245,158,11,0.4)'
+            : '2px solid rgba(34,197,94,0.3)',
+        animation: nextAction.urgency === 'now' ? 'pulse 2s ease-in-out infinite' : 'none',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flex: 1 } },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: {
+              fontSize: '36px',
+              color: nextAction.urgency === 'now' ? '#ef4444' : nextAction.urgency === 'soon' ? '#f59e0b' : '#22c55e',
+            },
+          }, nextAction.action.includes('待機') ? 'pin_drop' : nextAction.action.includes('流し') ? 'directions_car' : 'navigation'),
+          React.createElement('div', { style: { flex: 1 } },
+            React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 800 } }, nextAction.action),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginTop: '2px' } }, nextAction.reason),
+            nextAction.estimatedWaitMin && nextAction.urgency !== 'plan' && React.createElement('span', {
+              style: {
+                display: 'inline-block', marginTop: '4px', fontSize: '10px', fontWeight: 700,
+                padding: '2px 8px', borderRadius: '8px',
+                background: nextAction.urgency === 'now' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
+                color: nextAction.urgency === 'now' ? '#fca5a5' : '#fcd34d',
+              },
+            }, `あと${nextAction.estimatedWaitMin}分`)
+          )
+        ),
+        React.createElement('div', {
+          style: {
+            width: '52px', height: '52px', borderRadius: '50%', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            background: nextAction.demandScore >= 70 ? 'rgba(239,68,68,0.2)' : nextAction.demandScore >= 50 ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.15)',
+          },
+        },
+          React.createElement('span', {
+            style: { fontSize: '20px', fontWeight: 800, color: nextAction.demandScore >= 70 ? '#ef4444' : nextAction.demandScore >= 50 ? '#f59e0b' : '#3b82f6' },
+          }, String(nextAction.demandScore))
+        )
+      ),
+      // alternatives
+      nextAction.alternatives && nextAction.alternatives.length > 0 && React.createElement('div', {
+        style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' },
+      },
+        nextAction.alternatives.map((alt, i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', fontSize: '11px', color: 'var(--text-secondary)' },
+          },
+            React.createElement('span', null, alt.action),
+            React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `スコア${alt.demandScore}`)
+          )
+        )
+      )
+    ),
+
+    // ============================================================
+    // [NEW] 日勤タイムラインカード (Feature 1+7+8)
+    // ============================================================
+    React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.06))',
+        border: '1px solid rgba(99,102,241,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#6366f1' } }, 'timeline'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '日勤タイムライン'),
+          React.createElement('span', {
+            style: {
+              fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+              background: new Date().getDate() % 2 === 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+              color: new Date().getDate() % 2 === 0 ? '#22c55e' : '#ef4444',
+            },
+          }, new Date().getDate() % 2 === 0 ? '駅前OK' : '駅前不可')
+        )
+      ),
+
+      // 天気予報ストリップ (7-17)
+      weatherImpact && weatherImpact.upcoming && weatherImpact.upcoming.length > 0 && React.createElement('div', {
+        style: { display: 'flex', gap: '2px', marginBottom: '10px', overflowX: 'auto', paddingBottom: '2px' },
+      },
+        ...weatherImpact.upcoming.filter(u => u.hour >= 7 && u.hour <= 17).map(u => {
+          const weatherIcon = u.weather.includes('雨') ? '雨' : u.weather.includes('雪') ? '雪' : u.weather.includes('曇') ? '曇' : '晴';
+          return React.createElement('div', {
+            key: `wstrip-${u.hour}`,
+            style: {
+              flex: '1 0 auto', minWidth: '28px', textAlign: 'center', padding: '3px 2px',
+              borderRadius: '4px', fontSize: '9px',
+              background: u.multiplier > 1.2 ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+            },
+          },
+            React.createElement('div', { style: { fontWeight: 600, color: 'var(--text-muted)' } }, `${u.hour}`),
+            React.createElement('div', { style: { fontSize: '11px' } }, weatherIcon),
+            React.createElement('div', { style: { color: 'var(--text-muted)' } }, `${u.temp != null ? Math.round(u.temp) : '-'}°`)
+          );
+        })
+      ),
+
+      // タイムラインバー (7-17)
+      React.createElement('div', { style: { position: 'relative', marginBottom: '12px' } },
+        // セグメントバー
+        React.createElement('div', { style: { display: 'flex', height: '24px', borderRadius: '6px', overflow: 'hidden', gap: '1px' } },
+          ...Array.from({ length: 11 }, (_, i) => {
+            const h = 7 + i;
+            const hs = dayShiftScore.hourlyScores.find(s => s.hour === h);
+            const score = hs ? hs.score : 0;
+            const isPast = h < new Date().getHours();
+            const bg = isPast ? 'rgba(107,114,128,0.2)' : score > 70 ? 'rgba(239,68,68,0.4)' : score > 40 ? 'rgba(245,158,11,0.35)' : 'rgba(59,130,246,0.25)';
+            return React.createElement('div', {
+              key: `seg-${h}`,
+              style: { flex: 1, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: isPast ? '#6b7280' : '#fff' },
+              title: `${h}時: スコア${score}`,
+            }, h % 2 === 1 ? String(h) : '');
+          })
+        ),
+        // 現在位置マーカー ▼
+        new Date().getHours() >= 7 && new Date().getHours() <= 17 && React.createElement('div', {
+          style: {
+            position: 'absolute', top: '-10px',
+            left: `${timeline.nowPosition * 100}%`, transform: 'translateX(-50%)',
+            fontSize: '12px', color: '#6366f1', fontWeight: 800,
+          },
+        }, '\u25BC'),
+
+        // イベントドット
+        React.createElement('div', { style: { position: 'relative', height: '10px', marginTop: '2px' } },
+          ...timeline.events.filter(e => !e.isPast).slice(0, 12).map(ev => {
+            const pos = Math.max(0, Math.min(100, (ev.timeMin - 420) / 600 * 100));
+            return React.createElement('div', {
+              key: ev.id,
+              style: {
+                position: 'absolute', left: `${pos}%`, top: '0', transform: 'translateX(-50%)',
+                width: '8px', height: '8px', borderRadius: '50%', background: ev.color,
+              },
+              title: `${ev.time} ${ev.title}`,
+            });
+          })
+        )
+      ),
+
+      // 凡例
+      React.createElement('div', {
+        style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', justifyContent: 'center' },
+      },
+        ...[
+          { label: 'バス', color: '#3b82f6' },
+          { label: '病院', color: '#ef4444' },
+          { label: 'ホテル', color: '#8b5cf6' },
+          { label: 'イベント', color: '#f59e0b' },
+          { label: '天気', color: '#06b6d4' },
+        ].map(leg => React.createElement('span', {
+          key: leg.label,
+          style: { fontSize: '9px', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' },
+        },
+          React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: leg.color, display: 'inline-block' } }),
+          leg.label
+        ))
+      ),
+
+      // 次の3イベント
+      (() => {
+        const upcoming = timeline.events.filter(e => !e.isPast).slice(0, 3);
+        if (upcoming.length === 0) return React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' } }, '残りのイベントはありません');
+        return React.createElement('div', { style: { borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '8px' } },
+          ...upcoming.map(ev => {
+            const diff = ev.timeMin - (new Date().getHours() * 60 + new Date().getMinutes());
+            return React.createElement('div', {
+              key: ev.id,
+              style: {
+                display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0',
+                opacity: ev.isCurrent ? 1 : 0.85,
+              },
+            },
+              React.createElement('span', {
+                className: 'material-icons-round',
+                style: { fontSize: '16px', color: ev.color },
+              }, ev.icon),
+              React.createElement('span', { style: { fontSize: '11px', fontWeight: 700, minWidth: '40px' } }, ev.time),
+              React.createElement('span', { style: { fontSize: '11px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, ev.title),
+              ev.isCurrent
+                ? React.createElement('span', { style: { fontSize: '10px', padding: '1px 6px', borderRadius: '8px', background: '#6366f1', color: '#fff', fontWeight: 700 } }, 'NOW')
+                : diff > 0 && React.createElement('span', { style: { fontSize: '10px', color: diff <= 15 ? '#ef4444' : '#f59e0b', fontWeight: 600 } }, `あと${diff}分`)
+            );
+          })
+        );
+      })()
+    ),
+
+    // 改善1+6: 統合「今おすすめのスポット」カード（topAreas + frequentSpotsNow を統合、高い位置に配置）
+    mergedNowSpots.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(233,30,99,0.10), rgba(255,152,0,0.06))',
+        border: '1px solid rgba(233,30,99,0.2)',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#e91e63' } }, 'near_me'),
+        React.createElement('div', null,
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '今おすすめのスポット'),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+            `${'日月火水木金土'[new Date().getDay()]}曜 ${new Date().getHours()}時台の実績`
+          )
+        )
+      ),
+      mergedNowSpots.map((spot, i) =>
+        React.createElement('div', {
+          key: `merged-${spot.name}-${i}`,
+          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0',
+            borderBottom: i < mergedNowSpots.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 } },
+            React.createElement('span', { style: {
+              fontWeight: 700, fontSize: 'var(--font-size-lg)', width: '20px', textAlign: 'center',
+              color: i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : '#CD7F32',
+            } }, `${i + 1}`),
+            React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+              React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, spot.name),
+              React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '2px' } },
+                spot.tags.map(tag =>
+                  React.createElement('span', {
+                    key: tag,
+                    style: {
+                      fontSize: '9px', fontWeight: 600, padding: '1px 6px', borderRadius: '8px',
+                      background: tag === '高単価' ? 'rgba(255,152,0,0.2)' : 'rgba(233,30,99,0.2)',
+                      color: tag === '高単価' ? '#FFB74D' : '#f48fb1',
+                    },
+                  }, tag)
+                ),
+                React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${spot.count}回`)
+              )
+            )
+          ),
+          React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', whiteSpace: 'nowrap', flexShrink: 0 } }, `¥${spot.avgAmount.toLocaleString()}`)
+        )
+      ),
+
+      // Feature 5: チェーン提案（最新売上の降車座標がある場合）
+      (() => {
+        const latest = todaySummary.entries && todaySummary.entries[0];
+        if (!latest || !latest.dropoffCoords || !latest.dropoffCoords.lat) return null;
+        const chain = DataService.getChainSuggestion(latest.dropoff, latest.dropoffCoords);
+        if (!chain.suggestions || chain.suggestions.length === 0) return null;
+        return React.createElement('div', {
+          style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#f59e0b' } }, 'alt_route'),
+            React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: '#f59e0b' } }, '降車後おすすめ'),
+            React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' } }, `(${latest.dropoff || '直近降車地'}付近)`)
+          ),
+          ...chain.suggestions.map((sug, i) =>
+            React.createElement('div', {
+              key: `chain-${i}`,
+              style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: '11px' },
+            },
+              React.createElement('div', { style: { flex: 1 } },
+                React.createElement('span', { style: { fontWeight: 600 } }, sug.name),
+                React.createElement('span', { style: { color: 'var(--text-muted)', marginLeft: '6px', fontSize: '10px' } }, sug.distance)
+              ),
+              React.createElement('span', {
+                style: {
+                  fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px',
+                  background: sug.demandScore >= 60 ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.1)',
+                  color: sug.demandScore >= 60 ? '#ef4444' : '#3b82f6',
+                },
+              }, `${sug.demandScore}`)
+            )
+          )
+        );
+      })()
+    ),
+
+    // 修正4: mergedNowSpotsが空の場合のデータ不足メッセージ
+    mergedNowSpots.length === 0 && displaySpots.length === 0 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)', textAlign: 'center' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '32px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' } }, 'explore'),
+      React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '乗車データが蓄積されるとスポット分析が表示されます'),
+      React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: '4px' } }, 'GPS付きの売上記録が3件以上で自動検出')
+    ),
+
+    // よく乗車される場所（全期間・詳細版）改善2,3,4,5
+    displaySpots.length > 0 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#e91e63' } }, 'place'),
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, 'よく乗車される場所')
+        ),
+        // 改善5: アフォーダンス
+        React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, 'タップで詳細')
+      ),
+      // 修正6: 初期5件表示
+      displaySpots.slice(0, showAllSpots ? displaySpots.length : 5).map((spot, i) => {
+        const isExpanded = expandedSpotIdx === i;
+        const tierTotal = spot.tiers ? spot.tiers.short + spot.tiers.mid + spot.tiers.long : 0;
+        return React.createElement('div', {
+          key: `spot-${spot.name}-${i}`,
+          style: {
+            padding: '10px 8px', marginBottom: '4px', cursor: 'pointer',
+            borderRadius: '8px', transition: 'background 0.15s',
+            background: isExpanded ? 'rgba(233,30,99,0.06)' : 'transparent',
+          },
+          onClick: () => stableSetExpandedSpotIdx(isExpanded ? null : i),
+        },
+          // メイン行
+          React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 } },
+              React.createElement('span', { style: {
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: '30px', height: '30px', borderRadius: '50%', fontSize: 'var(--font-size-xs)',
+                fontWeight: 700, color: '#fff', background: '#e91e63', flexShrink: 0,
+              } }, `${spot.count}`),
+              React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                  spot.displayName || spot.name
+                ),
+                spot.displayName && spot.originalName && spot.displayName !== spot.originalName &&
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', opacity: 0.7 } }, spot.originalName),
+                React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+                  spot.peakDay && React.createElement('span', null, `${spot.peakDay}曜`),
+                  spot.peakHour !== null && React.createElement('span', null, `${spot.peakHour}時台`),
+                  spot.eventMultiplier > 1.2 && React.createElement('span', {
+                    style: { fontSize: '9px', padding: '0 4px', borderRadius: '4px', background: 'rgba(255,152,0,0.2)', color: '#FFB74D', fontWeight: 600 },
+                  }, `イベント${spot.eventMultiplier}x`),
+                  // 改善4: 金額帯ミニバー（メイン行に表示）
+                  // 修正2: filter(Boolean)でfalse除去
+                  tierTotal > 0 && React.createElement('span', { style: { display: 'inline-flex', borderRadius: '3px', overflow: 'hidden', height: '6px', width: '40px', flexShrink: 0 } },
+                    ...[
+                      spot.tiers.short > 0 && React.createElement('span', { key: 's', style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50', height: '100%' } }),
+                      spot.tiers.mid > 0 && React.createElement('span', { key: 'm', style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800', height: '100%' } }),
+                      spot.tiers.long > 0 && React.createElement('span', { key: 'l', style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63', height: '100%' } }),
+                    ].filter(Boolean)
+                  )
+                )
+              )
+            ),
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 } },
+              React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', whiteSpace: 'nowrap' } }, `¥${spot.avgAmount.toLocaleString()}`),
+              React.createElement('span', { className: 'material-icons-round', style: {
+                fontSize: '18px', color: isExpanded ? '#e91e63' : 'var(--text-muted)',
+                transition: 'transform 0.2s, color 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'none',
+              } }, 'expand_more')
+            )
+          ),
+
+          // 展開時の詳細パネル（改善2: 情報量整理、改善3: ヒストグラム拡大）
+          isExpanded && React.createElement('div', { style: { marginTop: '12px', padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', fontSize: 'var(--font-size-xs)' } },
+
+            // 修正1+5: ヒストグラム（時間軸修正、今ラベル余白確保）
+            spot.hourly && (() => {
+              const maxH = Math.max(...spot.hourly, 1);
+              const nowH = new Date().getHours();
+              return React.createElement('div', { style: { marginBottom: '14px' } },
+                React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'),
+                  '時間帯分布'
+                ),
+                // バーエリア（上に「今」ラベル用余白16px）
+                React.createElement('div', { style: { paddingTop: '16px' } },
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '48px' } },
+                    spot.hourly.map((v, h) => {
+                      const pct = v / maxH * 100;
+                      const isNow = h === nowH;
+                      return React.createElement('div', {
+                        key: h,
+                        style: {
+                          flex: 1, height: `${Math.max(pct, v > 0 ? 10 : 3)}%`,
+                          background: isNow ? '#e91e63' : v > 0 ? 'rgba(233,30,99,0.4)' : 'rgba(255,255,255,0.06)',
+                          borderRadius: '2px 2px 0 0', position: 'relative',
+                        },
+                        title: `${h}時: ${v}件`,
+                      },
+                        isNow && React.createElement('div', {
+                          style: { position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
+                            fontSize: '8px', fontWeight: 700, color: '#e91e63', whiteSpace: 'nowrap' },
+                        }, '今')
+                      );
+                    })
+                  )
+                ),
+                // 修正1: 時間軸ラベル — バーと同じflex配置で正確に位置合わせ
+                React.createElement('div', { style: { display: 'flex', gap: '1px', marginTop: '2px' } },
+                  Array.from({ length: 24 }, (_, h) =>
+                    React.createElement('div', { key: h, style: { flex: 1, textAlign: 'center', fontSize: '8px', color: 'var(--text-muted)' } },
+                      h % 3 === 0 ? `${h}` : ''
+                    )
+                  )
+                )
+              );
+            })(),
+
+            // 改善4: 金額帯（色付きドット凡例）
+            tierTotal > 0 && React.createElement('div', { style: { marginBottom: '14px' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'payments'),
+                '金額帯'
+              ),
+              React.createElement('div', { style: { display: 'flex', borderRadius: '4px', overflow: 'hidden', height: '10px', marginBottom: '6px' } },
+                ...[
+                  spot.tiers.short > 0 && React.createElement('div', { key: 's', style: { width: `${spot.tiers.short / tierTotal * 100}%`, background: '#4CAF50' } }),
+                  spot.tiers.mid > 0 && React.createElement('div', { key: 'm', style: { width: `${spot.tiers.mid / tierTotal * 100}%`, background: '#FF9800' } }),
+                  spot.tiers.long > 0 && React.createElement('div', { key: 'l', style: { width: `${spot.tiers.long / tierTotal * 100}%`, background: '#e91e63' } }),
+                ].filter(Boolean)
+              ),
+              React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+                [
+                  { label: `〜¥1,000`, count: spot.tiers.short, color: '#4CAF50', pct: Math.round(spot.tiers.short / tierTotal * 100) },
+                  { label: `¥1,001〜1,999`, count: spot.tiers.mid, color: '#FF9800', pct: Math.round(spot.tiers.mid / tierTotal * 100) },
+                  { label: `¥2,000〜`, count: spot.tiers.long, color: '#e91e63', pct: Math.round(spot.tiers.long / tierTotal * 100) },
+                ].map(t =>
+                  React.createElement('span', { key: t.label, style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                    React.createElement('span', { style: { width: '8px', height: '8px', borderRadius: '50%', background: t.color, flexShrink: 0 } }),
+                    React.createElement('span', { style: { color: 'var(--text-secondary)' } }, `${t.label} ${t.count}件(${t.pct}%)`)
+                  )
+                )
+              )
+            ),
+
+            // 曜日×時間帯TOP3
+            spot.topDayHours && spot.topDayHours.length > 0 && React.createElement('div', { style: { marginBottom: '14px' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'calendar_today'),
+                'ピーク曜日×時間帯'
+              ),
+              React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+                spot.topDayHours.map((dh, di) =>
+                  React.createElement('span', {
+                    key: di,
+                    style: {
+                      padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: di === 0 ? 600 : 400,
+                      background: di === 0 ? 'rgba(233,30,99,0.2)' : 'rgba(255,255,255,0.08)',
+                      color: di === 0 ? '#f48fb1' : 'var(--text-secondary)',
+                    },
+                  }, `${dh.day}曜 ${dh.hour}時 ${dh.count}件`)
+                )
+              )
+            ),
+
+            // 修正3: eventMultiplier null安全 + イベント影響 + 行き先（横並び2列）
+            (spot.eventMultiplier > 1.0 || (spot.topDropoffs && spot.topDropoffs.length > 0)) &&
+            React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+              // イベント倍率
+              spot.eventMultiplier > 1.0 && React.createElement('div', { style: { flex: '1 1 120px' } },
+                React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'event'),
+                  'イベント影響'
+                ),
+                React.createElement('div', { style: {
+                  padding: '6px 10px', borderRadius: '8px', textAlign: 'center', fontWeight: 600,
+                  background: spot.eventMultiplier >= 2 ? 'rgba(255,152,0,0.15)' : 'rgba(255,255,255,0.06)',
+                  color: spot.eventMultiplier >= 2 ? '#FFB74D' : 'var(--text-secondary)',
+                  fontSize: spot.eventMultiplier >= 2 ? '13px' : '11px',
+                } }, `${spot.eventMultiplier}倍`)
+              ),
+              // 行き先TOP3
+              spot.topDropoffs && spot.topDropoffs.length > 0 && React.createElement('div', { style: { flex: '2 1 180px' } },
+                React.createElement('div', { style: { color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'flag'),
+                  'よくある行き先'
+                ),
+                spot.topDropoffs.map((d, di) =>
+                  React.createElement('div', {
+                    key: di,
+                    style: { display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderBottom: di < spot.topDropoffs.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' },
+                  },
+                    React.createElement('span', { style: { color: 'var(--text-secondary)' } }, d.name),
+                    React.createElement('span', { style: { color: 'var(--text-muted)', fontWeight: 600 } }, `${d.count}`)
+                  )
+                )
+              )
+            )
+          )
+        );
+      }),
+      // 修正6: 「もっと見る」ボタン
+      !showAllSpots && displaySpots.length > 5 && React.createElement('div', {
+        style: { textAlign: 'center', paddingTop: '8px' },
+      },
+        React.createElement('button', {
+          onClick: (e) => { e.stopPropagation(); setShowAllSpots(true); },
+          style: {
+            border: 'none', background: 'rgba(233,30,99,0.1)', color: '#f48fb1',
+            padding: '6px 20px', borderRadius: '16px', fontSize: '12px', fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'var(--font-family)',
+          },
+        }, `残り${displaySpots.length - 5}件を表示`)
+      ),
+      showAllSpots && displaySpots.length > 5 && React.createElement('div', {
+        style: { textAlign: 'center', paddingTop: '8px' },
+      },
+        React.createElement('button', {
+          onClick: (e) => { e.stopPropagation(); setShowAllSpots(false); stableSetExpandedSpotIdx(null); },
+          style: {
+            border: 'none', background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)',
+            padding: '6px 20px', borderRadius: '16px', fontSize: '12px',
+            cursor: 'pointer', fontFamily: 'var(--font-family)',
+          },
+        }, '折りたたむ')
+      )
+    ),
+
+    // ============================================================
+    // [NEW] 天候予報バーカード (Feature 8) — 天気変化がある場合のみ
+    // ============================================================
+    weatherImpact && weatherImpact.alerts && weatherImpact.alerts.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: '12px var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(59,130,246,0.06))',
+        border: '1px solid rgba(6,182,212,0.25)',
+      },
+    },
+      // コンパクト1行
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#06b6d4' } }, 'cloud'),
+        React.createElement('div', { style: { flex: 1, fontSize: '12px' } },
+          React.createElement('span', { style: { fontWeight: 600 } },
+            `現在: ${weatherImpact.current.weather} ${weatherImpact.current.temp != null ? Math.round(weatherImpact.current.temp) + '°C' : ''}`
+          ),
+          weatherImpact.alerts[0] && React.createElement('span', { style: { color: '#fcd34d', marginLeft: '8px' } },
+            ` → ${weatherImpact.alerts[0].message}`
+          )
+        )
+      ),
+      // 展開: 時間別テーブル
+      weatherImpact.upcoming && weatherImpact.upcoming.length > 0 && React.createElement('div', {
+        style: { marginTop: '8px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(65px, 1fr))', gap: '4px' },
+      },
+        ...weatherImpact.upcoming.filter(u => u.hour >= new Date().getHours() && u.hour <= 17).map(u =>
+          React.createElement('div', {
+            key: `wdet-${u.hour}`,
+            style: {
+              textAlign: 'center', padding: '4px', borderRadius: '4px', fontSize: '10px',
+              background: u.multiplier > 1.2 ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+            },
+          },
+            React.createElement('div', { style: { fontWeight: 700, color: 'var(--text-secondary)' } }, `${u.hour}時`),
+            React.createElement('div', null, u.weather),
+            React.createElement('div', { style: { color: 'var(--text-muted)' } }, `${u.temp != null ? Math.round(u.temp) : '-'}°C`),
+            u.multiplier > 1.0 && React.createElement('div', {
+              style: { fontSize: '9px', fontWeight: 700, color: '#ef4444' },
+            }, `+${Math.round((u.multiplier - 1) * 100)}%`)
+          )
+        )
+      )
+    ),
+
+    // ============================================================
+    // [NEW] 日勤需要スコアカード (Feature 4)
+    // ============================================================
+    dayShiftScore && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(59,130,246,0.10), rgba(168,85,247,0.06))',
+        border: '1px solid rgba(59,130,246,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#3b82f6' } }, 'analytics'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '日勤需要スコア')
+        ),
+        React.createElement('span', {
+          style: {
+            fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '12px',
+            background: dayShiftScore.overallShiftRating === 'excellent' ? 'rgba(239,68,68,0.15)' :
+              dayShiftScore.overallShiftRating === 'good' ? 'rgba(245,158,11,0.15)' :
+              dayShiftScore.overallShiftRating === 'normal' ? 'rgba(59,130,246,0.15)' : 'rgba(107,114,128,0.15)',
+            color: dayShiftScore.overallShiftRating === 'excellent' ? '#ef4444' :
+              dayShiftScore.overallShiftRating === 'good' ? '#f59e0b' :
+              dayShiftScore.overallShiftRating === 'normal' ? '#3b82f6' : '#6b7280',
+          },
+        }, dayShiftScore.overallShiftRating === 'excellent' ? '非常に良い' :
+          dayShiftScore.overallShiftRating === 'good' ? '良好' :
+          dayShiftScore.overallShiftRating === 'normal' ? '普通' : '低調')
+      ),
+
+      // 現在スコア
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '14px' },
+      },
+        React.createElement('div', {
+          style: {
+            width: '64px', height: '64px', borderRadius: '50%', display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: dayShiftScore.currentScore > 70 ? 'rgba(239,68,68,0.2)' : dayShiftScore.currentScore > 50 ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.15)',
+            border: `3px solid ${dayShiftScore.currentScore > 70 ? '#ef4444' : dayShiftScore.currentScore > 50 ? '#f59e0b' : '#3b82f6'}`,
+          },
+        },
+          React.createElement('span', {
+            style: { fontSize: '24px', fontWeight: 800, color: dayShiftScore.currentScore > 70 ? '#ef4444' : dayShiftScore.currentScore > 50 ? '#f59e0b' : '#3b82f6' },
+          }, String(dayShiftScore.currentScore))
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' } }, 'ベストスポット'),
+          React.createElement('div', { style: { fontSize: '14px', fontWeight: 700 } }, dayShiftScore.bestSpot.name),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+            `ピーク: ${dayShiftScore.peakHours.map(p => p.hour + '時').join(', ')}`
+          )
+        )
+      ),
+
+      // 待機TOP3 + 流しTOP3 コンパクト
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' } },
+        // 待機スポットTOP3
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '待機スポット'),
+          ...waitingSpotData.spots.filter(s => !s.currentDisabled).slice(0, 3).map(spot => {
+            const barColor = spot.currentIndex >= 70 ? '#ef4444' : spot.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
+            return React.createElement('div', {
+              key: `ws-${spot.id}`, style: { marginBottom: '4px' },
+            },
+              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
+                React.createElement('span', { style: { fontWeight: 600 } }, spot.shortName),
+                React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(spot.currentIndex))
+              ),
+              React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
+                React.createElement('div', { style: { width: `${spot.currentIndex}%`, height: '100%', borderRadius: '2px', background: barColor } })
+              )
+            );
+          })
+        ),
+        // 流しエリアTOP3
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '流しエリア'),
+          ...cruisingAreaData.areas.slice(0, 3).map(area => {
+            const barColor = area.currentIndex >= 70 ? '#ef4444' : area.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
+            return React.createElement('div', {
+              key: `ca-${area.id}`, style: { marginBottom: '4px' },
+            },
+              React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
+                React.createElement('span', { style: { fontWeight: 600 } }, area.shortName),
+                React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(area.currentIndex))
+              ),
+              React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
+                React.createElement('div', { style: { width: `${area.currentIndex}%`, height: '100%', borderRadius: '2px', background: barColor } })
+              )
+            );
+          })
+        )
+      ),
+
+      // 7-17時コンパクト時間軸
+      React.createElement('div', {
+        style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' },
+      },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '10px', width: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              React.createElement('th', { style: { padding: '3px 6px', textAlign: 'left', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.1)' } }, '時'),
+              ...dayShiftScore.hourlyScores.map(hs => {
+                const isCurrent = hs.hour === new Date().getHours();
+                return React.createElement('th', {
+                  key: hs.hour,
+                  style: {
+                    padding: '3px 4px', textAlign: 'center', fontWeight: isCurrent ? 800 : 500,
+                    background: isCurrent ? 'rgba(59,130,246,0.15)' : 'transparent',
+                    color: isCurrent ? '#3b82f6' : 'var(--text-muted)',
+                    borderBottom: '1px solid rgba(255,255,255,0.1)',
+                  },
+                }, String(hs.hour));
+              })
+            )
+          ),
+          React.createElement('tbody', null,
+            React.createElement('tr', null,
+              React.createElement('td', { style: { padding: '3px 6px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, 'スコア'),
+              ...dayShiftScore.hourlyScores.map(hs => {
+                const isCurrent = hs.hour === new Date().getHours();
+                const isPast = hs.hour < new Date().getHours();
+                const bg = isPast ? 'rgba(107,114,128,0.08)' : hs.score > 70 ? 'rgba(239,68,68,0.2)' : hs.score > 50 ? 'rgba(245,158,11,0.18)' : hs.score > 30 ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.06)';
+                const color = isPast ? '#6b7280' : hs.score > 70 ? '#fca5a5' : hs.score > 50 ? '#fcd34d' : hs.score > 30 ? '#93c5fd' : '#6b7280';
+                return React.createElement('td', {
+                  key: hs.hour,
+                  style: {
+                    padding: '3px 4px', textAlign: 'center', fontWeight: 700,
+                    background: isCurrent ? `linear-gradient(180deg, rgba(59,130,246,0.12), ${bg})` : bg,
+                    color: color, borderBottom: '1px solid rgba(255,255,255,0.05)',
+                  },
+                }, String(hs.score));
+              })
+            )
+          )
+        )
+      )
+    ),
+
+    // ============================================================
+    // [NEW] 戦略シミュレーションカード (Feature 6)
+    // ============================================================
+    strategyForHour && strategyForHour.strategies.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.10), rgba(245,158,11,0.06))',
+        border: '1px solid rgba(16,185,129,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '6px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#10b981' } }, 'compare_arrows'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '戦略シミュレーション')
+        ),
+        // 時間帯セレクタ
+        React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
+          React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, '時間帯:'),
+          ...Array.from({ length: 11 }, (_, i) => 7 + i).map(h =>
+            React.createElement('button', {
+              key: `sh-${h}`,
+              onClick: () => setStrategyHour(h),
+              style: {
+                padding: '2px 5px', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                fontSize: '10px', fontWeight: h === strategyHour ? 700 : 400, fontFamily: 'var(--font-family)',
+                background: h === strategyHour ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.06)',
+                color: h === strategyHour ? '#10b981' : 'var(--text-muted)',
+              },
+            }, String(h))
+          )
+        )
+      ),
+
+      // ベスト戦略ハイライト
+      strategyForHour.bestStrategy !== '---' && React.createElement('div', {
+        style: {
+          padding: '8px 12px', borderRadius: '8px', marginBottom: '10px',
+          background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))',
+          border: '1px solid rgba(16,185,129,0.25)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#10b981' } }, 'emoji_events'),
+        React.createElement('span', { style: { fontSize: '12px', fontWeight: 700 } }, `${strategyHour}時台のベスト: ${strategyForHour.bestStrategy}`)
+      ),
+
+      // 戦略テーブル
+      React.createElement('div', { style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' } },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              ...['スポット', '時給予測', '待ち', 'リスク', 'スコア'].map(label =>
+                React.createElement('th', {
+                  key: label,
+                  style: { padding: '5px 8px', fontWeight: 700, textAlign: label === 'スポット' ? 'left' : 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap' },
+                }, label)
+              )
+            )
+          ),
+          React.createElement('tbody', null,
+            ...strategyForHour.strategies.filter(s => !s.disabled).slice(0, 8).map((s, i) => {
+              const isBest = s.location === strategyForHour.bestStrategy;
+              const riskColor = s.riskLevel === 'high' ? '#ef4444' : s.riskLevel === 'medium' ? '#f59e0b' : '#10b981';
+              return React.createElement('tr', {
+                key: `strat-${i}`,
+                style: { background: isBest ? 'rgba(16,185,129,0.08)' : 'transparent' },
+              },
+                React.createElement('td', {
+                  style: { padding: '5px 8px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' },
+                },
+                  React.createElement('span', {
+                    style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', marginRight: '6px',
+                      background: s.type === 'waiting' ? '#3b82f6' : '#a855f7' },
+                  }),
+                  s.shortName
+                ),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' },
+                }, `\u00A5${s.expectedHourlyRevenue.toLocaleString()}`),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-secondary)' },
+                }, s.type === 'waiting' ? `${s.expectedWaitMin}分` : '流し'),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' },
+                },
+                  React.createElement('span', {
+                    style: { fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', background: `${riskColor}20`, color: riskColor },
+                  }, s.riskLevel === 'high' ? '高' : s.riskLevel === 'medium' ? '中' : '低')
+                ),
+                React.createElement('td', {
+                  style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: s.demandScore >= 60 ? '#ef4444' : s.demandScore >= 40 ? '#f59e0b' : '#3b82f6' },
+                }, String(s.demandScore))
+              );
+            })
+          )
+        )
+      ),
+
+      // 凡例
+      React.createElement('div', { style: { display: 'flex', gap: '12px', marginTop: '8px', justifyContent: 'center', fontSize: '9px', color: 'var(--text-muted)' } },
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#3b82f6' } }), '待機'
+        ),
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#a855f7' } }), '流し'
+        )
+      )
+    ),
+
+    // (旧イベント需要アラート → 日勤タイムラインに統合済み)
+
+    // 閑散期流しルート
+    slowPeriodRoutes && slowPeriodRoutes.isSlowPeriod && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)', border: '1px solid rgba(245,158,11,0.3)', background: 'linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(217,119,6,0.04) 100%)' },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: '#f59e0b', border: '1.5px solid #f59e0b', borderRadius: '4px', padding: '1px 4px' } }, '流'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)', color: '#f59e0b' } }, '閑散期流しルート')
+        ),
+        React.createElement('span', {
+          style: { fontSize: '9px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
+        }, slowPeriodRoutes.trigger === '両方' ? '需要低+売上不足' : slowPeriodRoutes.trigger === '需要低' ? '需要低' : '売上不足')
+      ),
+
+      // ステータス行
+      React.createElement('div', { style: { display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '11px' } },
+        React.createElement('span', { style: { color: 'var(--text-secondary)' } },
+          '需要スコア: ',
+          React.createElement('span', { style: { fontWeight: 700, color: slowPeriodRoutes.currentScore <= 20 ? '#ef4444' : '#f59e0b' } }, String(slowPeriodRoutes.currentScore))
+        ),
+        React.createElement('span', { style: { color: 'var(--text-secondary)' } },
+          '目標達成率: ',
+          React.createElement('span', { style: { fontWeight: 700, color: slowPeriodRoutes.dailyRate < 40 ? '#ef4444' : '#f59e0b' } }, `${slowPeriodRoutes.dailyRate}%`)
+        )
+      ),
+
+      // ルートリスト
+      ...slowPeriodRoutes.routes.map((route, idx) =>
+        React.createElement('div', {
+          key: route.id,
+          style: { marginBottom: '12px', padding: '10px', borderRadius: '8px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.12)' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
+            React.createElement('span', {
+              style: { width: '20px', height: '20px', borderRadius: '50%', background: '#f59e0b', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 },
+            }, String(idx + 1)),
+            React.createElement('span', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' } }, route.label)
+          ),
+          // エリア矢印表示
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '6px', fontSize: '11px' } },
+            ...route.areas.flatMap((area, aIdx) => {
+              const items = [React.createElement('span', {
+                key: `a-${aIdx}`,
+                style: { padding: '2px 6px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#d97706', fontWeight: 600, fontSize: '10px' },
+              }, area)];
+              if (aIdx < route.areas.length - 1) {
+                items.push(React.createElement('span', { key: `arr-${aIdx}`, style: { color: '#f59e0b', fontSize: '10px' } }, '\u2192'));
+              }
+              return items;
+            })
+          ),
+          // 詳細行
+          React.createElement('div', { style: { display: 'flex', gap: '12px', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px' } },
+            React.createElement('span', null, `滞在: ${route.stayMinutes.join('→')}分`),
+            React.createElement('span', { style: { fontWeight: 600, color: '#f59e0b' } }, `期待: ¥${route.expectedRevenue.toLocaleString()}/h`)
+          ),
+          // 要因
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px' } }, route.factor),
+          // Tip
+          React.createElement('div', { style: { fontSize: '10px', color: '#d97706', fontStyle: 'italic' } }, `Tip: ${route.tip}`)
+        )
+      ),
+
+      // 一般アドバイス
+      slowPeriodRoutes.generalTips.length > 0 && React.createElement('div', {
+        style: { marginTop: '8px', padding: '8px 10px', borderRadius: '6px', background: 'rgba(245,158,11,0.05)', borderLeft: '3px solid #f59e0b' },
+      },
+        React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: '#f59e0b', marginBottom: '4px' } }, 'ポイント'),
+        ...slowPeriodRoutes.generalTips.map((tip, i) =>
+          React.createElement('div', { key: i, style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, `・${tip}`)
         )
       )
     ),
@@ -120,7 +1464,9 @@ window.DashboardPage = () => {
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-secondary)' } },
             `¥${overallSummary.totalAmount.toLocaleString()}`
           ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上')
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.totalAmount / 1.1).toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税¥${(overallSummary.totalAmount - Math.floor(overallSummary.totalAmount / 1.1)).toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上（税込）')
         ),
         React.createElement('div', null,
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
@@ -132,7 +1478,8 @@ window.DashboardPage = () => {
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
             `¥${overallSummary.dailyAvg.toLocaleString()}`
           ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上')
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.dailyAvg / 1.1).toLocaleString()}`),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上（税込）')
         ),
         React.createElement('div', null,
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
@@ -160,13 +1507,19 @@ window.DashboardPage = () => {
             React.createElement('div', { style: { fontSize: 'var(--font-size-sm)' } },
               `${entry.pickup || '---'} → ${entry.dropoff || '---'}`
             ),
+            (entry.pickupLandmark || entry.dropoffLandmark) && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', opacity: 0.8 } },
+              `${entry.pickupLandmark || ''} → ${entry.dropoffLandmark || ''}`
+            ),
             React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
               new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
             )
           ),
-          React.createElement('div', {
-            style: { fontWeight: 700, color: 'var(--color-secondary)' },
-          }, `¥${entry.amount.toLocaleString()}`)
+          React.createElement('div', { style: { textAlign: 'right' } },
+            entry.noPassenger
+              ? React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f' } }, '¥0（待機）')
+              : React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${entry.amount.toLocaleString()}`),
+            !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
+          )
         )
       ),
       todaySummary.entries.length > 5 && React.createElement(Button, {
@@ -198,3 +1551,5 @@ window.DashboardPage = () => {
     )
   );
 };
+
+})();

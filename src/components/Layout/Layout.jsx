@@ -1,3 +1,4 @@
+(function() {
 // Layout.jsx - レイアウトラッパー
 window.Layout = ({ children }) => {
   const { sidebarOpen, setSidebarOpen } = useAppContext();
@@ -23,3 +24,5 @@ window.Layout = ({ children }) => {
     })
   );
 };
+
+})();

@@ -1,3 +1,4 @@
+(function() {
 // ErrorBoundary.jsx - エラーバウンダリ（白画面クラッシュ防止）
 // React Error Boundary はクラスコンポーネントが必要
 window.ErrorBoundary = class ErrorBoundary extends React.Component {
@@ -92,3 +93,5 @@ window.ErrorBoundary = class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 };
+
+})();

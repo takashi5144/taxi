@@ -1,3 +1,4 @@
+(function() {
 // useLogger.js - ロギング用カスタムフック
 //
 // AppLogger をReactコンポーネントから便利に使うためのフック。
@@ -37,3 +38,5 @@ window.useLogger = (componentName = '') => {
     subscribe: AppLogger.subscribe,
   };
 };
+
+})();

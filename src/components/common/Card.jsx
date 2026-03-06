@@ -1,3 +1,4 @@
+(function() {
 // Card.jsx - 汎用カード
 window.Card = ({ title, subtitle, children, className = '', onClick, style }) => {
   return React.createElement('div', {
@@ -10,3 +11,5 @@ window.Card = ({ title, subtitle, children, className = '', onClick, style }) =>
     children
   );
 };
+
+})();

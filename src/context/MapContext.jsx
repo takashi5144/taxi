@@ -1,3 +1,4 @@
+(function() {
 // MapContext.jsx - 地図・GPS状態管理
 const { createContext, useState, useCallback, useContext } = React;
 
@@ -23,6 +24,9 @@ window.MapProvider = ({ children }) => {
     setSpeed(position.coords.speed);
     setHeading(position.coords.heading);
     setGpsError(null);
+    if (window.GpsLogService) {
+      GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+    }
   }, []);
 
   const value = {
@@ -46,3 +50,5 @@ window.MapProvider = ({ children }) => {
 };
 
 window.useMapContext = () => useContext(MapContext);
+
+})();

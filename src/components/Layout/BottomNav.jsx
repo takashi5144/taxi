@@ -1,3 +1,4 @@
+(function() {
 // BottomNav.jsx - モバイル用ボトムナビゲーション
 window.BottomNav = () => {
   const { currentPage, navigate } = useAppContext();
@@ -17,3 +18,5 @@ window.BottomNav = () => {
     )
   );
 };
+
+})();

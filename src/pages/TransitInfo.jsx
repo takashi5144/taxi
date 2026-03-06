@@ -1,3 +1,4 @@
+(function() {
 // TransitInfo.jsx - 公共交通機関情報ページ
 // Gemini AI を使用して電車・バス・飛行機の運行情報と遅延情報を取得・保存
 window.TransitInfoPage = () => {
@@ -9,12 +10,12 @@ window.TransitInfoPage = () => {
   // GPS地域検出
   const [region, setRegion] = useState(null);
   const [regionLoading, setRegionLoading] = useState(false);
-  const regionFetched = useRef(false);
+  const regionFetched = useRef(null);
 
   // ページ読み込み時にGPSで現在地の地域を取得
   useEffect(() => {
-    if (regionFetched.current) return;
-    regionFetched.current = true;
+    if (regionFetched.current === apiKey) return;
+    regionFetched.current = apiKey;
 
     if (!navigator.geolocation) return;
     setRegionLoading(true);
@@ -43,10 +44,12 @@ window.TransitInfoPage = () => {
                 AppLogger.info(`交通情報: 地域検出成功 (Google) - ${regionStr}`);
               }
             } else {
+              // Google失敗時はNominatimにフォールバック
               _fetchRegionNominatim(lat, lng);
             }
           });
         } else {
+          // Nominatimで逆ジオコーディング
           _fetchRegionNominatim(lat, lng);
         }
       })
@@ -58,7 +61,7 @@ window.TransitInfoPage = () => {
 
   // Nominatim逆ジオコーディングで地域名を取得
   const _fetchRegionNominatim = useCallback((lat, lng) => {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1&accept-language=ja`;
+    const url = TaxiApp.utils.nominatimUrl(lat, lng, 10);
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -81,6 +84,7 @@ window.TransitInfoPage = () => {
 
   // カテゴリ定義
   const categories = useMemo(() => [
+    { key: 'demand',  icon: 'insights',         label: '需要予測',       color: '124,58,237',  fetchFn: null },
     { key: 'trouble', icon: 'warning',        label: '遅延・トラブル', color: '229,57,53',  fetchFn: GeminiService.fetchTroubleInfo },
     { key: 'train',   icon: 'train',           label: '電車',           color: '26,115,232',  fetchFn: GeminiService.fetchTrainInfo },
     { key: 'bus',     icon: 'directions_bus',   label: 'バス',           color: '46,125,50',   fetchFn: GeminiService.fetchBusInfo },
@@ -92,6 +96,7 @@ window.TransitInfoPage = () => {
     const saved = AppStorage.get(STORAGE_KEY, {});
     const result = {};
     categories.forEach(c => {
+      if (c.key === 'demand') return;
       const s = saved[c.key];
       result[c.key] = { loading: false, result: s?.text || null, error: null, fetchedAt: s?.fetchedAt || null };
     });
@@ -99,9 +104,29 @@ window.TransitInfoPage = () => {
   };
 
   const [data, setData] = useState(loadSaved);
-  const [activeTab, setActiveTab] = useState('trouble');
+  const [activeTab, setActiveTab] = useState(geminiApiKey ? 'demand' : 'bus');
 
-  // データをlocalStorageに保存
+  // 需要予測プラン関連（data/setData宣言後に配置）
+  const [demandLoading, setDemandLoading] = useState(false);
+  const demandLoadingRef = useRef(false);
+  const demandSchedule = useMemo(() => DataService.getDailyDemandSchedule(), [data]);
+
+  const handleFetchDemandPlan = useCallback(async () => {
+    if (!geminiApiKey || demandLoadingRef.current) return;
+    demandLoadingRef.current = true;
+    setDemandLoading(true);
+    const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, region);
+    if (result.success && result.data) {
+      const today = new Date().toISOString().slice(0, 10);
+      AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'demand-plan' } }));
+      setData(prev => ({ ...prev }));
+    }
+    demandLoadingRef.current = false;
+    setDemandLoading(false);
+  }, [geminiApiKey, region]);
+
+  // データをlocalStorageに保存 + ファイル保存
   const saveToStorage = useCallback((newData) => {
     const toSave = {};
     Object.keys(newData).forEach(key => {
@@ -110,12 +135,16 @@ window.TransitInfoPage = () => {
       }
     });
     AppStorage.set(STORAGE_KEY, toSave);
+    // 保存先フォルダが設定されていればファイルにも保存
+    DataService.autoSaveTransitToFile(toSave);
+    window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'transit' } }));
   }, [STORAGE_KEY]);
 
   // カテゴリ別取得
   const handleFetch = useCallback(async (categoryKey) => {
+    if (categoryKey === 'demand') { handleFetchDemandPlan(); return; }
     const cat = categories.find(c => c.key === categoryKey);
-    if (!cat) return;
+    if (!cat || !cat.fetchFn) return;
 
     setData(prev => ({ ...prev, [categoryKey]: { ...prev[categoryKey], loading: true, error: null } }));
 
@@ -135,7 +164,12 @@ window.TransitInfoPage = () => {
       if (result.success) saveToStorage(updated);
       return updated;
     });
-  }, [geminiApiKey, region, categories, saveToStorage]);
+
+    // 遅延・トラブル情報取得成功時にプッシュ通知
+    if (categoryKey === 'trouble' && result.success && result.text) {
+      NotificationService.sendTroubleAlert(result.text);
+    }
+  }, [geminiApiKey, region, categories, saveToStorage, handleFetchDemandPlan]);
 
   // 全カテゴリ一括取得
   const handleFetchAll = useCallback(async () => {
@@ -157,7 +191,6 @@ window.TransitInfoPage = () => {
 
     const lines = text.split('\n');
     const elements = [];
-    let i = 0;
 
     lines.forEach((line, idx) => {
       const trimmed = line.trim();
@@ -207,7 +240,7 @@ window.TransitInfoPage = () => {
       }
 
       // 【セクション】ヘッダー
-      if (trimmed.startsWith('【') && trimmed.includes('】')) {
+      if (trimmed.startsWith('\u3010') && trimmed.includes('\u3011')) {
         elements.push(React.createElement('div', {
           key: idx,
           style: {
@@ -254,8 +287,8 @@ window.TransitInfoPage = () => {
       }
 
       // 箇条書き (- / * / ・)
-      if (/^[-*・]/.test(trimmed) && trimmed.length > 1) {
-        const content = trimmed.replace(/^[-*・]\s*/, '');
+      if (/^[-*\u30FB]/.test(trimmed) && trimmed.length > 1) {
+        const content = trimmed.replace(/^[-*\u30FB]\s*/, '');
         elements.push(React.createElement('div', {
           key: idx,
           style: {
@@ -318,42 +351,12 @@ window.TransitInfoPage = () => {
     });
   };
 
-  // APIキー未設定時
-  if (!geminiApiKey) {
-    return React.createElement('div', null,
-      React.createElement('h1', { className: 'page-title' },
-        React.createElement('span', { className: 'material-icons-round' }, 'directions_transit'),
-        '公共交通機関情報'
-      ),
-      React.createElement(Card, null,
-        React.createElement('div', {
-          style: {
-            textAlign: 'center', padding: 'var(--space-lg)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px',
-          },
-        },
-          React.createElement('span', {
-            className: 'material-icons-round',
-            style: { fontSize: '36px', color: 'var(--color-primary-light)', opacity: 0.5 },
-          }, 'smart_toy'),
-          React.createElement('div', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '公共交通機関情報'),
-          React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-xs)', lineHeight: 1.6 } },
-            'Gemini APIキーを設定すると、AIで交通機関の運行情報を取得できます'
-          ),
-          React.createElement(Button, {
-            variant: 'secondary',
-            icon: 'settings',
-            onClick: () => document.dispatchEvent(new CustomEvent('navigate', { detail: 'settings' })),
-            style: { fontSize: '12px' },
-          }, '設定ページへ')
-        )
-      )
-    );
-  }
+  // APIキー未設定時はバスタブをデフォルトにする（バスはAPIキー不要）
+  // 他タブ（電車・飛行機・トラブル・需要予測）はAPIキー必要
 
   const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   const anyLoading = categories.some(c => data[c.key]?.loading);
-  const activeCat = categories.find(c => c.key === activeTab);
+  const activeCat = categories.find(c => c.key === activeTab) || { key: 'demand', icon: 'insights', label: '需要予測', color: '124,58,237', fetchFn: null };
   const activeData = data[activeTab] || { loading: false, result: null, error: null, fetchedAt: null };
 
   return React.createElement('div', null,
@@ -364,11 +367,11 @@ window.TransitInfoPage = () => {
 
     // 上部: 日付 + 取得ボタン群
     React.createElement(Card, { style: { marginBottom: 'var(--space-md)' } },
-      // 日付
+      // 日付 + 地域
       React.createElement('div', {
         style: {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: '12px', flexWrap: 'wrap', gap: '8px',
+          marginBottom: '8px', flexWrap: 'wrap', gap: '8px',
         },
       },
         React.createElement('div', {
@@ -381,31 +384,12 @@ window.TransitInfoPage = () => {
             today
           ),
           React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' },
+            style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)' },
           },
-            regionLoading
-              ? React.createElement(React.Fragment, null,
-                  React.createElement('span', {
-                    className: 'material-icons-round',
-                    style: { fontSize: '14px', animation: 'spin 1s linear infinite' },
-                  }, 'sync'),
-                  '地域を検出中...'
-                )
-              : region
-                ? React.createElement(React.Fragment, null,
-                    React.createElement('span', {
-                      className: 'material-icons-round',
-                      style: { fontSize: '14px', color: 'var(--color-primary-light)' },
-                    }, 'place'),
-                    region
-                  )
-                : React.createElement(React.Fragment, null,
-                    React.createElement('span', {
-                      className: 'material-icons-round',
-                      style: { fontSize: '14px', opacity: 0.5 },
-                    }, 'place'),
-                    'GPS地域未検出（デフォルト: 東京都内）'
-                  )
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, regionLoading ? 'sync' : 'place'),
+            regionLoading ? '地域を検出中...'
+              : region ? region
+              : 'GPS地域未検出（デフォルト: 東京都内）'
           )
         ),
         React.createElement(Button, {
@@ -419,10 +403,10 @@ window.TransitInfoPage = () => {
 
       // 個別取得ボタン群
       React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' },
+        style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' },
       },
         categories.map(cat => {
-          const catData = data[cat.key] || {};
+          const catData = cat.key === 'demand' ? { result: demandSchedule.available, loading: demandLoading } : (data[cat.key] || {});
           const hasData = !!catData.result;
           const isLoading = catData.loading;
           return React.createElement('button', {
@@ -471,7 +455,7 @@ window.TransitInfoPage = () => {
     },
       categories.map(cat => {
         const isActive = activeTab === cat.key;
-        const catData = data[cat.key] || {};
+        const catData = cat.key === 'demand' ? { result: demandSchedule.available } : (data[cat.key] || {});
         return React.createElement('button', {
           key: cat.key,
           onClick: () => setActiveTab(cat.key),
@@ -505,8 +489,152 @@ window.TransitInfoPage = () => {
       })
     ),
 
-    // コンテンツエリア
-    activeData.loading
+    // 需要予測タブ コンテンツ
+    activeTab === 'demand' && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)' },
+    },
+      // ヘッダー
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#7c3aed' } }, 'insights'),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontWeight: 700, fontSize: '13px' } }, '交通需要予測'),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, 'JR特急・バス到着 + 病院外来ピーク')
+          )
+        ),
+        React.createElement('button', {
+          onClick: handleFetchDemandPlan,
+          disabled: demandLoading || !geminiApiKey,
+          style: {
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '4px 10px', borderRadius: '6px', border: 'none',
+            background: 'rgba(124,58,237,0.15)', color: '#a78bfa',
+            fontSize: '11px', fontWeight: 600, cursor: geminiApiKey ? 'pointer' : 'not-allowed',
+            opacity: demandLoading ? 0.6 : 1,
+          },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '14px', animation: demandLoading ? 'spin 1s linear infinite' : 'none' },
+          }, demandLoading ? 'sync' : 'refresh'),
+          demandLoading ? '取得中...' : '取得'
+        )
+      ),
+
+      // APIキー未設定
+      !geminiApiKey && React.createElement('div', {
+        style: { padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', display: 'block', marginBottom: '6px', color: '#7c3aed' } }, 'vpn_key'),
+        'Gemini APIキーを設定すると需要予測が利用できます'
+      ),
+
+      // ローディング
+      demandLoading && !demandSchedule.available && React.createElement('div', {
+        style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '32px', animation: 'spin 1s linear infinite', display: 'block', marginBottom: '6px' } }, 'sync'),
+        'Gemini AIから需要予測データを取得中...'
+      ),
+
+      // タイムライン
+      demandSchedule.available && demandSchedule.dailyPlan.length > 0 && React.createElement('div', {
+        style: { marginBottom: '16px' },
+      },
+        React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, color: '#7c3aed', marginBottom: '8px' } }, '営業タイムライン'),
+        demandSchedule.dailyPlan.map((block, i) => {
+          const now = new Date();
+          const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+          const isCurrent = nowStr >= (block.startTime || '') && nowStr < (block.endTime || '24:00');
+          const lc = block.demandLevel === 'high' ? '#ef4444' : block.demandLevel === 'medium' ? '#f59e0b' : '#3b82f6';
+          return React.createElement('div', {
+            key: i,
+            style: {
+              display: 'flex', gap: '10px', padding: '8px', borderRadius: '6px', marginBottom: '3px',
+              background: isCurrent ? 'rgba(124,58,237,0.12)' : 'transparent',
+              border: isCurrent ? '1px solid rgba(124,58,237,0.3)' : '1px solid transparent',
+            },
+          },
+            React.createElement('div', {
+              style: { minWidth: '70px', padding: '2px 6px', borderRadius: '4px', background: `${lc}20`, color: lc, fontSize: '11px', fontWeight: 700, textAlign: 'center', borderLeft: `3px solid ${lc}` },
+            }, `${block.startTime || ''}`, React.createElement('br'), `〜${block.endTime || ''}`),
+            React.createElement('div', { style: { flex: 1 } },
+              React.createElement('div', { style: { fontSize: '12px', fontWeight: 600 } }, block.location || ''),
+              React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, block.action || '')
+            ),
+            isCurrent && React.createElement('span', {
+              style: { fontSize: '10px', padding: '2px 6px', borderRadius: '8px', background: '#7c3aed', color: '#fff', alignSelf: 'center', fontWeight: 700 },
+            }, 'NOW')
+          );
+        })
+      ),
+
+      // 到着テーブル
+      demandSchedule.available && demandSchedule.transitArrivals.length > 0 && React.createElement('div', {
+        style: { marginBottom: '16px' },
+      },
+        React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, color: '#ec4899', marginBottom: '8px' } }, '到着便一覧'),
+        React.createElement('div', { style: { borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' } },
+          demandSchedule.transitArrivals.map((arr, i) => {
+            const now = new Date();
+            const nowMin = now.getHours() * 60 + now.getMinutes();
+            const p = (arr.arrivalTime || '00:00').split(':');
+            const arrMin = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+            const isPast = arrMin < nowMin;
+            return React.createElement('div', {
+              key: i,
+              style: {
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '8px 10px', fontSize: '12px',
+                background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                opacity: isPast ? 0.4 : 1,
+              },
+            },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#ec4899' } },
+                  (arr.type || '').includes('バス') ? 'directions_bus' : 'train'
+                ),
+                React.createElement('span', { style: { fontWeight: 600 } }, `${arr.type || ''} ${arr.line || ''}`),
+                React.createElement('span', { style: { color: 'var(--text-muted)', fontSize: '11px' } }, `(${arr.origin || ''})`)
+              ),
+              React.createElement('div', { style: { fontWeight: 700, color: isPast ? 'var(--text-muted)' : '#ec4899' } }, arr.arrivalTime || '')
+            );
+          })
+        )
+      ),
+
+      // 病院ウィンドウ
+      demandSchedule.available && demandSchedule.hospitalWindows.length > 0 && React.createElement('div', null,
+        React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, color: '#10b981', marginBottom: '8px' } }, '病院外来ピーク'),
+        demandSchedule.hospitalWindows.map((hw, i) =>
+          React.createElement('div', {
+            key: i,
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+          },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#10b981' } }, 'local_hospital'),
+              React.createElement('span', { style: { fontSize: '12px', fontWeight: 500 } }, hw.name || '')
+            ),
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 600, color: '#10b981' } },
+              `${hw.peakStart || ''} 〜 ${hw.peakEnd || ''}`
+            )
+          )
+        )
+      ),
+
+      // データなし
+      geminiApiKey && !demandLoading && !demandSchedule.available && React.createElement('div', {
+        style: { padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-xs)' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', display: 'block', marginBottom: '6px' } }, 'schedule'),
+        '「取得」ボタンを押すと本日の需要予測が表示されます'
+      )
+    ),
+
+    // 他カテゴリ コンテンツエリア
+    activeTab !== 'demand' && (activeData.loading
       ? React.createElement(Card, null,
           React.createElement('div', {
             style: {
@@ -516,10 +644,10 @@ window.TransitInfoPage = () => {
           },
             React.createElement('span', {
               className: 'material-icons-round',
-              style: { fontSize: '36px', color: `rgb(${activeCat.color})`, animation: 'spin 1s linear infinite' },
+              style: { fontSize: '36px', color: activeCat ? `rgb(${activeCat.color})` : '#999', animation: 'spin 1s linear infinite' },
             }, 'sync'),
             React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } },
-              activeCat.label + 'の情報を取得中...'
+              (activeCat ? activeCat.label : '') + 'の情報を取得中...'
             )
           )
         )
@@ -596,7 +724,9 @@ window.TransitInfoPage = () => {
                 },
               },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'info'),
-                '※ AIによる回答です。最新情報は各交通機関の公式サイトでご確認ください'
+                activeTab === 'bus'
+                  ? '※ 2025年12月改正冬ダイヤ準拠。空港バスは月変動あり。最新は各社HPでご確認ください'
+                  : '※ AIによる回答です。最新情報は各交通機関の公式サイトでご確認ください'
               )
             )
           : // 未取得状態
@@ -622,8 +752,10 @@ window.TransitInfoPage = () => {
                   icon: 'download',
                   onClick: () => handleFetch(activeTab),
                   style: { fontSize: '12px', marginTop: '4px' },
-                }, activeCat.label + 'の情報を取得')
+                }, activeCat ? (activeCat.label + 'の情報を取得') : '取得')
               )
-            )
+            ))
   );
 };
+
+})();

@@ -1,14 +1,12 @@
+(function() {
 // Events.jsx - イベント記録ページ
 // 周辺イベントの記録CRUD（RivalRide.jsx パターン踏襲）
 window.EventsPage = () => {
-  const { useState, useEffect, useCallback, useRef } = React;
+  const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  const todayDefault = new Date().toISOString().split('T')[0];
+  const todayDefault = getLocalDateString();
 
-  const getNowTime = () => {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  };
+  const getNowTime = TaxiApp.utils.getNowTime;
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState({
@@ -50,7 +48,7 @@ window.EventsPage = () => {
     '近日中の花火大会・お祭り',
   ];
 
-  const entries = DataService.getEvents();
+  const entries = useMemo(() => DataService.getEvents(), [refreshKey]);
 
   // localStorage変更の監視
   useEffect(() => {
@@ -64,9 +62,12 @@ window.EventsPage = () => {
       if (!document.hidden) setRefreshKey(k => k + 1);
     };
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       window.removeEventListener('storage', handleStorage);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 
@@ -94,14 +95,31 @@ window.EventsPage = () => {
   }, [apiKey]);
 
   const reverseGeocode = (lat, lng) => {
+    // 最優先: 座標ベースの既知場所マッチング
+    const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
+    if (knownPlace) {
+      setGpsLoading(false);
+      AppLogger.info(`イベント 既知場所マッチ: ${knownPlace}`);
+      setForm(prev => ({ ...prev, location: knownPlace, locationCoords: { lat, lng } }));
+      setGpsInfo({ lat, lng, address: knownPlace });
+      return;
+    }
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(false);
-        if (status === 'OK' && results[0]) {
-          const address = formatAddress(results[0]);
+        if (status === 'OK' && results && results.length > 0) {
+          const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
+          const address = formatAddress(best);
           setForm(prev => ({ ...prev, location: address, locationCoords: { lat, lng } }));
-          setGpsInfo({ lat, lng, address: results[0].formatted_address.replace(/、日本$/, '').replace(/^日本、/, '') });
+          setGpsInfo({ lat, lng, address: best.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '') });
+          // ランドマーク名で上書き試行
+          TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+            if (lm) {
+              AppLogger.info(`イベント ランドマーク検出: ${lm}`);
+              setForm(prev => prev.location === address ? { ...prev, location: lm } : prev);
+            }
+          }).catch(() => {});
         } else {
           nominatimFallback(lat, lng);
         }
@@ -112,7 +130,7 @@ window.EventsPage = () => {
   };
 
   const nominatimFallback = (lat, lng) => {
-    const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`;
+    const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
     fetch(nomUrl)
       .then(res => res.json())
       .then(data => {
@@ -161,7 +179,7 @@ window.EventsPage = () => {
       return;
     }
     setForm({
-      name: '', date: todayDefault, startTime: '', endTime: '',
+      name: '', date: getLocalDateString(), startTime: '', endTime: '',
       location: '', locationCoords: null, scale: '', impact: '', memo: '',
     });
     setGpsInfo(null);
@@ -205,13 +223,6 @@ window.EventsPage = () => {
     transition: 'all 0.2s ease',
     whiteSpace: 'nowrap', minWidth: '0', flex: '0 0 auto',
   });
-
-  const scaleImpactLabel = (entry) => {
-    const parts = [];
-    if (entry.scale) parts.push(`規模: ${entry.scale}`);
-    if (entry.impact) parts.push(`影響: ${entry.impact}`);
-    return parts.join(' / ');
-  };
 
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
@@ -280,7 +291,6 @@ window.EventsPage = () => {
           )
         )
       ),
-
       geminiError && React.createElement('div', {
         style: {
           padding: '10px 14px', borderRadius: '8px', marginBottom: 'var(--space-md)',
@@ -291,7 +301,6 @@ window.EventsPage = () => {
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--color-danger)' } }, 'error'),
         React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--color-danger)' } }, geminiError)
       ),
-
       geminiLoading && React.createElement('div', {
         style: {
           padding: 'var(--space-lg)', textAlign: 'center',
@@ -304,7 +313,6 @@ window.EventsPage = () => {
         }, 'sync'),
         React.createElement('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, 'Gemini AIが検索中...')
       ),
-
       geminiResult && React.createElement('div', {
         style: {
           padding: 'var(--space-md)', borderRadius: '8px',
@@ -461,7 +469,7 @@ window.EventsPage = () => {
                 style: { flex: 1, minWidth: 0, colorScheme: 'dark' },
                 placeholder: '開始',
               }),
-              React.createElement('span', { style: { color: 'var(--text-muted)', fontSize: '14px' } }, '〜'),
+              React.createElement('span', { style: { color: 'var(--text-muted)', fontSize: '14px' } }, '\u301C'),
               React.createElement('input', {
                 className: 'form-input',
                 type: 'time',
@@ -645,7 +653,7 @@ window.EventsPage = () => {
                   }, info.holiday),
                   (entry.startTime || entry.endTime) && React.createElement('span', {
                     style: { fontSize: '11px', color: 'var(--color-primary-light)', fontWeight: '600', padding: '1px 6px', borderRadius: '3px', background: 'rgba(26,115,232,0.12)' },
-                  }, `${entry.startTime || '?'}〜${entry.endTime || '?'}`),
+                  }, `${entry.startTime || '?'}\u301C${entry.endTime || '?'}`),
                   entry.location && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
                     React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'place'),
                     entry.location
@@ -691,3 +699,5 @@ window.EventsPage = () => {
     )
   );
 };
+
+})();

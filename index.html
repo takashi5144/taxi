@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.4.0</title>
+  <title>タクシー売上サポート v3.5.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.4.0',
+  VERSION: '3.5.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2357,11 +2357,11 @@ window.DataService = (() => {
 
   function saveEntries(entries) {
     try {
-      _sortByDateTimeDesc(entries, 'date', 'dropoffTime');
-      const json = JSON.stringify(entries);
+      const sorted = _sortByDateTimeDesc([...entries], 'date', 'dropoffTime');
+      const json = JSON.stringify(sorted);
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, json);
       _entriesCacheRaw = json;
-      _entriesCache = entries;
+      _entriesCache = sorted;
       return true;
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
@@ -7274,6 +7274,7 @@ window.DemandNotificationService = (() => {
 
   function _check() {
     if (!NotificationService.isEnabled()) return;
+    try {
     // 高需要時間帯チェック
     const hourly = DataService.getHourlyBreakdown();
     const now = new Date();
@@ -7325,6 +7326,9 @@ window.DemandNotificationService = (() => {
 
     // 天候変化通知
     _checkWeatherChange();
+    } catch (e) {
+      if (window.AppLogger) AppLogger.debug('DemandNotification check skipped', e.message);
+    }
   }
 
   function _checkHospitalDischarge(now) {
@@ -8261,7 +8265,9 @@ window.GpsLogService = (() => {
   }
 
   // 初期化: DB接続 + マイグレーション + フラッシュタイマー開始
-  _openDB().then(() => _migrateFromLocalStorage()).then(() => _startFlushTimer()).catch(() => {});
+  _openDB().then(() => _migrateFromLocalStorage()).then(() => _startFlushTimer()).catch((e) => {
+    if (window.AppLogger) AppLogger.warn('GpsLogService init error:', e);
+  });
 
   // --- 公開API ---
 
@@ -8726,7 +8732,7 @@ window.GpsLogService = (() => {
       _forecastCache = { hours, fetchedAt: Date.now() };
       return _forecastCache;
     } catch (e) {
-      console.warn('[fetchHourlyForecast] error:', e);
+      if (window.AppLogger) AppLogger.warn('[fetchHourlyForecast] error:', e);
       if (_forecastCache) return _forecastCache;
       return { hours: [], fetchedAt: Date.now() };
     }
@@ -9101,6 +9107,12 @@ window.useGeolocation = () => {
   const startTracking = useCallback(() => {
     if (!isSupported) return;
 
+    // 既存のwatchがあればクリアしてから開始
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
     AppLogger.info('GPS追跡を開始');
     mapCtx.setIsTracking(true);
 
@@ -9133,7 +9145,8 @@ window.useGeolocation = () => {
 
   // 始業中なら自動でGPS追跡を開始（始業していなければ開始しない）
   useEffect(() => {
-    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    let shifts = [];
+    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
     const activeShift = shifts.find(s => !s.endTime);
     if (isSupported && !watchIdRef.current && activeShift) {
       AppLogger.info('GPS追跡を自動開始（始業中）');
@@ -11488,94 +11501,118 @@ window.DashboardPage = () => {
   const [breakInfo, setBreakInfo] = useState({ active: false, startTime: null });
 
   useEffect(() => {
-    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-    const activeShift = shifts.find(s => !s.endTime);
-    if (activeShift) {
-      setShiftInfo({ active: true, startTime: activeShift.startTime });
-    }
-    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-    const activeBreak = breaks.find(b => !b.endTime);
-    if (activeBreak) {
-      setBreakInfo({ active: true, startTime: activeBreak.startTime });
+    try {
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        setShiftInfo({ active: true, startTime: activeShift.startTime });
+      }
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const activeBreak = breaks.find(b => !b.endTime);
+      if (activeBreak) {
+        setBreakInfo({ active: true, startTime: activeBreak.startTime });
+      }
+    } catch (e) {
+      AppLogger.warn('シフト/休憩データの読み込みに失敗', e.message);
     }
   }, []);
 
   const handleShiftStart = useCallback(() => {
-    const now = new Date();
-    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-    const activeShift = shifts.find(s => !s.endTime);
-    if (activeShift) {
-      activeShift.endTime = now.toISOString();
+    try {
+      const now = new Date();
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        activeShift.endTime = now.toISOString();
+      }
+      // 休憩中なら終了させる
+      if (breakInfo.active) {
+        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        const ab = breaks.find(b => !b.endTime);
+        if (ab) ab.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+        DataService.syncBreaksToCloud();
+        setBreakInfo({ active: false, startTime: null });
+      }
+      const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
+      shifts.push(newShift);
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+      DataService.syncShiftsToCloud();
+      setShiftInfo({ active: true, startTime: now.toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      // GPS追跡を開始
+      if (!geo.isTracking) geo.startTracking();
+      GpsLogService.startWeatherPolling();
+      AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e) {
+      AppLogger.error('始業処理に失敗', e.message);
     }
-    // 休憩中なら終了させる
-    if (breakInfo.active) {
-      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-      const ab = breaks.find(b => !b.endTime);
-      if (ab) ab.endTime = now.toISOString();
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
-      DataService.syncBreaksToCloud();
-      setBreakInfo({ active: false, startTime: null });
-    }
-    const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
-    shifts.push(newShift);
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
-    DataService.syncShiftsToCloud();
-    setShiftInfo({ active: true, startTime: now.toISOString() });
-    // GPS追跡を開始
-    if (!geo.isTracking) geo.startTracking();
-    GpsLogService.startWeatherPolling();
-    AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
   }, [breakInfo.active, geo]);
 
   const handleShiftEnd = useCallback(() => {
-    const now = new Date();
-    // 休憩中なら終了させる
-    if (breakInfo.active) {
-      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-      const ab = breaks.find(b => !b.endTime);
-      if (ab) ab.endTime = now.toISOString();
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
-      DataService.syncBreaksToCloud();
-      setBreakInfo({ active: false, startTime: null });
+    try {
+      const now = new Date();
+      // 休憩中なら終了させる
+      if (breakInfo.active) {
+        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        const ab = breaks.find(b => !b.endTime);
+        if (ab) ab.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+        DataService.syncBreaksToCloud();
+        setBreakInfo({ active: false, startTime: null });
+      }
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        activeShift.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+        DataService.syncShiftsToCloud();
+        AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+      }
+      setShiftInfo({ active: false, startTime: null });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      // GPS追跡を停止
+      if (geo.isTracking) geo.stopTracking();
+      GpsLogService.stopWeatherPolling();
+      AppLogger.info('GPS追跡を停止（終業）');
+    } catch (e) {
+      AppLogger.error('終業処理に失敗', e.message);
     }
-    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-    const activeShift = shifts.find(s => !s.endTime);
-    if (activeShift) {
-      activeShift.endTime = now.toISOString();
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
-      DataService.syncShiftsToCloud();
-      AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
-    }
-    setShiftInfo({ active: false, startTime: null });
-    // GPS追跡を停止
-    if (geo.isTracking) geo.stopTracking();
-    GpsLogService.stopWeatherPolling();
-    AppLogger.info('GPS追跡を停止（終業）');
   }, [breakInfo.active, geo]);
 
   const handleBreakStart = useCallback(() => {
     if (!shiftInfo.active) return;
-    const now = new Date();
-    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-    const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
-    breaks.push(newBreak);
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
-    DataService.syncBreaksToCloud();
-    setBreakInfo({ active: true, startTime: now.toISOString() });
-    AppLogger.info(`休憩開始: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    try {
+      const now = new Date();
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
+      breaks.push(newBreak);
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+      DataService.syncBreaksToCloud();
+      setBreakInfo({ active: true, startTime: now.toISOString() });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      AppLogger.info(`休憩開始: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e) {
+      AppLogger.error('休憩開始処理に失敗', e.message);
+    }
   }, [shiftInfo.active]);
 
   const handleBreakEnd = useCallback(() => {
-    const now = new Date();
-    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-    const activeBreak = breaks.find(b => !b.endTime);
-    if (activeBreak) {
-      activeBreak.endTime = now.toISOString();
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
-      DataService.syncBreaksToCloud();
-      AppLogger.info(`休憩終了: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    try {
+      const now = new Date();
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const activeBreak = breaks.find(b => !b.endTime);
+      if (activeBreak) {
+        activeBreak.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+        DataService.syncBreaksToCloud();
+        AppLogger.info(`休憩終了: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+      }
+      setBreakInfo({ active: false, startTime: null });
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+    } catch (e) {
+      AppLogger.error('休憩終了処理に失敗', e.message);
     }
-    setBreakInfo({ active: false, startTime: null });
   }, []);
 
   // 営業プラン関連
@@ -15730,12 +15767,12 @@ window.TransitInfoPage = () => {
   // GPS地域検出
   const [region, setRegion] = useState(null);
   const [regionLoading, setRegionLoading] = useState(false);
-  const regionFetched = useRef(false);
+  const regionFetched = useRef(null);
 
   // ページ読み込み時にGPSで現在地の地域を取得
   useEffect(() => {
-    if (regionFetched.current) return;
-    regionFetched.current = true;
+    if (regionFetched.current === apiKey) return;
+    regionFetched.current = apiKey;
 
     if (!navigator.geolocation) return;
     setRegionLoading(true);
@@ -16980,15 +17017,18 @@ window.CalendarPage = () => {
                 className: 'btn btn--primary',
                 style: { padding: '2px 8px', fontSize: 'var(--font-size-sm)', minWidth: 'auto' },
                 onClick: () => {
-                  const allShifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-                  const idx = allShifts.findIndex(x => x.id === editingItem.id);
-                  if (idx !== -1) {
-                    allShifts[idx].startTime = timeStrToIso(selectedDate, editingItem.startTime);
-                    if (editingItem.endTime) allShifts[idx].endTime = timeStrToIso(selectedDate, editingItem.endTime);
-                    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(allShifts));
-                    DataService.syncShiftsToCloud();
-                    setRefreshKey(k => k + 1);
-                  }
+                  try {
+                    const allShifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+                    const idx = allShifts.findIndex(x => x.id === editingItem.id);
+                    if (idx !== -1) {
+                      allShifts[idx].startTime = timeStrToIso(selectedDate, editingItem.startTime);
+                      if (editingItem.endTime) allShifts[idx].endTime = timeStrToIso(selectedDate, editingItem.endTime);
+                      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(allShifts));
+                      DataService.syncShiftsToCloud();
+                      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+                      setRefreshKey(k => k + 1);
+                    }
+                  } catch (e) { AppLogger.error('シフト保存失敗', e.message); }
                   setEditingItem(null);
                 }
               }, '保存'),
@@ -17051,15 +17091,18 @@ window.CalendarPage = () => {
                 className: 'btn btn--primary',
                 style: { padding: '2px 8px', fontSize: 'var(--font-size-sm)', minWidth: 'auto' },
                 onClick: () => {
-                  const allBreaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-                  const idx = allBreaks.findIndex(x => x.id === editingItem.id);
-                  if (idx !== -1) {
-                    allBreaks[idx].startTime = timeStrToIso(selectedDate, editingItem.startTime);
-                    if (editingItem.endTime) allBreaks[idx].endTime = timeStrToIso(selectedDate, editingItem.endTime);
-                    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(allBreaks));
-                    DataService.syncBreaksToCloud();
-                    setRefreshKey(k => k + 1);
-                  }
+                  try {
+                    const allBreaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+                    const idx = allBreaks.findIndex(x => x.id === editingItem.id);
+                    if (idx !== -1) {
+                      allBreaks[idx].startTime = timeStrToIso(selectedDate, editingItem.startTime);
+                      if (editingItem.endTime) allBreaks[idx].endTime = timeStrToIso(selectedDate, editingItem.endTime);
+                      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(allBreaks));
+                      DataService.syncBreaksToCloud();
+                      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+                      setRefreshKey(k => k + 1);
+                    }
+                  } catch (e) { AppLogger.error('休憩保存失敗', e.message); }
                   setEditingItem(null);
                 }
               }, '保存'),
@@ -20172,7 +20215,6 @@ window.SettingsPage = () => {
 };
 
 })();
-
 
 // ============================================================
 // FILE: src/pages/DataManage.jsx
@@ -23754,7 +23796,6 @@ window.GatheringMemoPage = () => {
 
 })();
 
-
 // ============================================================
 // FILE: src/App.jsx
 // ============================================================
@@ -23854,9 +23895,12 @@ window.App = () => {
   T.pages.Revenue = RevenuePage;
   T.pages.RivalRide = RivalRidePage;
   T.pages.TransitInfo = TransitInfoPage;
+  T.pages.Calendar = CalendarPage;
+  T.pages.Info = InfoPage;
   T.pages.Events = EventsPage;
   T.pages.Analytics = AnalyticsPage;
   T.pages.GatheringMemo = GatheringMemoPage;
+  T.pages.DataManage = DataManagePage;
   T.pages.Settings = SettingsPage;
   T.pages.DevTools = DevToolsPage;
   T.pages.Logs = LogsPage;

@@ -1,3 +1,4 @@
+(function() {
 // useGeolocation.js - GPS位置情報カスタムフック
 window.useGeolocation = () => {
   const { useState, useEffect, useRef, useCallback } = React;
@@ -14,26 +15,31 @@ window.useGeolocation = () => {
       return;
     }
 
-    AppLogger.info('現在地を取得中...');
+    AppLogger.info('現在地を取得中（高精度モード）...');
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
+    // getAccuratePositionを使い、複数回のGPS測位から最良の結果を取得
+    getAccuratePosition({ accuracyThreshold: 100, timeout: 15000, maxWaitAfterFix: 5000 })
+      .then((position) => {
         mapCtx.updatePosition(position);
         const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
         mapCtx.setMapCenter(pos);
-        AppLogger.info(`現在地取得成功: ${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}`);
-      },
-      (error) => {
-        const msg = getErrorMessage(error);
+        AppLogger.info(`現在地取得成功: ${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)} 精度: ${Math.round(position.coords.accuracy)}m`);
+      })
+      .catch((error) => {
+        const msg = error.message || getErrorMessage(error);
         mapCtx.setGpsError(msg);
         AppLogger.error(`GPS取得エラー: ${msg}`);
-      },
-      APP_CONSTANTS.GPS_OPTIONS
-    );
+      });
   }, [isSupported, mapCtx]);
 
   const startTracking = useCallback(() => {
     if (!isSupported) return;
+
+    // 既存のwatchがあればクリアしてから開始
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
 
     AppLogger.info('GPS追跡を開始');
     mapCtx.setIsTracking(true);
@@ -61,10 +67,31 @@ window.useGeolocation = () => {
       setWatchId(null);
     }
     mapCtx.setIsTracking(false);
+    mapCtx.setCurrentPosition(null);
     AppLogger.info('GPS追跡を停止');
   }, [mapCtx]);
 
+  // 始業中なら自動でGPS追跡を開始（始業していなければ開始しない）
   useEffect(() => {
+    let shifts = [];
+    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
+    const activeShift = shifts.find(s => !s.endTime);
+    if (isSupported && !watchIdRef.current && activeShift) {
+      AppLogger.info('GPS追跡を自動開始（始業中）');
+      GpsLogService.startWeatherPolling();
+      mapCtx.setIsTracking(true);
+      const id = navigator.geolocation.watchPosition(
+        (position) => { mapCtx.updatePosition(position); },
+        (error) => {
+          const msg = getErrorMessage(error);
+          mapCtx.setGpsError(msg);
+          AppLogger.warn(`GPS追跡エラー: ${msg}`);
+        },
+        APP_CONSTANTS.GPS_OPTIONS
+      );
+      watchIdRef.current = id;
+      setWatchId(id);
+    }
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
@@ -95,12 +122,11 @@ function getErrorMessage(error) {
 }
 
 // 高精度GPS取得ユーティリティ
-// watchPositionで精度が閾値以下になるまで監視し、最も精度の高い位置を返す
 window.getAccuratePosition = (options = {}) => {
   const {
-    accuracyThreshold = 50,   // メートル — この精度以下で即座に返す
-    timeout = 20000,           // 全体タイムアウト（ms）
-    maxWaitAfterFix = 8000,    // 初回取得後、改善を待つ最大時間（ms）
+    accuracyThreshold = 50,
+    timeout = 20000,
+    maxWaitAfterFix = 8000,
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -113,7 +139,7 @@ window.getAccuratePosition = (options = {}) => {
     let watchId = null;
     let overallTimer = null;
     let waitTimer = null;
-    let settled = false;  // Promise が解決済みかどうか
+    let settled = false;
 
     const cleanup = () => {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -147,7 +173,6 @@ window.getAccuratePosition = (options = {}) => {
       }
     };
 
-    // 全体タイムアウト
     overallTimer = setTimeout(finish, timeout);
 
     watchId = navigator.geolocation.watchPosition(
@@ -156,26 +181,36 @@ window.getAccuratePosition = (options = {}) => {
         const acc = position.coords.accuracy;
         AppLogger.info(`GPS受信: 精度${acc.toFixed(0)}m lat=${position.coords.latitude.toFixed(6)} lng=${position.coords.longitude.toFixed(6)}`);
 
-        // より精度が高い位置を保持
         if (!bestPosition || acc < bestPosition.coords.accuracy) {
           bestPosition = position;
         }
 
-        // 精度が閾値以下なら即確定
         if (acc <= accuracyThreshold) {
           doResolve(position);
           return;
         }
 
-        // 初回取得後、改善待ちタイマーを開始（1回だけ）
         if (!waitTimer) {
           waitTimer = setTimeout(finish, maxWaitAfterFix);
         }
       },
       (error) => {
-        doReject(error);
+        // Permission denied は即座にreject（リトライしても無駄）
+        if (error.code === 1) {
+          doReject(error);
+          return;
+        }
+        // その他のエラー（TIMEOUT/POSITION_UNAVAILABLE）は一時的な場合があるので
+        // bestPositionがあればそれを使い、なければ全体タイムアウトに任せる
+        AppLogger.warn(`GPS一時エラー: code=${error.code} ${error.message || ''}`);
+        if (bestPosition) {
+          doResolve(bestPosition);
+        }
+        // bestPositionがなければoverallTimerのfinish()でrejectされる
       },
-      { enableHighAccuracy: true, timeout: timeout, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: Math.min(timeout, 15000), maximumAge: 0 }
     );
   });
 };
+
+})();

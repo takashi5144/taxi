@@ -1,3 +1,4 @@
+(function() {
 // App.jsx - ルートコンポーネント（ハッシュルーティング対応）
 window.App = () => {
   const { currentPage, navigate } = useAppContext();
@@ -19,6 +20,10 @@ window.App = () => {
       case 'transit-info': return React.createElement(TransitInfoPage);
       case 'events': return React.createElement(EventsPage);
       case 'analytics': return React.createElement(AnalyticsPage);
+      case 'gathering-memo': return React.createElement(GatheringMemoPage);
+      case 'calendar': return React.createElement(CalendarPage);
+      case 'info': return React.createElement(InfoPage);
+      case 'data-manage': return React.createElement(DataManagePage);
       case 'settings': return React.createElement(SettingsPage);
       case 'dev': return React.createElement(DevToolsPage);
       case 'dev-logs': return React.createElement(LogsPage);
@@ -30,3 +35,5 @@ window.App = () => {
 
   return React.createElement(Layout, null, page);
 };
+
+})();

@@ -1,3 +1,4 @@
+(function() {
 // storage.js - localStorage管理
 window.AppStorage = {
   get(key, defaultValue = null) {
@@ -56,3 +57,5 @@ window.AppStorage = {
     return this.set(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, settings);
   },
 };
+
+})();

@@ -1,3 +1,4 @@
+(function() {
 // Sidebar.jsx - PC用サイドバー
 window.Sidebar = () => {
   const { currentPage, navigate, sidebarOpen } = useAppContext();
@@ -69,3 +70,5 @@ window.Sidebar = () => {
     }, `v${APP_CONSTANTS.VERSION}`)
   );
 };
+
+})();

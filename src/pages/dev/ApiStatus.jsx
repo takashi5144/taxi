@@ -1,3 +1,4 @@
+(function() {
 // ApiStatus.jsx - API接続ステータスページ
 window.ApiStatusPage = () => {
   const { useState, useEffect } = React;
@@ -140,3 +141,5 @@ window.ApiStatusPage = () => {
     )
   );
 };
+
+})();

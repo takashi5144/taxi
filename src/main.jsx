@@ -1,3 +1,4 @@
+(function() {
 // main.jsx - エントリーポイント（TaxiApp名前空間登録 + アプリ起動）
 (() => {
   // ============================================================
@@ -11,6 +12,7 @@
   T.utils.logger = AppLogger;
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
+  T.utils.gpsLogService = GpsLogService;
   T.utils.geminiService = GeminiService;
 
   // Contexts
@@ -49,8 +51,12 @@
   T.pages.Revenue = RevenuePage;
   T.pages.RivalRide = RivalRidePage;
   T.pages.TransitInfo = TransitInfoPage;
+  T.pages.Calendar = CalendarPage;
+  T.pages.Info = InfoPage;
   T.pages.Events = EventsPage;
   T.pages.Analytics = AnalyticsPage;
+  T.pages.GatheringMemo = GatheringMemoPage;
+  T.pages.DataManage = DataManagePage;
   T.pages.Settings = SettingsPage;
   T.pages.DevTools = DevToolsPage;
   T.pages.Logs = LogsPage;
@@ -67,6 +73,9 @@
   AppLogger.info(`バージョン: ${APP_CONSTANTS.VERSION}`);
   AppLogger.info(`React バージョン: ${React.version}`);
 
+  // 既存データに場所名エイリアスを適用
+  DataService.applyPlaceAliasesToExistingData();
+
   const root = ReactDOM.createRoot(document.getElementById('root'));
 
   root.render(
@@ -80,7 +89,9 @@
       )
     )
   );
-
   AppLogger.info('アプリケーション起動完了');
   AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
+  if (window.GpsLogService) GpsLogService.cleanup();
+})();
+
 })();

@@ -77,10 +77,7 @@ a:hover {
 }
 
 .header__nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-left: auto;
+  display: none;
 }
 
 .header__nav-btn {
@@ -311,6 +308,14 @@ a:hover {
   border-radius: 50%;
 }
 
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn--ghost:hover {
+  background: rgba(255,255,255,0.08);
+}
+
 /* グリッド */
 .grid {
   display: grid;
@@ -333,6 +338,11 @@ a:hover {
 
 .page-title .material-icons-round {
   color: var(--color-secondary);
+}
+
+/* InfoPage内の子ページタイトルを非表示 */
+.info-page-content .page-title {
+  display: none;
 }
 
 /* 地図コンテナ */
@@ -574,3 +584,4 @@ a:hover {
   color: var(--color-primary-light);
   border-bottom-color: var(--color-primary);
 }
+

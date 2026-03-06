@@ -1,3 +1,4 @@
+(function() {
 // LogContext.jsx - ログ状態管理
 const { createContext, useState, useEffect, useContext } = React;
 
@@ -24,3 +25,5 @@ window.LogProvider = ({ children }) => {
 };
 
 window.useLogContext = () => useContext(LogContext);
+
+})();

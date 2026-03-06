@@ -1,3 +1,4 @@
+(function() {
 // Button.jsx - 汎用ボタン
 window.Button = ({ children, variant = 'primary', icon, onClick, disabled, className = '', style }) => {
   return React.createElement('button', {
@@ -10,3 +11,5 @@ window.Button = ({ children, variant = 'primary', icon, onClick, disabled, class
     children
   );
 };
+
+})();

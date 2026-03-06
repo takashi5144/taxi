@@ -1,3 +1,4 @@
+(function() {
 // logger.js - アプリケーションロガー
 window.AppLogger = (() => {
   const MAX_LOGS = 500;
@@ -57,4 +58,6 @@ window.AppLogger = (() => {
     clearLogs: () => { logs = []; saveLogs(); notify(); },
     subscribe: (fn) => { listeners.push(fn); return () => { listeners = listeners.filter(l => l !== fn); }; },
   };
+})();
+
 })();

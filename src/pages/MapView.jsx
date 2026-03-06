@@ -1,3 +1,4 @@
+(function() {
 // MapView.jsx - 地図ページ
 window.MapViewPage = () => {
   const { useState } = React;
@@ -41,3 +42,5 @@ window.MapViewPage = () => {
     React.createElement(GpsTracker)
   );
 };
+
+})();
