@@ -15,6 +15,7 @@ window.GpsLogService = (() => {
   let _buffer = {};    // { dateStr: [entry, ...] }
   let _db = null;
   let _flushTimer = null;
+  let _lastKnownPosition = null; // 最新GPS座標（天気予報API用）
 
   // --- 天気キャッシュ ---
   const WEATHER_POLL_MS = 300000; // 5分間隔で天気取得
@@ -31,6 +32,7 @@ window.GpsLogService = (() => {
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        _lastKnownPosition = { lat, lng };
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia/Tokyo`;
         fetch(url)
           .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -251,6 +253,10 @@ window.GpsLogService = (() => {
 
   /** 1秒スロットル記録（同期・バッファ書き込み）- スマホ+始業中+休憩外のみ */
   function maybeRecord(lat, lng, accuracy, speed) {
+    // 常に最新位置を保存（天気予報APIで使用）
+    if (lat != null && lng != null) {
+      _lastKnownPosition = { lat, lng };
+    }
     const now = Date.now();
     if (now - _lastRecordTime < THROTTLE_MS) return false;
     if (!_isMobile()) return false;
@@ -689,7 +695,8 @@ window.GpsLogService = (() => {
       return _forecastCache;
     }
     try {
-      const url = 'https://api.open-meteo.com/v1/forecast?latitude=43.77&longitude=142.37&hourly=temperature_2m,weather_code,precipitation,wind_speed_10m&timezone=Asia/Tokyo&forecast_hours=12';
+      const pos = _lastKnownPosition || { lat: 43.77, lng: 142.37 };
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${pos.lat.toFixed(4)}&longitude=${pos.lng.toFixed(4)}&hourly=temperature_2m,weather_code,precipitation,wind_speed_10m&timezone=Asia/Tokyo&forecast_hours=12`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Forecast API error');
       const data = await res.json();

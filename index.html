@@ -1212,7 +1212,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.5.0',
+  VERSION: '3.5.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -8041,6 +8041,7 @@ window.GpsLogService = (() => {
   let _buffer = {};    // { dateStr: [entry, ...] }
   let _db = null;
   let _flushTimer = null;
+  let _lastKnownPosition = null; // 最新GPS座標（天気予報API用）
 
   // --- 天気キャッシュ ---
   const WEATHER_POLL_MS = 300000; // 5分間隔で天気取得
@@ -8057,6 +8058,7 @@ window.GpsLogService = (() => {
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
+        _lastKnownPosition = { lat, lng };
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia/Tokyo`;
         fetch(url)
           .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -8277,6 +8279,10 @@ window.GpsLogService = (() => {
 
   /** 1秒スロットル記録（同期・バッファ書き込み）- スマホ+始業中+休憩外のみ */
   function maybeRecord(lat, lng, accuracy, speed) {
+    // 常に最新位置を保存（天気予報APIで使用）
+    if (lat != null && lng != null) {
+      _lastKnownPosition = { lat, lng };
+    }
     const now = Date.now();
     if (now - _lastRecordTime < THROTTLE_MS) return false;
     if (!_isMobile()) return false;
@@ -8715,7 +8721,8 @@ window.GpsLogService = (() => {
       return _forecastCache;
     }
     try {
-      const url = 'https://api.open-meteo.com/v1/forecast?latitude=43.77&longitude=142.37&hourly=temperature_2m,weather_code,precipitation,wind_speed_10m&timezone=Asia/Tokyo&forecast_hours=12';
+      const pos = _lastKnownPosition || { lat: 43.77, lng: 142.37 };
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${pos.lat.toFixed(4)}&longitude=${pos.lng.toFixed(4)}&hourly=temperature_2m,weather_code,precipitation,wind_speed_10m&timezone=Asia/Tokyo&forecast_hours=12`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Forecast API error');
       const data = await res.json();
@@ -8904,9 +8911,25 @@ window.useLogContext = () => useContext(LogContext);
 // ============================================================
 (function() {
 // MapContext.jsx - 地図・GPS状態管理
-const { createContext, useState, useCallback, useContext } = React;
+// GPS追跡（watchPosition）をここで一元管理し、ページ遷移で途切れないようにする。
+// 天気ポーリングもstartTracking/stopTrackingに連動。
+const { createContext, useState, useCallback, useContext, useRef, useEffect, useMemo } = React;
 
 window.MapContext = createContext(null);
+
+// GPSエラーメッセージ変換
+function _getGpsErrorMessage(error) {
+  switch (error.code) {
+    case error.PERMISSION_DENIED:
+      return '位置情報の権限が拒否されました';
+    case error.POSITION_UNAVAILABLE:
+      return '位置情報を取得できません';
+    case error.TIMEOUT:
+      return '位置情報の取得がタイムアウトしました';
+    default:
+      return '位置情報の取得中にエラーが発生しました';
+  }
+}
 
 window.MapProvider = ({ children }) => {
   const [currentPosition, setCurrentPosition] = useState(null);
@@ -8917,6 +8940,8 @@ window.MapProvider = ({ children }) => {
   const [accuracy, setAccuracy] = useState(null);
   const [speed, setSpeed] = useState(null);
   const [heading, setHeading] = useState(null);
+
+  const watchIdRef = useRef(null);
 
   const updatePosition = useCallback((position) => {
     const pos = {
@@ -8933,7 +8958,63 @@ window.MapProvider = ({ children }) => {
     }
   }, []);
 
-  const value = {
+  // GPS追跡開始（天気ポーリングも連動開始）
+  const startTracking = useCallback(() => {
+    if (!('geolocation' in navigator)) return;
+    // 既存のwatchがあればクリアしてから開始
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    AppLogger.info('GPS追跡を開始');
+    setIsTracking(true);
+    if (window.GpsLogService) GpsLogService.startWeatherPolling();
+
+    const id = navigator.geolocation.watchPosition(
+      (position) => { updatePosition(position); },
+      (error) => {
+        const msg = _getGpsErrorMessage(error);
+        setGpsError(msg);
+        AppLogger.warn(`GPS追跡エラー: ${msg}`);
+      },
+      APP_CONSTANTS.GPS_OPTIONS
+    );
+    watchIdRef.current = id;
+  }, [updatePosition]);
+
+  // GPS追跡停止（天気ポーリングも連動停止）
+  const stopTracking = useCallback(() => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setIsTracking(false);
+    setCurrentPosition(null);
+    if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+    AppLogger.info('GPS追跡を停止');
+  }, []);
+
+  // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
+  useEffect(() => {
+    let shifts = [];
+    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
+    const activeShift = shifts.find(s => !s.endTime);
+    if ('geolocation' in navigator && !watchIdRef.current && activeShift) {
+      AppLogger.info('GPS追跡を自動開始（始業中）');
+      startTracking();
+    }
+    return () => {
+      // アプリ全体アンマウント時のクリーンアップ
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+    };
+  }, []);
+
+  // useMemoでvalueを安定化（不要な再レンダリング防止）
+  const value = useMemo(() => ({
     currentPosition,
     setCurrentPosition,
     mapCenter,
@@ -8948,7 +9029,9 @@ window.MapProvider = ({ children }) => {
     speed,
     heading,
     updatePosition,
-  };
+    startTracking,
+    stopTracking,
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, updatePosition, startTracking, stopTracking]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };
@@ -9072,17 +9155,17 @@ window.useAppContext = () => useContext(AppContext);
 // ============================================================
 (function() {
 // useGeolocation.js - GPS位置情報カスタムフック
+// GPS追跡（watchPosition）はMapContextで一元管理。
+// このフックはgetCurrentPosition（単発高精度取得）と、MapContextへの委譲を提供する。
 window.useGeolocation = () => {
-  const { useState, useEffect, useRef, useCallback } = React;
-  const mapCtx = useMapContext();
-  const [watchId, setWatchId] = useState(null);
-  const watchIdRef = useRef(null);
+  const { useCallback } = React;
+  const { updatePosition, setGpsError, setMapCenter, startTracking, stopTracking, isTracking } = useMapContext();
 
   const isSupported = 'geolocation' in navigator;
 
   const getCurrentPosition = useCallback(() => {
     if (!isSupported) {
-      mapCtx.setGpsError('このブラウザはGPSに対応していません');
+      setGpsError('このブラウザはGPSに対応していません');
       AppLogger.error('Geolocation API 非対応');
       return;
     }
@@ -9092,95 +9175,28 @@ window.useGeolocation = () => {
     // getAccuratePositionを使い、複数回のGPS測位から最良の結果を取得
     getAccuratePosition({ accuracyThreshold: 100, timeout: 15000, maxWaitAfterFix: 5000 })
       .then((position) => {
-        mapCtx.updatePosition(position);
+        updatePosition(position);
         const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
-        mapCtx.setMapCenter(pos);
+        setMapCenter(pos);
         AppLogger.info(`現在地取得成功: ${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)} 精度: ${Math.round(position.coords.accuracy)}m`);
       })
       .catch((error) => {
-        const msg = error.message || getErrorMessage(error);
-        mapCtx.setGpsError(msg);
+        const msg = error.message || _getGeoErrorMessage(error);
+        setGpsError(msg);
         AppLogger.error(`GPS取得エラー: ${msg}`);
       });
-  }, [isSupported, mapCtx]);
-
-  const startTracking = useCallback(() => {
-    if (!isSupported) return;
-
-    // 既存のwatchがあればクリアしてから開始
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-
-    AppLogger.info('GPS追跡を開始');
-    mapCtx.setIsTracking(true);
-
-    const id = navigator.geolocation.watchPosition(
-      (position) => {
-        mapCtx.updatePosition(position);
-      },
-      (error) => {
-        const msg = getErrorMessage(error);
-        mapCtx.setGpsError(msg);
-        AppLogger.warn(`GPS追跡エラー: ${msg}`);
-      },
-      APP_CONSTANTS.GPS_OPTIONS
-    );
-
-    watchIdRef.current = id;
-    setWatchId(id);
-  }, [isSupported, mapCtx]);
-
-  const stopTracking = useCallback(() => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-      setWatchId(null);
-    }
-    mapCtx.setIsTracking(false);
-    mapCtx.setCurrentPosition(null);
-    AppLogger.info('GPS追跡を停止');
-  }, [mapCtx]);
-
-  // 始業中なら自動でGPS追跡を開始（始業していなければ開始しない）
-  useEffect(() => {
-    let shifts = [];
-    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
-    const activeShift = shifts.find(s => !s.endTime);
-    if (isSupported && !watchIdRef.current && activeShift) {
-      AppLogger.info('GPS追跡を自動開始（始業中）');
-      GpsLogService.startWeatherPolling();
-      mapCtx.setIsTracking(true);
-      const id = navigator.geolocation.watchPosition(
-        (position) => { mapCtx.updatePosition(position); },
-        (error) => {
-          const msg = getErrorMessage(error);
-          mapCtx.setGpsError(msg);
-          AppLogger.warn(`GPS追跡エラー: ${msg}`);
-        },
-        APP_CONSTANTS.GPS_OPTIONS
-      );
-      watchIdRef.current = id;
-      setWatchId(id);
-    }
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
-  }, []);
+  }, [isSupported, updatePosition, setGpsError, setMapCenter]);
 
   return {
     isSupported,
     getCurrentPosition,
     startTracking,
     stopTracking,
-    isTracking: mapCtx.isTracking,
+    isTracking,
   };
 };
 
-function getErrorMessage(error) {
+function _getGeoErrorMessage(error) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
       return '位置情報の権限が拒否されました';

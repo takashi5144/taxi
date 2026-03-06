@@ -1,8 +1,24 @@
 (function() {
 // MapContext.jsx - 地図・GPS状態管理
-const { createContext, useState, useCallback, useContext } = React;
+// GPS追跡（watchPosition）をここで一元管理し、ページ遷移で途切れないようにする。
+// 天気ポーリングもstartTracking/stopTrackingに連動。
+const { createContext, useState, useCallback, useContext, useRef, useEffect, useMemo } = React;
 
 window.MapContext = createContext(null);
+
+// GPSエラーメッセージ変換
+function _getGpsErrorMessage(error) {
+  switch (error.code) {
+    case error.PERMISSION_DENIED:
+      return '位置情報の権限が拒否されました';
+    case error.POSITION_UNAVAILABLE:
+      return '位置情報を取得できません';
+    case error.TIMEOUT:
+      return '位置情報の取得がタイムアウトしました';
+    default:
+      return '位置情報の取得中にエラーが発生しました';
+  }
+}
 
 window.MapProvider = ({ children }) => {
   const [currentPosition, setCurrentPosition] = useState(null);
@@ -13,6 +29,8 @@ window.MapProvider = ({ children }) => {
   const [accuracy, setAccuracy] = useState(null);
   const [speed, setSpeed] = useState(null);
   const [heading, setHeading] = useState(null);
+
+  const watchIdRef = useRef(null);
 
   const updatePosition = useCallback((position) => {
     const pos = {
@@ -29,7 +47,63 @@ window.MapProvider = ({ children }) => {
     }
   }, []);
 
-  const value = {
+  // GPS追跡開始（天気ポーリングも連動開始）
+  const startTracking = useCallback(() => {
+    if (!('geolocation' in navigator)) return;
+    // 既存のwatchがあればクリアしてから開始
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    AppLogger.info('GPS追跡を開始');
+    setIsTracking(true);
+    if (window.GpsLogService) GpsLogService.startWeatherPolling();
+
+    const id = navigator.geolocation.watchPosition(
+      (position) => { updatePosition(position); },
+      (error) => {
+        const msg = _getGpsErrorMessage(error);
+        setGpsError(msg);
+        AppLogger.warn(`GPS追跡エラー: ${msg}`);
+      },
+      APP_CONSTANTS.GPS_OPTIONS
+    );
+    watchIdRef.current = id;
+  }, [updatePosition]);
+
+  // GPS追跡停止（天気ポーリングも連動停止）
+  const stopTracking = useCallback(() => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setIsTracking(false);
+    setCurrentPosition(null);
+    if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+    AppLogger.info('GPS追跡を停止');
+  }, []);
+
+  // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
+  useEffect(() => {
+    let shifts = [];
+    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
+    const activeShift = shifts.find(s => !s.endTime);
+    if ('geolocation' in navigator && !watchIdRef.current && activeShift) {
+      AppLogger.info('GPS追跡を自動開始（始業中）');
+      startTracking();
+    }
+    return () => {
+      // アプリ全体アンマウント時のクリーンアップ
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+    };
+  }, []);
+
+  // useMemoでvalueを安定化（不要な再レンダリング防止）
+  const value = useMemo(() => ({
     currentPosition,
     setCurrentPosition,
     mapCenter,
@@ -44,7 +118,9 @@ window.MapProvider = ({ children }) => {
     speed,
     heading,
     updatePosition,
-  };
+    startTracking,
+    stopTracking,
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, updatePosition, startTracking, stopTracking]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };

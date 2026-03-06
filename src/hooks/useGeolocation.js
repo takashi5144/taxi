@@ -1,16 +1,16 @@
 (function() {
 // useGeolocation.js - GPS位置情報カスタムフック
+// GPS追跡（watchPosition）はMapContextで一元管理。
+// このフックはgetCurrentPosition（単発高精度取得）と、MapContextへの委譲を提供する。
 window.useGeolocation = () => {
-  const { useState, useEffect, useRef, useCallback } = React;
-  const mapCtx = useMapContext();
-  const [watchId, setWatchId] = useState(null);
-  const watchIdRef = useRef(null);
+  const { useCallback } = React;
+  const { updatePosition, setGpsError, setMapCenter, startTracking, stopTracking, isTracking } = useMapContext();
 
   const isSupported = 'geolocation' in navigator;
 
   const getCurrentPosition = useCallback(() => {
     if (!isSupported) {
-      mapCtx.setGpsError('このブラウザはGPSに対応していません');
+      setGpsError('このブラウザはGPSに対応していません');
       AppLogger.error('Geolocation API 非対応');
       return;
     }
@@ -20,95 +20,28 @@ window.useGeolocation = () => {
     // getAccuratePositionを使い、複数回のGPS測位から最良の結果を取得
     getAccuratePosition({ accuracyThreshold: 100, timeout: 15000, maxWaitAfterFix: 5000 })
       .then((position) => {
-        mapCtx.updatePosition(position);
+        updatePosition(position);
         const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
-        mapCtx.setMapCenter(pos);
+        setMapCenter(pos);
         AppLogger.info(`現在地取得成功: ${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)} 精度: ${Math.round(position.coords.accuracy)}m`);
       })
       .catch((error) => {
-        const msg = error.message || getErrorMessage(error);
-        mapCtx.setGpsError(msg);
+        const msg = error.message || _getGeoErrorMessage(error);
+        setGpsError(msg);
         AppLogger.error(`GPS取得エラー: ${msg}`);
       });
-  }, [isSupported, mapCtx]);
-
-  const startTracking = useCallback(() => {
-    if (!isSupported) return;
-
-    // 既存のwatchがあればクリアしてから開始
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-
-    AppLogger.info('GPS追跡を開始');
-    mapCtx.setIsTracking(true);
-
-    const id = navigator.geolocation.watchPosition(
-      (position) => {
-        mapCtx.updatePosition(position);
-      },
-      (error) => {
-        const msg = getErrorMessage(error);
-        mapCtx.setGpsError(msg);
-        AppLogger.warn(`GPS追跡エラー: ${msg}`);
-      },
-      APP_CONSTANTS.GPS_OPTIONS
-    );
-
-    watchIdRef.current = id;
-    setWatchId(id);
-  }, [isSupported, mapCtx]);
-
-  const stopTracking = useCallback(() => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-      setWatchId(null);
-    }
-    mapCtx.setIsTracking(false);
-    mapCtx.setCurrentPosition(null);
-    AppLogger.info('GPS追跡を停止');
-  }, [mapCtx]);
-
-  // 始業中なら自動でGPS追跡を開始（始業していなければ開始しない）
-  useEffect(() => {
-    let shifts = [];
-    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
-    const activeShift = shifts.find(s => !s.endTime);
-    if (isSupported && !watchIdRef.current && activeShift) {
-      AppLogger.info('GPS追跡を自動開始（始業中）');
-      GpsLogService.startWeatherPolling();
-      mapCtx.setIsTracking(true);
-      const id = navigator.geolocation.watchPosition(
-        (position) => { mapCtx.updatePosition(position); },
-        (error) => {
-          const msg = getErrorMessage(error);
-          mapCtx.setGpsError(msg);
-          AppLogger.warn(`GPS追跡エラー: ${msg}`);
-        },
-        APP_CONSTANTS.GPS_OPTIONS
-      );
-      watchIdRef.current = id;
-      setWatchId(id);
-    }
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
-  }, []);
+  }, [isSupported, updatePosition, setGpsError, setMapCenter]);
 
   return {
     isSupported,
     getCurrentPosition,
     startTracking,
     stopTracking,
-    isTracking: mapCtx.isTracking,
+    isTracking,
   };
 };
 
-function getErrorMessage(error) {
+function _getGeoErrorMessage(error) {
   switch (error.code) {
     case error.PERMISSION_DENIED:
       return '位置情報の権限が拒否されました';
