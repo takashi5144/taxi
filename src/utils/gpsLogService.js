@@ -675,20 +675,7 @@ window.GpsLogService = (() => {
   // 時間別天気予報取得（Open-Meteo API、30分キャッシュ）
   let _forecastCache = null;
 
-  function wmoToWeather(code) {
-    if (code === 0) return '快晴';
-    if (code <= 3) return '晴れ';
-    if (code <= 48) return '曇り';
-    if (code <= 55) return '霧雨';
-    if (code <= 65) return '雨';
-    if (code <= 67) return '凍雨';
-    if (code <= 75) return '雪';
-    if (code <= 77) return '霧雪';
-    if (code <= 82) return 'にわか雨';
-    if (code <= 86) return 'にわか雪';
-    if (code <= 99) return '雷雨';
-    return '不明';
-  }
+  // wmoToWeather は共通ユーティリティ _wmoToWeather を使用（重複排除済み）
 
   async function fetchHourlyForecast() {
     if (_forecastCache && Date.now() - _forecastCache.fetchedAt < 30 * 60 * 1000) {
@@ -706,7 +693,7 @@ window.GpsLogService = (() => {
         hour: new Date(t).getHours(),
         temperature: (hourly.temperature_2m || [])[i],
         weatherCode: (hourly.weather_code || [])[i],
-        weather: wmoToWeather((hourly.weather_code || [])[i]),
+        weather: _wmoToWeather((hourly.weather_code || [])[i]),
         precipitation: (hourly.precipitation || [])[i] || 0,
         windSpeed: (hourly.wind_speed_10m || [])[i] || 0,
       }));

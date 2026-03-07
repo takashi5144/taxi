@@ -155,20 +155,7 @@ window.EventsPage = () => {
       });
   };
 
-  function formatAddress(result) {
-    const comps = result.address_components;
-    let prefecture = '', city = '', ward = '', town = '', sublocality = '';
-    for (const c of comps) {
-      if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
-      if (c.types.includes('locality')) city = c.long_name;
-      if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
-      if (c.types.includes('sublocality_level_2')) town = c.long_name;
-      if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
-    }
-    const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
-    if (parts.length > 0) return parts.join(' ');
-    return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-  }
+  const formatAddress = TaxiApp.utils.formatAddress;
 
   const handleSubmit = (e) => {
     e.preventDefault();

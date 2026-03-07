@@ -32,6 +32,22 @@ window.TaxiApp.utils.nominatimUrl = (lat, lng, zoom = 18) => {
   return `https://nominatim.openstreetmap.org/reverse?${params}`;
 };
 
+// Geocoding結果から簡潔な住所を抽出（共通ユーティリティ）
+window.TaxiApp.utils.formatAddress = (result) => {
+  const comps = result.address_components;
+  let prefecture = '', city = '', ward = '', town = '', sublocality = '';
+  for (const c of comps) {
+    if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
+    if (c.types.includes('locality')) city = c.long_name;
+    if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
+    if (c.types.includes('sublocality_level_2')) town = c.long_name;
+    if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
+  }
+  const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
+  if (parts.length > 0) return parts.join(' ');
+  return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+};
+
 // 2点間の距離(m)を計算 (Haversine)
 window.TaxiApp.utils.haversineDistance = (lat1, lng1, lat2, lng2) => {
   const R = 6371000;
@@ -364,7 +380,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.7.0',
+  VERSION: '3.7.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },

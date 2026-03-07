@@ -880,6 +880,22 @@ window.TaxiApp.utils.nominatimUrl = (lat, lng, zoom = 18) => {
   return `https://nominatim.openstreetmap.org/reverse?${params}`;
 };
 
+// Geocoding結果から簡潔な住所を抽出（共通ユーティリティ）
+window.TaxiApp.utils.formatAddress = (result) => {
+  const comps = result.address_components;
+  let prefecture = '', city = '', ward = '', town = '', sublocality = '';
+  for (const c of comps) {
+    if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
+    if (c.types.includes('locality')) city = c.long_name;
+    if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
+    if (c.types.includes('sublocality_level_2')) town = c.long_name;
+    if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
+  }
+  const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
+  if (parts.length > 0) return parts.join(' ');
+  return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
+};
+
 // 2点間の距離(m)を計算 (Haversine)
 window.TaxiApp.utils.haversineDistance = (lat1, lng1, lat2, lng2) => {
   const R = 6371000;
@@ -1212,7 +1228,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.7.0',
+  VERSION: '3.7.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2348,6 +2364,25 @@ window.DataService = (() => {
     return dt === 'weekday' ? 'weekday' : 'holiday';
   }
 
+  // ============================================================
+  // 待機スポットマッチング共有ヘルパー
+  // ============================================================
+  const _spotKeywords = {
+    station: /駅前|駅/, asahikawa_medical: /医大|医科大/, red_cross: /赤十字/,
+    kosei: /厚生/, shiritsu: /市立/, aeon: /イオン/,
+  };
+  function _matchSpot(spotId, text, coords, spotDef) {
+    const kw = _spotKeywords[spotId];
+    if (kw && kw.test(text || '')) return true;
+    if (coords && spotDef && spotDef.lat && spotDef.lng) {
+      if (Math.abs(coords.lat - spotDef.lat) < 0.003 && Math.abs(coords.lng - spotDef.lng) < 0.003) return true;
+    }
+    return false;
+  }
+
+  // 駅前除外パターン（奇数日チェック用）
+  const _stationPattern = /駅前|旭川駅/;
+
   // dayTypeフィルタ: 'weekday'=平日のみ, 'holiday'=土日祝(longHoliday含む), null/undefined=全て
   function _filterByDayType(entries, dayType) {
     if (!dayType) return entries;
@@ -2564,21 +2599,26 @@ window.DataService = (() => {
     }
   }
 
+  // ダウンロードヘルパー（JSON/CSV共通）
+  function _downloadFile(filename, blob, logMessage) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    AppLogger.info(logMessage);
+  }
+
   // ダウンロード方式でJSON保存（フォールバック）
   function _downloadBackup(entries) {
     try {
       const dateStr = getLocalDateString();
       const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `売上記録_${dateStr}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      AppLogger.info(`バックアップダウンロード: ${entries.length}件`);
+      _downloadFile(`売上記録_${dateStr}.json`, blob, `バックアップダウンロード: ${entries.length}件`);
       return true;
     } catch (e) {
       AppLogger.warn('バックアップ失敗: ' + e.message);
@@ -2591,15 +2631,7 @@ window.DataService = (() => {
       const dateStr = getLocalDateString();
       const data = JSON.stringify({ version: APP_CONSTANTS.VERSION, exportedAt: new Date().toISOString(), count: entries.length, entries: entries }, null, 2);
       const blob = new Blob([data], { type: 'application/json;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `他社乗車記録_${dateStr}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      AppLogger.info(`他社乗車バックアップダウンロード: ${entries.length}件`);
+      _downloadFile(`他社乗車記録_${dateStr}.json`, blob, `他社乗車バックアップダウンロード: ${entries.length}件`);
       return true;
     } catch (e) {
       AppLogger.warn('他社乗車バックアップ失敗: ' + e.message);
@@ -3010,12 +3042,18 @@ window.DataService = (() => {
   }
 
   function getDayOfWeek(isoString) {
+    if (!isoString) return '月'; // フォールバック
     const days = ['日', '月', '火', '水', '木', '金', '土'];
-    return days[new Date(isoString).getDay()];
+    const d = new Date(isoString);
+    const idx = d.getDay();
+    return isNaN(idx) ? '月' : days[idx];
   }
 
   function getDayOfWeekIndex(isoString) {
-    return new Date(isoString).getDay();
+    if (!isoString) return 1; // フォールバック
+    const d = new Date(isoString);
+    const idx = d.getDay();
+    return isNaN(idx) ? 1 : idx;
   }
 
   function getWeekStart(date) {
@@ -3511,9 +3549,8 @@ window.DataService = (() => {
     });
     // 奇数日は駅前エリアを除外
     const isOddDay = now.getDate() % 2 !== 0;
-    const stationPat = /駅前|旭川駅/;
     let sortedAreas = Object.values(areaByHour).sort((a, b) => b.amount - a.amount);
-    if (isOddDay) sortedAreas = sortedAreas.filter(a => !stationPat.test(a.name));
+    if (isOddDay) sortedAreas = sortedAreas.filter(a => !_stationPattern.test(a.name));
     const topAreas = sortedAreas.slice(0, 3);
 
     // 今日の曜日で平均単価が高い時間帯TOP3
@@ -3891,17 +3928,8 @@ window.DataService = (() => {
     }
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
     const dateStr = getLocalDateString();
-    link.href = url;
-    link.download = `taxi_revenue_${dateStr}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    AppLogger.info(`CSVエクスポート完了: ${getEntries().length}件`);
+    _downloadFile(`taxi_revenue_${dateStr}.csv`, blob, `CSVエクスポート完了: ${getEntries().length}件`);
     return true;
   }
 
@@ -4335,16 +4363,8 @@ window.DataService = (() => {
     });
     const csv = '\uFEFF' + header + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
     const dateStr = getLocalDateString();
-    link.href = url;
-    link.download = `rival_rides_${dateStr}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    AppLogger.info(`他社乗車CSVエクスポート完了: ${entries.length}件`);
+    _downloadFile(`rival_rides_${dateStr}.csv`, blob, `他社乗車CSVエクスポート完了: ${entries.length}件`);
     return true;
   }
 
@@ -4549,16 +4569,8 @@ window.DataService = (() => {
     });
     const csv = '\uFEFF' + header + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
     const dateStr = getLocalDateString();
-    link.href = url;
-    link.download = `gathering_memos_${dateStr}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    AppLogger.info(`集客メモCSVエクスポート完了: ${entries.length}件`);
+    _downloadFile(`gathering_memos_${dateStr}.csv`, blob, `集客メモCSVエクスポート完了: ${entries.length}件`);
     return true;
   }
 
@@ -4727,10 +4739,9 @@ window.DataService = (() => {
     });
     // 奇数日は駅前エリアを除外
     const isOddDay = now.getDate() % 2 !== 0;
-    const stPat = /駅前|旭川駅/;
     return Object.values(areas)
       .filter(a => a.count >= 2)
-      .filter(a => !isOddDay || !stPat.test(a.name))
+      .filter(a => !isOddDay || !_stationPattern.test(a.name))
       .map(a => ({ ...a, avg: Math.round(a.total / a.count) }))
       .sort((a, b) => b.avg - a.avg)
       .slice(0, 3);
@@ -5458,9 +5469,8 @@ window.DataService = (() => {
 
     // 奇数日フィルタ: 駅前待機不可の日は駅関連ブロックを除外
     const isOddDay = now.getDate() % 2 !== 0;
-    const stationPattern = /駅前|旭川駅/;
     const filteredPlan = isOddDay
-      ? mergedPlan.filter(block => !stationPattern.test(block.location || '') || /病院|医大|商業|イオン|ホテル/.test(block.action || ''))
+      ? mergedPlan.filter(block => !_stationPattern.test(block.location || '') || /病院|医大|商業|イオン|ホテル/.test(block.action || ''))
       : mergedPlan;
     const filteredDemandWindows = isOddDay
       ? (geminiData.demandWindows || []).filter(w => !stationPattern.test(w.location || ''))
@@ -5876,17 +5886,7 @@ window.DataService = (() => {
       return 1.0;
     })();
 
-    // スポットマッチング共通ヘルパー
-    const spotKeywords = {
-      station: /駅前|駅/, asahikawa_medical: /医大|医科大/, red_cross: /赤十字/,
-      kosei: /厚生/, shiritsu: /市立/, aeon: /イオン/,
-    };
-    function _matchesSpot(spotId, text, coords, spotDef) {
-      const kw = spotKeywords[spotId];
-      if (kw && kw.test(text)) return true;
-      if (coords && Math.abs(coords.lat - spotDef.lat) < 0.003 && Math.abs(coords.lng - spotDef.lng) < 0.003) return true;
-      return false;
-    }
+    // スポットマッチング: 上部の共有ヘルパー _matchSpot を使用
 
     // 履歴データ集計: 各スポットの時間帯別平均需要
     const entries = getEntries();
@@ -5899,7 +5899,7 @@ window.DataService = (() => {
       const hour = parseInt(e.pickupTime.split(':')[0], 10);
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       spots.forEach(spot => {
-        if (_matchesSpot(spot.id, e.pickup, e.pickupCoords, spot)) {
+        if (_matchSpot(spot.id, e.pickup, e.pickupCoords, spot)) {
           historyBySpot[spot.id][hour].total += (e.amount || 0);
           historyBySpot[spot.id][hour].count += 1;
         }
@@ -5918,7 +5918,7 @@ window.DataService = (() => {
       const hour = parseInt(m.time.split(':')[0], 10);
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       spots.forEach(spot => {
-        const matched = _matchesSpot(spot.id, m.location || '', m.locationCoords, spot);
+        const matched = _matchSpot(spot.id, m.location || '', m.locationCoords, spot);
         if (matched) {
           gatheringBySpot[spot.id][hour].totalScore += (densityScoreMap[m.density] || 0);
           gatheringBySpot[spot.id][hour].count += 1;
@@ -5937,7 +5937,7 @@ window.DataService = (() => {
       const hour = parseInt(r.time.split(':')[0], 10);
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       spots.forEach(spot => {
-        if (_matchesSpot(spot.id, r.location || '', r.locationCoords, spot)) {
+        if (_matchSpot(spot.id, r.location || '', r.locationCoords, spot)) {
           rivalBySpot[spot.id][hour] += 1;
         }
       });
@@ -6244,16 +6244,7 @@ window.DataService = (() => {
     const OPERATING_END = 22; // 6:00〜21:59
     const DEFAULT_RIDE_DURATION = 15; // 分
 
-    // スポット別のマッチング関数（getWaitingSpotDemandIndexと同じロジック）
-    function matchSpot(spotId, pickup, pickupCoords, spot) {
-      if (spotId === 'station' && (/駅前|駅/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
-      if (spotId === 'asahikawa_medical' && (/医大|医科大/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
-      if (spotId === 'red_cross' && (/赤十字/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
-      if (spotId === 'kosei' && (/厚生/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
-      if (spotId === 'shiritsu' && (/市立/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
-      if (spotId === 'aeon' && (/イオン/.test(pickup) || (pickupCoords && Math.abs(pickupCoords.lat - spot.lat) < 0.003 && Math.abs(pickupCoords.lng - spot.lng) < 0.003))) return true;
-      return false;
-    }
+    // スポット別マッチング: 上部の共有ヘルパー _matchSpot を使用
 
     // スポット別の実績データ集計
     const spotStats = {};
@@ -6277,7 +6268,7 @@ window.DataService = (() => {
       const hour = parseInt(e.pickupTime.split(':')[0], 10);
       if (isNaN(hour)) return;
       spots.forEach(spot => {
-        if (!matchSpot(spot.id, e.pickup, e.pickupCoords, spot)) return;
+        if (!_matchSpot(spot.id, e.pickup, e.pickupCoords, spot)) return;
         if (e.amount > 0) {
           spotStats[spot.id].fares.push(e.amount);
           spotStats[spot.id].faresByHour[hour].push(e.amount);
@@ -6303,14 +6294,7 @@ window.DataService = (() => {
       if (isNaN(stay) || stay <= 0) return;
       const hour = m.time ? parseInt(m.time.split(':')[0], 10) : -1;
       spots.forEach(spot => {
-        let match = false;
-        if (spot.id === 'station' && /駅/.test(m.location)) match = true;
-        if (spot.id === 'asahikawa_medical' && /医大|医科大/.test(m.location)) match = true;
-        if (spot.id === 'red_cross' && /赤十字/.test(m.location)) match = true;
-        if (spot.id === 'kosei' && /厚生/.test(m.location)) match = true;
-        if (spot.id === 'shiritsu' && /市立/.test(m.location)) match = true;
-        if (spot.id === 'aeon' && /イオン/.test(m.location)) match = true;
-        if (match) {
+        if (_matchSpot(spot.id, m.location, m.locationCoords, spot)) {
           spotStats[spot.id].waitTimes.push(stay);
           if (hour >= 0 && hour <= 23) spotStats[spot.id].waitByHour[hour].push(stay);
         }
@@ -6925,18 +6909,7 @@ window.DataService = (() => {
       // 配車アプリ
       if (['Go', 'Uber', 'DIDI', '電話'].includes(source)) return 'app';
       // 待機スポットマッチ
-      const isWaitingSpot = waitingSpots.some(spot => {
-        if (spot.id === 'station' && /駅前|駅/.test(pickup)) return true;
-        if (spot.id === 'asahikawa_medical' && /医大|医科大/.test(pickup)) return true;
-        if (spot.id === 'red_cross' && /赤十字/.test(pickup)) return true;
-        if (spot.id === 'kosei' && /厚生/.test(pickup)) return true;
-        if (spot.id === 'shiritsu' && /市立/.test(pickup)) return true;
-        if (spot.id === 'aeon' && /イオン/.test(pickup)) return true;
-        if (e.pickupCoords && spot.lat && spot.lng) {
-          if (Math.abs(e.pickupCoords.lat - spot.lat) < 0.003 && Math.abs(e.pickupCoords.lng - spot.lng) < 0.003) return true;
-        }
-        return false;
-      });
+      const isWaitingSpot = waitingSpots.some(spot => _matchSpot(spot.id, pickup, e.pickupCoords, spot));
       if (source === '流し') return 'cruising';
       if (isWaitingSpot) return 'waiting';
       return 'other';
@@ -8911,20 +8884,7 @@ window.GpsLogService = (() => {
   // 時間別天気予報取得（Open-Meteo API、30分キャッシュ）
   let _forecastCache = null;
 
-  function wmoToWeather(code) {
-    if (code === 0) return '快晴';
-    if (code <= 3) return '晴れ';
-    if (code <= 48) return '曇り';
-    if (code <= 55) return '霧雨';
-    if (code <= 65) return '雨';
-    if (code <= 67) return '凍雨';
-    if (code <= 75) return '雪';
-    if (code <= 77) return '霧雪';
-    if (code <= 82) return 'にわか雨';
-    if (code <= 86) return 'にわか雪';
-    if (code <= 99) return '雷雨';
-    return '不明';
-  }
+  // wmoToWeather は共通ユーティリティ _wmoToWeather を使用（重複排除済み）
 
   async function fetchHourlyForecast() {
     if (_forecastCache && Date.now() - _forecastCache.fetchedAt < 30 * 60 * 1000) {
@@ -8942,7 +8902,7 @@ window.GpsLogService = (() => {
         hour: new Date(t).getHours(),
         temperature: (hourly.temperature_2m || [])[i],
         weatherCode: (hourly.weather_code || [])[i],
-        weather: wmoToWeather((hourly.weather_code || [])[i]),
+        weather: _wmoToWeather((hourly.weather_code || [])[i]),
         precipitation: (hourly.precipitation || [])[i] || 0,
         windSpeed: (hourly.wind_speed_10m || [])[i] || 0,
       }));
@@ -13626,31 +13586,8 @@ window.RevenuePage = () => {
   }, [_reverseGeocodeAndSetForm]);
 
 
-  // Geocoding結果から簡潔な住所を抽出
-  function _formatAddress(result) {
-    const comps = result.address_components;
-    // 都道府県、市区町村、町名、番地を抽出
-    let prefecture = '';
-    let city = '';
-    let ward = '';
-    let town = '';
-    let sublocality = '';
-
-    for (const c of comps) {
-      if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
-      if (c.types.includes('locality')) city = c.long_name;
-      if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
-      if (c.types.includes('sublocality_level_2')) town = c.long_name;
-      if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
-    }
-
-    // 簡潔な形式: 市区町村 + 町名 (都道府県は省略可)
-    const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
-    if (parts.length > 0) return parts.join(' ');
-
-    // フォールバック: formatted_address から国名を除去
-    return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-  }
+  // Geocoding結果から簡潔な住所を抽出（共通ユーティリティ委譲）
+  const _formatAddress = TaxiApp.utils.formatAddress;
 
 
   // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
@@ -15673,20 +15610,7 @@ window.RivalRidePage = () => {
       });
   };
 
-  function _formatRivalAddress(result) {
-    const comps = result.address_components;
-    let prefecture = '', city = '', ward = '', town = '', sublocality = '';
-    for (const c of comps) {
-      if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
-      if (c.types.includes('locality')) city = c.long_name;
-      if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
-      if (c.types.includes('sublocality_level_2')) town = c.long_name;
-      if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
-    }
-    const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
-    if (parts.length > 0) return parts.join(' ');
-    return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-  }
+  const _formatRivalAddress = TaxiApp.utils.formatAddress;
 
   const entries = useMemo(() => DataService.getRivalEntries(), [refreshKey]);
 
@@ -18138,20 +18062,7 @@ window.EventsPage = () => {
       });
   };
 
-  function formatAddress(result) {
-    const comps = result.address_components;
-    let prefecture = '', city = '', ward = '', town = '', sublocality = '';
-    for (const c of comps) {
-      if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
-      if (c.types.includes('locality')) city = c.long_name;
-      if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
-      if (c.types.includes('sublocality_level_2')) town = c.long_name;
-      if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
-    }
-    const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
-    if (parts.length > 0) return parts.join(' ');
-    return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-  }
+  const formatAddress = TaxiApp.utils.formatAddress;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -20015,8 +19926,10 @@ window.SettingsPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [dailyGoal, setDailyGoal] = useState(() => {
-    const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
-    return s.dailyGoal || '';
+    try {
+      const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+      return s.dailyGoal || '';
+    } catch { return ''; }
   });
   const [goalSaved, setGoalSaved] = useState(false);
 
@@ -20485,7 +20398,8 @@ window.SettingsPage = () => {
         React.createElement(Button, {
           variant: 'primary',
           onClick: () => {
-            const settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+            let settings = {};
+            try { settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}'); } catch {}
             settings.dailyGoal = Number(dailyGoal) || 0;
             localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
             setGoalSaved(true);

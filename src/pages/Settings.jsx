@@ -19,8 +19,10 @@ window.SettingsPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [dailyGoal, setDailyGoal] = useState(() => {
-    const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
-    return s.dailyGoal || '';
+    try {
+      const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+      return s.dailyGoal || '';
+    } catch { return ''; }
   });
   const [goalSaved, setGoalSaved] = useState(false);
 
@@ -489,7 +491,8 @@ window.SettingsPage = () => {
         React.createElement(Button, {
           variant: 'primary',
           onClick: () => {
-            const settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+            let settings = {};
+            try { settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}'); } catch {}
             settings.dailyGoal = Number(dailyGoal) || 0;
             localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
             setGoalSaved(true);

@@ -247,31 +247,8 @@ window.RevenuePage = () => {
   }, [_reverseGeocodeAndSetForm]);
 
 
-  // Geocoding結果から簡潔な住所を抽出
-  function _formatAddress(result) {
-    const comps = result.address_components;
-    // 都道府県、市区町村、町名、番地を抽出
-    let prefecture = '';
-    let city = '';
-    let ward = '';
-    let town = '';
-    let sublocality = '';
-
-    for (const c of comps) {
-      if (c.types.includes('administrative_area_level_1')) prefecture = c.long_name;
-      if (c.types.includes('locality')) city = c.long_name;
-      if (c.types.includes('sublocality_level_1') || c.types.includes('ward')) ward = c.long_name;
-      if (c.types.includes('sublocality_level_2')) town = c.long_name;
-      if (c.types.includes('sublocality_level_3')) sublocality = c.long_name;
-    }
-
-    // 簡潔な形式: 市区町村 + 町名 (都道府県は省略可)
-    const parts = [ward || city || prefecture, town, sublocality].filter(Boolean);
-    if (parts.length > 0) return parts.join(' ');
-
-    // フォールバック: formatted_address から国名を除去
-    return result.formatted_address.replace(/、日本$/, '').replace(/^日本、/, '');
-  }
+  // Geocoding結果から簡潔な住所を抽出（共通ユーティリティ委譲）
+  const _formatAddress = TaxiApp.utils.formatAddress;
 
 
   // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
