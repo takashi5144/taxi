@@ -1228,7 +1228,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.7.4',
+  VERSION: '3.7.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2513,6 +2513,25 @@ window.DataService = (() => {
       saveRivalEntries(rivals);
       AppLogger.info(`他社乗車データの場所名を統一しました`);
     }
+  }
+
+  // 一回限りマイグレーション: 降車地「旭川駅前北口」→ 用途「駅移動」
+  function migrateStationDropoffPurpose() {
+    const KEY = 'taxi_migration_station_dropoff_purpose';
+    if (localStorage.getItem(KEY)) return;
+    const entries = getEntries();
+    let count = 0;
+    entries.forEach(e => {
+      if (e.dropoff === '旭川駅前北口' && e.purpose !== '駅移動') {
+        e.purpose = '駅移動';
+        count++;
+      }
+    });
+    if (count > 0) {
+      saveEntries(entries);
+      AppLogger.info(`${count}件の降車地「旭川駅前北口」の用途を「駅移動」に更新しました`);
+    }
+    localStorage.setItem(KEY, '1');
   }
 
   // ============================================================
@@ -7395,6 +7414,7 @@ window.DataService = (() => {
     getFrequentPickupSpotsWithNames,
     reverseGeocodeSpot,
     applyPlaceAliasesToExistingData,
+    migrateStationDropoffPurpose,
     getGoalProgress,
     getUpcomingEventAlerts,
     getSmartHeatmapData,
@@ -24333,6 +24353,8 @@ window.App = () => {
 
   // 既存データに場所名エイリアスを適用
   DataService.applyPlaceAliasesToExistingData();
+  // 降車地「旭川駅前北口」の用途を「駅移動」に一括更新
+  DataService.migrateStationDropoffPurpose();
 
   const root = ReactDOM.createRoot(document.getElementById('root'));
 

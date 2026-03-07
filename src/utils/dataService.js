@@ -193,6 +193,25 @@ window.DataService = (() => {
     }
   }
 
+  // 一回限りマイグレーション: 降車地「旭川駅前北口」→ 用途「駅移動」
+  function migrateStationDropoffPurpose() {
+    const KEY = 'taxi_migration_station_dropoff_purpose';
+    if (localStorage.getItem(KEY)) return;
+    const entries = getEntries();
+    let count = 0;
+    entries.forEach(e => {
+      if (e.dropoff === '旭川駅前北口' && e.purpose !== '駅移動') {
+        e.purpose = '駅移動';
+        count++;
+      }
+    });
+    if (count > 0) {
+      saveEntries(entries);
+      AppLogger.info(`${count}件の降車地「旭川駅前北口」の用途を「駅移動」に更新しました`);
+    }
+    localStorage.setItem(KEY, '1');
+  }
+
   // ============================================================
   // ファイル保存・復元（売上データフォルダ）
   // ============================================================
@@ -5073,6 +5092,7 @@ window.DataService = (() => {
     getFrequentPickupSpotsWithNames,
     reverseGeocodeSpot,
     applyPlaceAliasesToExistingData,
+    migrateStationDropoffPurpose,
     getGoalProgress,
     getUpcomingEventAlerts,
     getSmartHeatmapData,

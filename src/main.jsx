@@ -75,6 +75,8 @@
 
   // 既存データに場所名エイリアスを適用
   DataService.applyPlaceAliasesToExistingData();
+  // 降車地「旭川駅前北口」の用途を「駅移動」に一括更新
+  DataService.migrateStationDropoffPurpose();
 
   const root = ReactDOM.createRoot(document.getElementById('root'));
 
