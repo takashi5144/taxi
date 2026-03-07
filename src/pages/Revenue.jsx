@@ -1554,6 +1554,7 @@ window.RevenuePage = () => {
                 { value: '空港', icon: '✈️' },
                 { value: '飲食', icon: '🍺' },
                 { value: 'パチンコ', icon: '🎰' },
+                { value: '駅移動', icon: '🚉' },
               ].map(p =>
                 React.createElement('button', {
                   key: p.value,
@@ -1943,7 +1944,7 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '用途'),
               React.createElement('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-                ...['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'].map(p => React.createElement('button', {
+                ...['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '駅移動'].map(p => React.createElement('button', {
                   key: p, type: 'button',
                   onClick: () => setEditForm({ ...editForm, purpose: editForm.purpose === p ? '' : p }),
                   style: {

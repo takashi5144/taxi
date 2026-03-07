@@ -1393,7 +1393,7 @@ window.DataManagePage = () => {
         field('降車時刻', 'dropoffTime', 'time'),
         field('人数', 'passengers', 'number'),
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
-        field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ']),
+        field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '駅移動']),
         field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し', '待機']),
         // 支払方法
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
@@ -1702,6 +1702,7 @@ window.DataManagePage = () => {
                     { value: '空港', icon: '✈️' },
                     { value: '飲食', icon: '🍺' },
                     { value: 'パチンコ', icon: '🎰' },
+                    { value: '駅移動', icon: '🚉' },
                   ].map(p =>
                     React.createElement('button', {
                       key: p.value,

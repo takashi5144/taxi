@@ -1228,7 +1228,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.7.3',
+  VERSION: '3.7.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -14895,6 +14895,7 @@ window.RevenuePage = () => {
                 { value: '空港', icon: '✈️' },
                 { value: '飲食', icon: '🍺' },
                 { value: 'パチンコ', icon: '🎰' },
+                { value: '駅移動', icon: '🚉' },
               ].map(p =>
                 React.createElement('button', {
                   key: p.value,
@@ -15284,7 +15285,7 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '用途'),
               React.createElement('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-                ...['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'].map(p => React.createElement('button', {
+                ...['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '駅移動'].map(p => React.createElement('button', {
                   key: p, type: 'button',
                   onClick: () => setEditForm({ ...editForm, purpose: editForm.purpose === p ? '' : p }),
                   style: {
@@ -22026,7 +22027,7 @@ window.DataManagePage = () => {
         field('降車時刻', 'dropoffTime', 'time'),
         field('人数', 'passengers', 'number'),
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
-        field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ']),
+        field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '駅移動']),
         field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し', '待機']),
         // 支払方法
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
@@ -22335,6 +22336,7 @@ window.DataManagePage = () => {
                     { value: '空港', icon: '✈️' },
                     { value: '飲食', icon: '🍺' },
                     { value: 'パチンコ', icon: '🎰' },
+                    { value: '駅移動', icon: '🚉' },
                   ].map(p =>
                     React.createElement('button', {
                       key: p.value,
