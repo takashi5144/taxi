@@ -1247,6 +1247,7 @@ window.RevenuePage = () => {
                 { value: 'DIDI', icon: '🟠' },
                 { value: '電話', icon: '📞' },
                 { value: '流し', icon: '🚕' },
+                { value: '待機', icon: '🅿' },
               ].map(s =>
                 React.createElement('button', {
                   key: s.value,
@@ -1754,7 +1755,7 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '配車方法'),
               React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-                ...['Go', 'Uber', 'DIDI', '電話', '流し'].map(s => React.createElement('button', {
+                ...['Go', 'Uber', 'DIDI', '電話', '流し', '待機'].map(s => React.createElement('button', {
                   key: s, type: 'button',
                   onClick: () => setEditForm({ ...editForm, source: editForm.source === s ? '' : s }),
                   style: {

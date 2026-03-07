@@ -1394,7 +1394,7 @@ window.DataManagePage = () => {
         field('人数', 'passengers', 'number'),
         field('性別', 'gender', 'select', ['', '男性', '女性', 'その他']),
         field('用途', 'purpose', 'select', ['', '通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ']),
-        field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し']),
+        field('配車方法', 'source', 'select', ['', 'Go', 'Uber', 'DIDI', '電話', '流し', '待機']),
         // 支払方法
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', minWidth: '56px', textAlign: 'right' } }, '支払方法'),
@@ -1686,7 +1686,7 @@ window.DataManagePage = () => {
               React.createElement('div', null,
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '配車方法'),
                 React.createElement('select', { value: addForm.source, onChange: e => setAddForm(f => ({ ...f, source: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } },
-                  ['', 'Go', 'Uber', 'DIDI', '電話', '流し'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
+                  ['', 'Go', 'Uber', 'DIDI', '電話', '流し', '待機'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
                 )
               ),
               React.createElement('div', { style: { gridColumn: '1 / -1' } },

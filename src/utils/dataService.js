@@ -4586,9 +4586,11 @@ window.DataService = (() => {
       const pickup = e.pickup ? alias(e.pickup) : '';
       // 配車アプリ
       if (['Go', 'Uber', 'DIDI', '電話'].includes(source)) return 'app';
-      // 待機スポットマッチ
+      // 明示的な「待機」選択
+      if (source === '待機') return 'waiting';
+      // 待機スポット自動マッチ（sourceが空または流し以外の場合）
       const isWaitingSpot = waitingSpots.some(spot => _matchSpot(spot.id, pickup, e.pickupCoords, spot));
-      if (source === '流し') return 'cruising';
+      if (source === '流し') return isWaitingSpot ? 'waiting' : 'cruising';
       if (isWaitingSpot) return 'waiting';
       return 'other';
     }
