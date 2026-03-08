@@ -2909,6 +2909,110 @@ window.DataService = (() => {
     return clusters.slice(0, 15);
   }
 
+  // ============================================================
+  // 時間帯別 乗車地ベスト15
+  // hour: 0-23 の時間帯で絞り込んだランキングを返す
+  // ============================================================
+  function getPickupClustersByHour(hour) {
+    const entries = getEntries();
+    const points = [];
+    entries.forEach(e => {
+      if (!e.pickupCoords || !e.pickupCoords.lat || !e.pickupCoords.lng) return;
+      if (e.noPassenger) return;
+      const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : NaN;
+      if (isNaN(hr) || hr !== hour) return;
+      points.push({
+        lat: e.pickupCoords.lat,
+        lng: e.pickupCoords.lng,
+        amount: e.amount || 0,
+        pickup: e.pickup || '',
+        source: e.source || '未設定',
+        date: e.date || '',
+      });
+    });
+
+    if (points.length === 0) return [];
+
+    const R = 6371;
+    function haversine(lat1, lng1, lat2, lng2) {
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    const CLUSTER_RADIUS = 1;
+    const clusters = [];
+    const assigned = new Array(points.length).fill(false);
+
+    const density = points.map((p, i) => {
+      let cnt = 0;
+      points.forEach((q, j) => {
+        if (i !== j && haversine(p.lat, p.lng, q.lat, q.lng) <= CLUSTER_RADIUS) cnt++;
+      });
+      return { idx: i, density: cnt };
+    });
+    density.sort((a, b) => b.density - a.density);
+
+    for (const { idx: seedIdx } of density) {
+      if (assigned[seedIdx]) continue;
+      const seed = points[seedIdx];
+      const members = [seedIdx];
+      assigned[seedIdx] = true;
+
+      for (let j = 0; j < points.length; j++) {
+        if (assigned[j]) continue;
+        if (haversine(seed.lat, seed.lng, points[j].lat, points[j].lng) <= CLUSTER_RADIUS) {
+          members.push(j);
+          assigned[j] = true;
+        }
+      }
+
+      let sumLat = 0, sumLng = 0, totalAmount = 0;
+      const names = {};
+      const sources = {};
+      const dates = new Set();
+      members.forEach(mi => {
+        const p = points[mi];
+        sumLat += p.lat;
+        sumLng += p.lng;
+        totalAmount += p.amount;
+        if (p.pickup) {
+          const alias = TaxiApp.utils.applyPlaceAlias(p.pickup);
+          names[alias] = (names[alias] || 0) + 1;
+        }
+        if (p.source) sources[p.source] = (sources[p.source] || 0) + 1;
+        if (p.date) dates.add(p.date);
+      });
+
+      const count = members.length;
+      const centroid = { lat: sumLat / count, lng: sumLng / count };
+      const topName = Object.entries(names).sort((a, b) => b[1] - a[1])[0];
+      const topSource = Object.entries(sources).sort((a, b) => b[1] - a[1])[0];
+      const activeDays = dates.size || 1;
+      // 1時間あたり平均金額 = 合計金額 / 稼働日数（この時間帯にこの場所で乗った日数）
+      const avgAmountPerHour = Math.round(totalAmount / activeDays);
+
+      clusters.push({
+        name: topName ? topName[0] : '不明',
+        count,
+        centroid,
+        avgAmount: Math.round(totalAmount / count),
+        totalAmount,
+        avgAmountPerHour,
+        activeDays,
+        ridesPerDay: Math.round(count / activeDays * 10) / 10,
+        topSource: topSource ? topSource[0] : null,
+        names,
+        sources,
+      });
+    }
+
+    clusters.sort((a, b) => b.count - a.count);
+    return clusters.slice(0, 15);
+  }
+
   // mode: 'all' | 'timeAware' | 'transit' | 'combined'
   function getSmartHeatmapData(mode) {
     mode = mode || 'all';
@@ -5248,6 +5352,7 @@ window.DataService = (() => {
 
     // 乗車地ベスト15（1kmクラスタリング）
     getTopPickupClusters,
+    getPickupClustersByHour,
 
     // 待機スポット需要指数
     getWaitingSpotDemandIndex,

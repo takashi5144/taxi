@@ -53,22 +53,9 @@ window.DashboardPage = () => {
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
   const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
   const topPickupClusters = useMemo(() => DataService.getTopPickupClusters(), [refreshKey]);
-  // 現在時刻ベースのベスト15ランキング（時間帯別おすすめ）
-  const nowHourSpots = useMemo(() => {
-    if (!topPickupClusters || topPickupClusters.length === 0) return [];
-    const now = new Date();
-    const currentHour = now.getHours();
-    // ±1時間の乗車数を集計してスコアリング
-    return topPickupClusters.map((cl, originalRank) => {
-      const h = cl.hours || {};
-      const nearCount = (h[currentHour] || 0) + (h[(currentHour + 1) % 24] || 0) * 0.5 + (h[(currentHour - 1 + 24) % 24] || 0) * 0.5;
-      // この時間帯の乗車実績がある日数
-      const hourTotal = h[currentHour] || 0;
-      return { ...cl, originalRank: originalRank + 1, nowScore: nearCount, nowCount: hourTotal };
-    })
-    .filter(cl => cl.nowScore > 0)
-    .sort((a, b) => b.nowScore - a.nowScore);
-  }, [topPickupClusters]);
+  // タイムライン時間帯選択
+  const [timelineHour, setTimelineHour] = useState(new Date().getHours());
+  const timelineClusters = useMemo(() => DataService.getPickupClustersByHour(timelineHour), [refreshKey, timelineHour]);
   const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots({ dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
   const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true, dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
   // 機能8: 逆ジオコーディング（非同期）
@@ -1641,51 +1628,115 @@ window.DashboardPage = () => {
       )
     ),
 
-    // 今の時間帯おすすめスポット
-    nowHourSpots && nowHourSpots.length > 0 && React.createElement(Card, {
-      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)', border: '1px solid rgba(34,197,94,0.3)', background: 'rgba(34,197,94,0.04)' },
+    // 乗車地ベスト15（タイムライン方式）
+    React.createElement(Card, {
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
     },
+      // ヘッダー
       React.createElement('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' },
       },
         React.createElement('div', {
           style: { display: 'flex', alignItems: 'center', gap: '8px' },
         },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: '#22c55e' } }, 'location_on'),
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: '#f97316' } }, 'emoji_events'),
           React.createElement('div', null,
-            React.createElement('div', { style: { fontWeight: 700, fontSize: '14px', color: '#22c55e' } },
-              '今行くべき場所'
-            ),
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
-              new Date().getHours() + '時台の乗車実績で分析'
-            )
+            React.createElement('div', { style: { fontWeight: 700, fontSize: '14px', color: '#f97316' } }, '乗車地ベスト15'),
+            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, '時間帯別 乗車実績ランキング')
           )
         ),
-        React.createElement('div', {
-          style: { padding: '4px 10px', borderRadius: '12px', background: 'rgba(34,197,94,0.15)', fontSize: '12px', fontWeight: 700, color: '#22c55e' },
-        }, new Date().getHours() + ':00〜' + new Date().getHours() + ':59')
+        React.createElement('button', {
+          onClick: () => navigate('map'),
+          style: {
+            padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+            fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
+            background: 'rgba(249,115,22,0.15)', color: '#f97316',
+          },
+        }, 'マップで見る')
       ),
-      // 1位を大きく表示
-      (() => {
-        const top = nowHourSpots[0];
-        if (!top) return null;
-        const peakStr = top.peakHours && top.peakHours.length > 0
-          ? top.peakHours.map(ph => ph.hour + '時').join(', ')
-          : '';
+
+      // タイムラインスライダー
+      React.createElement('div', {
+        style: {
+          marginBottom: '12px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(249,115,22,0.06)', border: '1px solid rgba(249,115,22,0.2)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#f97316' } }, 'schedule'),
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 600, color: '#f97316' } }, '時間帯を選択')
+          ),
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px' },
+          },
+            React.createElement('span', {
+              style: { fontSize: '18px', fontWeight: 800, color: timelineHour === new Date().getHours() ? '#22c55e' : '#f97316' },
+            }, timelineHour + '時台'),
+            timelineHour === new Date().getHours() && React.createElement('span', {
+              style: { fontSize: '10px', padding: '2px 6px', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#22c55e', fontWeight: 600 },
+            }, '現在'),
+            timelineHour !== new Date().getHours() && React.createElement('button', {
+              onClick: () => setTimelineHour(new Date().getHours()),
+              style: {
+                padding: '2px 8px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                fontSize: '10px', fontWeight: 600, fontFamily: 'var(--font-family)',
+                background: 'rgba(34,197,94,0.15)', color: '#22c55e',
+              },
+            }, '現在に戻す')
+          )
+        ),
+        React.createElement('input', {
+          type: 'range', min: 0, max: 23, step: 1,
+          value: timelineHour,
+          onChange: (e) => setTimelineHour(parseInt(e.target.value, 10)),
+          style: { width: '100%', accentColor: '#f97316' },
+        }),
+        // 時刻ラベル
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' },
+        },
+          ...[0, 3, 6, 9, 12, 15, 18, 21].map(h =>
+            React.createElement('span', {
+              key: h,
+              onClick: () => setTimelineHour(h),
+              style: { cursor: 'pointer', fontWeight: h === timelineHour ? 700 : 400, color: h === timelineHour ? '#f97316' : 'var(--text-muted)' },
+            }, h + '時')
+          )
+        )
+      ),
+
+      // ランキング表示
+      timelineClusters.length === 0 && React.createElement('div', {
+        style: {
+          padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '32px', display: 'block', marginBottom: '8px', opacity: 0.4 } }, 'search_off'),
+        timelineHour + '時台の乗車データがありません'
+      ),
+
+      // 1位を強調表示
+      timelineClusters.length > 0 && (() => {
+        const top = timelineClusters[0];
         return React.createElement('div', {
           style: {
-            padding: '12px', borderRadius: '10px', marginBottom: '10px',
-            background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))',
-            border: '1px solid rgba(34,197,94,0.2)',
+            padding: '12px', borderRadius: '10px', marginBottom: '8px',
+            background: 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(249,115,22,0.04))',
+            border: '1px solid rgba(249,115,22,0.2)',
           },
         },
           React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' },
+            style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' },
           },
             React.createElement('div', {
               style: {
                 width: '36px', height: '36px', borderRadius: '50%',
-                background: '#22c55e', color: '#fff', fontWeight: 800,
+                background: '#ef4444', color: '#fff', fontWeight: 800,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '18px', flexShrink: 0,
               },
@@ -1693,12 +1744,14 @@ window.DashboardPage = () => {
             React.createElement('div', { style: { flex: 1 } },
               React.createElement('div', { style: { fontSize: '16px', fontWeight: 700, color: '#fff' } }, top.name),
               React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
-                '総合' + top.originalRank + '位'
+                timelineHour + '時台に' + top.count + '回乗車（' + top.activeDays + '日間）'
               )
             ),
             React.createElement('div', { style: { textAlign: 'right' } },
-              React.createElement('div', { style: { fontSize: '20px', fontWeight: 800, color: '#22c55e' } }, top.nowCount + '回'),
-              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, 'この時間帯')
+              React.createElement('div', { style: { fontSize: '18px', fontWeight: 800, color: '#ef4444' } },
+                '¥' + top.avgAmountPerHour.toLocaleString()
+              ),
+              React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)' } }, '1h平均売上')
             )
           ),
           React.createElement('div', {
@@ -1706,44 +1759,44 @@ window.DashboardPage = () => {
           },
             React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-secondary)' } },
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'paid'),
-              '平均¥' + top.avgAmount.toLocaleString()
+              '客単価¥' + top.avgAmount.toLocaleString()
             ),
             React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-secondary)' } },
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'speed'),
-              top.ridesPerHour + '回/h'
+              top.ridesPerDay + '回/日'
             ),
-            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-secondary)' } },
-              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'history'),
-              '累計' + top.count + '回'
-            ),
-            peakStr && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: '#f59e0b' } },
-              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'trending_up'),
-              'ピーク: ' + peakStr
+            top.topSource && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-secondary)' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'local_taxi'),
+              top.topSource
             )
           )
         );
       })(),
-      // 2位以下をリスト表示
-      nowHourSpots.length > 1 && React.createElement('div', null,
-        nowHourSpots.slice(1).map((cl, i) => {
+
+      // 2位以下
+      timelineClusters.length > 1 && React.createElement('div', null,
+        timelineClusters.slice(1).map((cl, i) => {
           const rank = i + 2;
-          const maxNow = nowHourSpots[0].nowCount || 1;
-          const barW = Math.max(8, Math.round((cl.nowCount / maxNow) * 100));
+          const rankColors = ['', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#0ea5e9', '#10b981'];
+          const color = rankColors[rank] || '#8b5cf6';
+          const maxCount = timelineClusters[0].count || 1;
+          const barW = Math.max(8, Math.round((cl.count / maxCount) * 100));
           return React.createElement('div', {
             key: i,
             style: {
               display: 'flex', alignItems: 'center', gap: '8px',
               padding: '7px 0',
-              borderBottom: i < nowHourSpots.length - 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+              borderBottom: i < timelineClusters.length - 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
             },
           },
             React.createElement('div', {
               style: {
-                width: '22px', height: '22px', borderRadius: '50%',
-                background: rank <= 3 ? '#16a34a' : 'rgba(34,197,94,0.2)',
-                color: rank <= 3 ? '#fff' : '#22c55e', fontWeight: 700,
+                width: '24px', height: '24px', borderRadius: '50%',
+                background: rank <= 3 ? color : 'rgba(255,255,255,0.08)',
+                color: rank <= 3 ? '#fff' : color, fontWeight: 700,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '11px', flexShrink: 0,
+                border: rank > 3 ? '1px solid ' + color + '40' : 'none',
               },
             }, String(rank)),
             React.createElement('div', { style: { flex: 1, minWidth: 0 } },
@@ -1755,130 +1808,34 @@ window.DashboardPage = () => {
                 }, cl.name),
                 React.createElement('span', {
                   style: { fontSize: '10px', color: 'var(--text-muted)' },
-                }, '総合' + cl.originalRank + '位')
+                }, cl.count + '回')
               ),
               React.createElement('div', {
                 style: { height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', marginBottom: '2px' },
               },
                 React.createElement('div', {
-                  style: { height: '100%', width: barW + '%', borderRadius: '2px', background: '#22c55e', transition: 'width 0.3s ease' },
+                  style: { height: '100%', width: barW + '%', borderRadius: '2px', background: color, transition: 'width 0.3s ease' },
                 })
               ),
               React.createElement('div', {
                 style: { display: 'flex', gap: '8px', fontSize: '10px', color: 'var(--text-muted)' },
               },
-                React.createElement('span', null, '平均¥' + cl.avgAmount.toLocaleString()),
-                React.createElement('span', null, cl.ridesPerHour + '回/h'),
-                cl.peakHours && cl.peakHours.length > 0 && React.createElement('span', { style: { color: '#f59e0b' } },
-                  cl.peakHours.map(ph => ph.hour + '時').join(',')
-                )
+                React.createElement('span', null, '客単価¥' + cl.avgAmount.toLocaleString()),
+                React.createElement('span', null, cl.ridesPerDay + '回/日'),
+                cl.topSource && React.createElement('span', null, cl.topSource)
               )
             ),
             React.createElement('div', {
               style: { textAlign: 'right', flexShrink: 0 },
             },
-              React.createElement('div', { style: { fontSize: '14px', fontWeight: 700, color: '#22c55e' } }, cl.nowCount + '回'),
-              React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)' } }, 'この時間帯')
+              React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: color } },
+                '¥' + cl.avgAmountPerHour.toLocaleString()
+              ),
+              React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)' } }, '1h平均')
             )
           );
         })
       )
-    ),
-
-    // 乗車地ベスト15
-    topPickupClusters && topPickupClusters.length > 0 && React.createElement(Card, {
-      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
-    },
-      React.createElement('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' },
-      },
-        React.createElement('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '8px' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#f97316' } }, 'emoji_events'),
-          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, '乗車地ベスト15（1km圏内統合）')
-        ),
-        React.createElement('button', {
-          onClick: () => navigate('map'),
-          style: {
-            padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
-            fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
-            background: 'rgba(249,115,22,0.15)', color: '#f97316',
-          },
-        }, 'マップで見る')
-      ),
-      ...topPickupClusters.map((cl, i) => {
-        const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#0ea5e9', '#10b981'];
-        const color = rankColors[i] || '#8b5cf6';
-        const maxCount = topPickupClusters[0].count;
-        const barWidth = Math.max(8, Math.round((cl.count / maxCount) * 100));
-        return React.createElement('div', {
-          key: i,
-          style: {
-            display: 'flex', alignItems: 'center', gap: '8px',
-            padding: '8px 0',
-            borderBottom: i < topPickupClusters.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
-          },
-        },
-          // ランク番号
-          React.createElement('div', {
-            style: {
-              width: '26px', height: '26px', borderRadius: '50%',
-              background: color, color: '#fff', fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: i < 3 ? '14px' : '12px', flexShrink: 0,
-            },
-          }, String(i + 1)),
-          // 情報
-          React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-            React.createElement('div', {
-              style: { display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '3px' },
-            },
-              React.createElement('span', {
-                style: { fontSize: '13px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-              }, cl.name),
-              React.createElement('span', {
-                style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
-              }, cl.count + '回')
-            ),
-            // バー
-            React.createElement('div', {
-              style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginBottom: '3px' },
-            },
-              React.createElement('div', {
-                style: { height: '100%', width: barWidth + '%', borderRadius: '2px', background: color, transition: 'width 0.3s ease' },
-              })
-            ),
-            React.createElement('div', {
-              style: { display: 'flex', gap: '8px', fontSize: '10px', color: 'var(--text-muted)', flexWrap: 'wrap' },
-            },
-              React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px' } }, 'paid'),
-                '平均¥' + cl.avgAmount.toLocaleString()
-              ),
-              React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px' } }, 'speed'),
-                cl.ridesPerHour + '回/h'
-              ),
-              cl.peakHours && cl.peakHours.length > 0 && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px', color: '#f59e0b' } }, 'trending_up'),
-                cl.peakHours.map(ph => ph.hour + '時').join(', ')
-              )
-            )
-          ),
-          // 合計売上
-          React.createElement('div', {
-            style: { textAlign: 'right', flexShrink: 0 },
-          },
-            React.createElement('div', {
-              style: { fontSize: '14px', fontWeight: 700, color: color },
-            }, '¥' + cl.totalAmount.toLocaleString()),
-            React.createElement('div', {
-              style: { fontSize: '10px', color: 'var(--text-muted)' },
-            }, '合計')
-          )
-        );
-      })
     ),
 
     // 累計情報
