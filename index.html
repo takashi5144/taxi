@@ -5106,7 +5106,7 @@ window.DataService = (() => {
 
   // 時間帯・曜日対応ヒートマップデータ
   // ============================================================
-  // 乗車地ベスト10（2kmクラスタリング）
+  // 乗車地ベスト15（1kmクラスタリング）
   // ============================================================
   function getTopPickupClusters() {
     const entries = getEntries();
@@ -5138,15 +5138,16 @@ window.DataService = (() => {
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // 貪欲クラスタリング（2km半径）
+    // 貪欲クラスタリング（1km半径）
+    const CLUSTER_RADIUS = 1;
     const clusters = [];
     const assigned = new Array(points.length).fill(false);
 
-    // まずポイント密度でソート（周辺2km内のポイント数が多い順）
+    // まずポイント密度でソート（周辺1km内のポイント数が多い順）
     const density = points.map((p, i) => {
       let cnt = 0;
       points.forEach((q, j) => {
-        if (i !== j && haversine(p.lat, p.lng, q.lat, q.lng) <= 2) cnt++;
+        if (i !== j && haversine(p.lat, p.lng, q.lat, q.lng) <= CLUSTER_RADIUS) cnt++;
       });
       return { idx: i, density: cnt };
     });
@@ -5158,10 +5159,10 @@ window.DataService = (() => {
       const members = [seedIdx];
       assigned[seedIdx] = true;
 
-      // 種から2km以内の未割当ポイントを吸収
+      // 種から1km以内の未割当ポイントを吸収
       for (let j = 0; j < points.length; j++) {
         if (assigned[j]) continue;
-        if (haversine(seed.lat, seed.lng, points[j].lat, points[j].lng) <= 2) {
+        if (haversine(seed.lat, seed.lng, points[j].lat, points[j].lng) <= CLUSTER_RADIUS) {
           members.push(j);
           assigned[j] = true;
         }
@@ -5206,9 +5207,9 @@ window.DataService = (() => {
       });
     }
 
-    // 乗車数で降順ソート、上位10件
+    // 乗車数で降順ソート、上位15件
     clusters.sort((a, b) => b.count - a.count);
-    return clusters.slice(0, 10);
+    return clusters.slice(0, 15);
   }
 
   // mode: 'all' | 'timeAware' | 'transit' | 'combined'
@@ -7548,7 +7549,7 @@ window.DataService = (() => {
     getHotelDemandData,
     getBusArrivalsData,
 
-    // 乗車地ベスト10（2kmクラスタリング）
+    // 乗車地ベスト15（1kmクラスタリング）
     getTopPickupClusters,
 
     // 待機スポット需要指数
@@ -10492,7 +10493,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     };
   }, [showPricePredict, simHour, simMode]);
 
-  // 乗車地ベスト10レイヤー
+  // 乗車地ベスト15レイヤー
   useEffect(() => {
     topSpotsMarkersRef.current.forEach(m => m.setMap(null));
     topSpotsMarkersRef.current = [];
@@ -10504,14 +10505,14 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     const clusters = DataService.getTopPickupClusters();
 
     if (clusters.length === 0) {
-      AppLogger.warn('GPS付き乗車データが不足しています（乗車地ベスト10）');
+      AppLogger.warn('GPS付き乗車データが不足しています（乗車地ベスト15）');
       setShowTopSpots(false);
       return;
     }
 
     setTopSpotsData(clusters);
 
-    const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+    const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#0ea5e9', '#10b981'];
     const infoWindow = new google.maps.InfoWindow();
     topSpotsInfoRef.current = infoWindow;
 
@@ -10519,10 +10520,10 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       const rank = i + 1;
       const color = rankColors[i] || '#8b5cf6';
 
-      // 2km半径の円
+      // 1km半径の円
       const circle = new google.maps.Circle({
         center: cl.centroid,
-        radius: 2000,
+        radius: 1000,
         map: map,
         fillColor: color,
         fillOpacity: 0.08,
@@ -10665,7 +10666,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         }
       }
 
-      // 乗車地ベスト10再描画
+      // 乗車地ベスト15再描画
       if (showTopSpots) {
         setShowTopSpots(false);
         setTimeout(() => setShowTopSpots(true), 50);
@@ -11031,7 +11032,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             if (!showTopSpots) {
               const cls = DataService.getTopPickupClusters();
               if (cls.length === 0) {
-                AppLogger.warn('GPS付き乗車データを記録すると乗車地ベスト10が表示されます');
+                AppLogger.warn('GPS付き乗車データを記録すると乗車地ベスト15が表示されます');
                 return;
               }
             }
@@ -11048,7 +11049,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           },
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'emoji_events'),
-          `乗車ベスト10 ${showTopSpots ? 'ON' : 'OFF'}`
+          `乗車ベスト15 ${showTopSpots ? 'ON' : 'OFF'}`
         )
       ),
 
@@ -11364,7 +11365,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         )
       ),
 
-      // 乗車地ベスト10ランキングパネル
+      // 乗車地ベスト15ランキングパネル
       showTopSpots && topSpotsData && topSpotsData.length > 0 && React.createElement('div', {
         style: {
           marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
@@ -11375,10 +11376,10 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' },
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#f97316' } }, 'emoji_events'),
-          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: '#f97316' } }, '乗車地ベスト10（2km圏内統合）')
+          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: '#f97316' } }, '乗車地ベスト15（1km圏内統合）')
         ),
         ...topSpotsData.map((cl, i) => {
-          const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+          const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#0ea5e9', '#10b981'];
           const color = rankColors[i] || '#8b5cf6';
           return React.createElement('div', {
             key: i,
@@ -13522,7 +13523,7 @@ window.DashboardPage = () => {
       )
     ),
 
-    // 乗車地ベスト10
+    // 乗車地ベスト15
     topPickupClusters && topPickupClusters.length > 0 && React.createElement(Card, {
       style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
     },
@@ -13533,7 +13534,7 @@ window.DashboardPage = () => {
           style: { display: 'flex', alignItems: 'center', gap: '8px' },
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#f97316' } }, 'emoji_events'),
-          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, '乗車地ベスト10（2km圏内統合）')
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, '乗車地ベスト15（1km圏内統合）')
         ),
         React.createElement('button', {
           onClick: () => navigate('map'),
@@ -13545,7 +13546,7 @@ window.DashboardPage = () => {
         }, 'マップで見る')
       ),
       ...topPickupClusters.map((cl, i) => {
-        const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+        const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#0ea5e9', '#10b981'];
         const color = rankColors[i] || '#8b5cf6';
         const maxCount = topPickupClusters[0].count;
         const barWidth = Math.max(8, Math.round((cl.count / maxCount) * 100));

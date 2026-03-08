@@ -2784,7 +2784,7 @@ window.DataService = (() => {
 
   // 時間帯・曜日対応ヒートマップデータ
   // ============================================================
-  // 乗車地ベスト10（2kmクラスタリング）
+  // 乗車地ベスト15（1kmクラスタリング）
   // ============================================================
   function getTopPickupClusters() {
     const entries = getEntries();
@@ -2816,15 +2816,16 @@ window.DataService = (() => {
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // 貪欲クラスタリング（2km半径）
+    // 貪欲クラスタリング（1km半径）
+    const CLUSTER_RADIUS = 1;
     const clusters = [];
     const assigned = new Array(points.length).fill(false);
 
-    // まずポイント密度でソート（周辺2km内のポイント数が多い順）
+    // まずポイント密度でソート（周辺1km内のポイント数が多い順）
     const density = points.map((p, i) => {
       let cnt = 0;
       points.forEach((q, j) => {
-        if (i !== j && haversine(p.lat, p.lng, q.lat, q.lng) <= 2) cnt++;
+        if (i !== j && haversine(p.lat, p.lng, q.lat, q.lng) <= CLUSTER_RADIUS) cnt++;
       });
       return { idx: i, density: cnt };
     });
@@ -2836,10 +2837,10 @@ window.DataService = (() => {
       const members = [seedIdx];
       assigned[seedIdx] = true;
 
-      // 種から2km以内の未割当ポイントを吸収
+      // 種から1km以内の未割当ポイントを吸収
       for (let j = 0; j < points.length; j++) {
         if (assigned[j]) continue;
-        if (haversine(seed.lat, seed.lng, points[j].lat, points[j].lng) <= 2) {
+        if (haversine(seed.lat, seed.lng, points[j].lat, points[j].lng) <= CLUSTER_RADIUS) {
           members.push(j);
           assigned[j] = true;
         }
@@ -2884,9 +2885,9 @@ window.DataService = (() => {
       });
     }
 
-    // 乗車数で降順ソート、上位10件
+    // 乗車数で降順ソート、上位15件
     clusters.sort((a, b) => b.count - a.count);
-    return clusters.slice(0, 10);
+    return clusters.slice(0, 15);
   }
 
   // mode: 'all' | 'timeAware' | 'transit' | 'combined'
@@ -5226,7 +5227,7 @@ window.DataService = (() => {
     getHotelDemandData,
     getBusArrivalsData,
 
-    // 乗車地ベスト10（2kmクラスタリング）
+    // 乗車地ベスト15（1kmクラスタリング）
     getTopPickupClusters,
 
     // 待機スポット需要指数

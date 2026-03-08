@@ -1625,7 +1625,7 @@ window.DashboardPage = () => {
       )
     ),
 
-    // 乗車地ベスト10
+    // 乗車地ベスト15
     topPickupClusters && topPickupClusters.length > 0 && React.createElement(Card, {
       style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
     },
@@ -1636,7 +1636,7 @@ window.DashboardPage = () => {
           style: { display: 'flex', alignItems: 'center', gap: '8px' },
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#f97316' } }, 'emoji_events'),
-          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, '乗車地ベスト10（2km圏内統合）')
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, '乗車地ベスト15（1km圏内統合）')
         ),
         React.createElement('button', {
           onClick: () => navigate('map'),
@@ -1648,7 +1648,7 @@ window.DashboardPage = () => {
         }, 'マップで見る')
       ),
       ...topPickupClusters.map((cl, i) => {
-        const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+        const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#0ea5e9', '#10b981'];
         const color = rankColors[i] || '#8b5cf6';
         const maxCount = topPickupClusters[0].count;
         const barWidth = Math.max(8, Math.round((cl.count / maxCount) * 100));
