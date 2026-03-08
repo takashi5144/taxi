@@ -2783,6 +2783,112 @@ window.DataService = (() => {
   }
 
   // 時間帯・曜日対応ヒートマップデータ
+  // ============================================================
+  // 乗車地ベスト10（2kmクラスタリング）
+  // ============================================================
+  function getTopPickupClusters() {
+    const entries = getEntries();
+    // GPS座標付きエントリのみ
+    const points = [];
+    entries.forEach(e => {
+      if (!e.pickupCoords || !e.pickupCoords.lat || !e.pickupCoords.lng) return;
+      if (e.noPassenger) return;
+      points.push({
+        lat: e.pickupCoords.lat,
+        lng: e.pickupCoords.lng,
+        amount: e.amount || 0,
+        pickup: e.pickup || '',
+        pickupTime: e.pickupTime || '',
+        source: e.source || '未設定',
+        date: e.date || '',
+      });
+    });
+
+    if (points.length === 0) return [];
+
+    // Haversine距離（km）
+    const R = 6371;
+    function haversine(lat1, lng1, lat2, lng2) {
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // 貪欲クラスタリング（2km半径）
+    const clusters = [];
+    const assigned = new Array(points.length).fill(false);
+
+    // まずポイント密度でソート（周辺2km内のポイント数が多い順）
+    const density = points.map((p, i) => {
+      let cnt = 0;
+      points.forEach((q, j) => {
+        if (i !== j && haversine(p.lat, p.lng, q.lat, q.lng) <= 2) cnt++;
+      });
+      return { idx: i, density: cnt };
+    });
+    density.sort((a, b) => b.density - a.density);
+
+    for (const { idx: seedIdx } of density) {
+      if (assigned[seedIdx]) continue;
+      const seed = points[seedIdx];
+      const members = [seedIdx];
+      assigned[seedIdx] = true;
+
+      // 種から2km以内の未割当ポイントを吸収
+      for (let j = 0; j < points.length; j++) {
+        if (assigned[j]) continue;
+        if (haversine(seed.lat, seed.lng, points[j].lat, points[j].lng) <= 2) {
+          members.push(j);
+          assigned[j] = true;
+        }
+      }
+
+      // クラスタ中心と統計を計算
+      let sumLat = 0, sumLng = 0, totalAmount = 0;
+      const names = {};
+      const sources = {};
+      const hours = {};
+      members.forEach(mi => {
+        const p = points[mi];
+        sumLat += p.lat;
+        sumLng += p.lng;
+        totalAmount += p.amount;
+        if (p.pickup) {
+          const alias = TaxiApp.utils.applyPlaceAlias(p.pickup);
+          names[alias] = (names[alias] || 0) + 1;
+        }
+        if (p.source) sources[p.source] = (sources[p.source] || 0) + 1;
+        const hr = p.pickupTime ? parseInt(p.pickupTime.split(':')[0], 10) : NaN;
+        if (!isNaN(hr)) hours[hr] = (hours[hr] || 0) + 1;
+      });
+
+      const count = members.length;
+      const centroid = { lat: sumLat / count, lng: sumLng / count };
+      const topName = Object.entries(names).sort((a, b) => b[1] - a[1])[0];
+      const topHour = Object.entries(hours).sort((a, b) => b[1] - a[1])[0];
+      const topSource = Object.entries(sources).sort((a, b) => b[1] - a[1])[0];
+
+      clusters.push({
+        name: topName ? topName[0] : '不明',
+        count,
+        centroid,
+        avgAmount: Math.round(totalAmount / count),
+        totalAmount,
+        peakHour: topHour ? parseInt(topHour[0], 10) : null,
+        topSource: topSource ? topSource[0] : null,
+        names,
+        sources,
+        hours,
+      });
+    }
+
+    // 乗車数で降順ソート、上位10件
+    clusters.sort((a, b) => b.count - a.count);
+    return clusters.slice(0, 10);
+  }
+
   // mode: 'all' | 'timeAware' | 'transit' | 'combined'
   function getSmartHeatmapData(mode) {
     mode = mode || 'all';
@@ -5119,6 +5225,9 @@ window.DataService = (() => {
     getTransitHeatmapData,
     getHotelDemandData,
     getBusArrivalsData,
+
+    // 乗車地ベスト10（2kmクラスタリング）
+    getTopPickupClusters,
 
     // 待機スポット需要指数
     getWaitingSpotDemandIndex,

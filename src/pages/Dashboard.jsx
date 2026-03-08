@@ -52,6 +52,7 @@ window.DashboardPage = () => {
   const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
   const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
+  const topPickupClusters = useMemo(() => DataService.getTopPickupClusters(), [refreshKey]);
   const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots({ dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
   const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true, dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
   // 機能8: 逆ジオコーディング（非同期）
@@ -1622,6 +1623,93 @@ window.DashboardPage = () => {
           React.createElement('div', { key: i, style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, `・${tip}`)
         )
       )
+    ),
+
+    // 乗車地ベスト10
+    topPickupClusters && topPickupClusters.length > 0 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
+    },
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#f97316' } }, 'emoji_events'),
+          React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' } }, '乗車地ベスト10（2km圏内統合）')
+        ),
+        React.createElement('button', {
+          onClick: () => navigate('map'),
+          style: {
+            padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+            fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
+            background: 'rgba(249,115,22,0.15)', color: '#f97316',
+          },
+        }, 'マップで見る')
+      ),
+      ...topPickupClusters.map((cl, i) => {
+        const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+        const color = rankColors[i] || '#8b5cf6';
+        const maxCount = topPickupClusters[0].count;
+        const barWidth = Math.max(8, Math.round((cl.count / maxCount) * 100));
+        return React.createElement('div', {
+          key: i,
+          style: {
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '8px 0',
+            borderBottom: i < topPickupClusters.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+          },
+        },
+          // ランク番号
+          React.createElement('div', {
+            style: {
+              width: '26px', height: '26px', borderRadius: '50%',
+              background: color, color: '#fff', fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: i < 3 ? '14px' : '12px', flexShrink: 0,
+            },
+          }, String(i + 1)),
+          // 情報
+          React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+            React.createElement('div', {
+              style: { display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '3px' },
+            },
+              React.createElement('span', {
+                style: { fontSize: '13px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+              }, cl.name),
+              React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
+              }, cl.count + '回')
+            ),
+            // バー
+            React.createElement('div', {
+              style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginBottom: '3px' },
+            },
+              React.createElement('div', {
+                style: { height: '100%', width: barWidth + '%', borderRadius: '2px', background: color, transition: 'width 0.3s ease' },
+              })
+            ),
+            React.createElement('div', {
+              style: { display: 'flex', gap: '10px', fontSize: '10px', color: 'var(--text-muted)' },
+            },
+              React.createElement('span', null, '平均¥' + cl.avgAmount.toLocaleString()),
+              cl.peakHour !== null && React.createElement('span', null, 'ピーク ' + cl.peakHour + '時台'),
+              cl.topSource && React.createElement('span', null, '主な配車: ' + cl.topSource)
+            )
+          ),
+          // 合計売上
+          React.createElement('div', {
+            style: { textAlign: 'right', flexShrink: 0 },
+          },
+            React.createElement('div', {
+              style: { fontSize: '14px', fontWeight: 700, color: color },
+            }, '¥' + cl.totalAmount.toLocaleString()),
+            React.createElement('div', {
+              style: { fontSize: '10px', color: 'var(--text-muted)' },
+            }, '合計')
+          )
+        );
+      })
     ),
 
     // 累計情報

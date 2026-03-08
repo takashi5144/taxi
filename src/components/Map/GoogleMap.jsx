@@ -116,6 +116,10 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const pricePredictMarkersRef = useRef([]);
   const [simHour, setSimHour] = useState(new Date().getHours());
   const [simMode, setSimMode] = useState(false);
+  const [showTopSpots, setShowTopSpots] = useState(false);
+  const topSpotsMarkersRef = useRef([]);
+  const topSpotsInfoRef = useRef(null);
+  const [topSpotsData, setTopSpotsData] = useState(null);
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
@@ -584,6 +588,102 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     };
   }, [showPricePredict, simHour, simMode]);
 
+  // 乗車地ベスト10レイヤー
+  useEffect(() => {
+    topSpotsMarkersRef.current.forEach(m => m.setMap(null));
+    topSpotsMarkersRef.current = [];
+    if (topSpotsInfoRef.current) { topSpotsInfoRef.current.close(); topSpotsInfoRef.current = null; }
+    setTopSpotsData(null);
+
+    if (!showTopSpots || !mapInstanceRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+    const clusters = DataService.getTopPickupClusters();
+
+    if (clusters.length === 0) {
+      AppLogger.warn('GPS付き乗車データが不足しています（乗車地ベスト10）');
+      setShowTopSpots(false);
+      return;
+    }
+
+    setTopSpotsData(clusters);
+
+    const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+    const infoWindow = new google.maps.InfoWindow();
+    topSpotsInfoRef.current = infoWindow;
+
+    clusters.forEach((cl, i) => {
+      const rank = i + 1;
+      const color = rankColors[i] || '#8b5cf6';
+
+      // 2km半径の円
+      const circle = new google.maps.Circle({
+        center: cl.centroid,
+        radius: 2000,
+        map: map,
+        fillColor: color,
+        fillOpacity: 0.08,
+        strokeColor: color,
+        strokeOpacity: 0.4,
+        strokeWeight: 1,
+        clickable: false,
+        zIndex: 1,
+      });
+      topSpotsMarkersRef.current.push(circle);
+
+      // ランクマーカー（SVGラベル）
+      const marker = new google.maps.Marker({
+        position: cl.centroid,
+        map: map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: color,
+          fillOpacity: 0.95,
+          strokeColor: '#fff',
+          strokeWeight: 2,
+          scale: rank <= 3 ? 18 : 14,
+        },
+        label: {
+          text: String(rank),
+          color: '#fff',
+          fontSize: rank <= 3 ? '14px' : '12px',
+          fontWeight: '700',
+        },
+        title: `${rank}位: ${cl.name}（${cl.count}回）`,
+        zIndex: 100 - i,
+      });
+
+      marker.addListener('click', () => {
+        const peakHourStr = cl.peakHour !== null ? cl.peakHour + '時台' : '---';
+        const srcEntries = Object.entries(cl.sources).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([s, c]) => s + ':' + c).join(' ');
+        const content = '<div style="color:#1a1a2e;font-size:13px;min-width:180px;line-height:1.6">' +
+          '<div style="font-size:16px;font-weight:700;margin-bottom:4px">' + rank + '位 ' + cl.name + '</div>' +
+          '<div>乗車回数: <b>' + cl.count + '回</b></div>' +
+          '<div>平均単価: <b>¥' + cl.avgAmount.toLocaleString() + '</b></div>' +
+          '<div>合計売上: <b>¥' + cl.totalAmount.toLocaleString() + '</b></div>' +
+          '<div>ピーク時間: <b>' + peakHourStr + '</b></div>' +
+          (srcEntries ? '<div style="font-size:11px;color:#666;margin-top:2px">配車: ' + srcEntries + '</div>' : '') +
+          '</div>';
+        infoWindow.setContent(content);
+        infoWindow.open(map, marker);
+      });
+
+      topSpotsMarkersRef.current.push(marker);
+    });
+
+    // 全マーカーが見えるようにフィット
+    if (clusters.length > 1) {
+      const bounds = new google.maps.LatLngBounds();
+      clusters.forEach(cl => bounds.extend(cl.centroid));
+      map.fitBounds(bounds, 60);
+    }
+
+    return () => {
+      topSpotsMarkersRef.current.forEach(m => m.setMap(null));
+      topSpotsMarkersRef.current = [];
+      if (topSpotsInfoRef.current) { topSpotsInfoRef.current.close(); topSpotsInfoRef.current = null; }
+    };
+  }, [showTopSpots]);
+
   // データ変更時にアクティブなレイヤーを自動更新
   useEffect(() => {
     const handler = () => {
@@ -660,10 +760,16 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           setNearbyEstimate(DataService.getNearbyEstimate(pos.lat, pos.lng, 2));
         }
       }
+
+      // 乗車地ベスト10再描画
+      if (showTopSpots) {
+        setShowTopSpots(false);
+        setTimeout(() => setShowTopSpots(true), 50);
+      }
     };
     window.addEventListener('taxi-data-changed', handler);
     return () => window.removeEventListener('taxi-data-changed', handler);
-  }, [showHeatmap, heatmapMode, showPriceTier, priceTierSource, currentPosition, mapCenter]);
+  }, [showHeatmap, heatmapMode, showPriceTier, priceTierSource, showTopSpots, currentPosition, mapCenter]);
 
   // 現在位置マーカー更新
   useEffect(() => {
@@ -1013,6 +1119,32 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             style: { fontSize: '16px', animation: priceTraining ? 'spin 1s linear infinite' : 'none' },
           }, priceTraining ? 'sync' : 'auto_awesome'),
           priceTraining ? '単価学習中...' : `AI単価予測 ${showPricePredict ? 'ON' : 'OFF'}`
+        ),
+
+        // 乗車地ベスト10トグル
+        React.createElement('button', {
+          onClick: () => {
+            if (!showTopSpots) {
+              const cls = DataService.getTopPickupClusters();
+              if (cls.length === 0) {
+                AppLogger.warn('GPS付き乗車データを記録すると乗車地ベスト10が表示されます');
+                return;
+              }
+            }
+            setShowTopSpots(prev => !prev);
+          },
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: 'pointer',
+            border: showTopSpots ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showTopSpots ? '#f97316' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'emoji_events'),
+          `乗車ベスト10 ${showTopSpots ? 'ON' : 'OFF'}`
         )
       ),
 
@@ -1326,6 +1458,65 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             )
           )
         )
+      ),
+
+      // 乗車地ベスト10ランキングパネル
+      showTopSpots && topSpotsData && topSpotsData.length > 0 && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(249,115,22,0.08)', border: '1px solid rgba(249,115,22,0.25)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#f97316' } }, 'emoji_events'),
+          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: '#f97316' } }, '乗車地ベスト10（2km圏内統合）')
+        ),
+        ...topSpotsData.map((cl, i) => {
+          const rankColors = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6'];
+          const color = rankColors[i] || '#8b5cf6';
+          return React.createElement('div', {
+            key: i,
+            onClick: () => {
+              if (mapInstanceRef.current) {
+                mapInstanceRef.current.setCenter(cl.centroid);
+                mapInstanceRef.current.setZoom(14);
+              }
+            },
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '6px 8px', borderRadius: '6px', cursor: 'pointer',
+              background: 'rgba(0,0,0,0.15)',
+              marginBottom: i < topSpotsData.length - 1 ? '4px' : 0,
+              transition: 'background 0.15s ease',
+            },
+          },
+            React.createElement('div', {
+              style: {
+                width: '24px', height: '24px', borderRadius: '50%',
+                background: color, color: '#fff', fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '12px', flexShrink: 0,
+              },
+            }, String(i + 1)),
+            React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+              React.createElement('div', {
+                style: { fontSize: '12px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+              }, cl.name),
+              React.createElement('div', {
+                style: { fontSize: '10px', color: 'var(--text-muted)', display: 'flex', gap: '8px' },
+              },
+                React.createElement('span', null, cl.count + '回'),
+                React.createElement('span', null, '平均¥' + cl.avgAmount.toLocaleString()),
+                cl.peakHour !== null && React.createElement('span', null, cl.peakHour + '時台')
+              )
+            ),
+            React.createElement('div', {
+              style: { fontSize: '13px', fontWeight: 700, color: color, whiteSpace: 'nowrap' },
+            }, '¥' + cl.totalAmount.toLocaleString())
+          );
+        })
       ),
 
       // 渋滞凡例
