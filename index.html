@@ -1228,7 +1228,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.7.5',
+  VERSION: '3.7.6',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2362,6 +2362,18 @@ window.DataService = (() => {
     const today = getLocalDateString();
     const dt = classifyDayType(today);
     return dt === 'weekday' ? 'weekday' : 'holiday';
+  }
+
+  // 病院休診判定: closedDays（曜日）＋祝日を統合判定
+  // 大半の病院は土日祝休診のため、祝日も休診扱いにする
+  function isHospitalClosedToday(closedDays, dateOverride) {
+    const now = dateOverride || new Date();
+    const dayOfWeek = now.getDay();
+    if (closedDays && closedDays.includes(dayOfWeek)) return true;
+    // 祝日判定
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const info = JapaneseHolidays.getDateInfo(dateStr);
+    return info.isHoliday;
   }
 
   // ============================================================
@@ -4008,6 +4020,7 @@ window.DataService = (() => {
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
       weather: form.weather || '',
+      temperature: form.temperature != null ? form.temperature : null,
       pickup: form.pickup || '',
       pickupTime: form.pickupTime || '',
       dropoff: form.dropoff || '',
@@ -4262,6 +4275,7 @@ window.DataService = (() => {
       holiday: dateInfo.holiday || '',
       time: form.time || '',
       weather: form.weather || '',
+      temperature: form.temperature != null ? form.temperature : null,
       location: form.location.trim(),
       locationCoords: form.locationCoords || null,
       memo: form.memo || '',
@@ -4444,6 +4458,7 @@ window.DataService = (() => {
       density: form.density,
       locationType: form.locationType || 'other',
       weather: form.weather || '',
+      temperature: form.temperature != null ? form.temperature : null,
       stayMinutes: form.stayMinutes ? parseInt(form.stayMinutes, 10) : 0,
       memo: form.memo || '',
       source: form.source || 'manual',
@@ -5255,7 +5270,7 @@ window.DataService = (() => {
     }
 
     const hospitals = schedules.map(hosp => {
-      const isClosed = hosp.closedDays.includes(dayOfWeek);
+      const isClosed = isHospitalClosedToday(hosp.closedDays, now);
       if (isClosed) {
         return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
           currentStatus: 'closed', nextEvent: null, demandWeight: 0 };
@@ -5542,9 +5557,8 @@ window.DataService = (() => {
 
     // 病院退院ピーク
     const hospSchedules = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || [];
-    const dayOfWeek = now.getDay();
     hospSchedules.forEach(hosp => {
-      if (hosp.closedDays.includes(dayOfWeek)) return;
+      if (isHospitalClosedToday(hosp.closedDays, now)) return;
       hosp.dischargePeaks.forEach(dp => {
         const dpStartMin = timeToMin(dp.start);
         const dpEndMin = timeToMin(dp.end);
@@ -5878,7 +5892,9 @@ window.DataService = (() => {
     const now = new Date();
     const currentHour = now.getHours();
     const dayOfWeek = now.getDay(); // 0=Sun
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const todayHolidayInfo = JapaneseHolidays.getDateInfo(todayStr);
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6 || todayHolidayInfo.isHoliday;
     const isOddDay = now.getDate() % 2 !== 0;
 
     // 曜日係数
@@ -6027,7 +6043,7 @@ window.DataService = (() => {
         let peakBoost = 0;
         const hospSchedules = locs.hospitalSchedules || [];
         hospSchedules.forEach(hosp => {
-          if (hosp.closedDays.includes(dayOfWeek)) return;
+          if (isHospitalClosedToday(hosp.closedDays, now)) return;
           // スポットが病院対応ならブースト
           const isNearHosp = spot.lat && hosp.lat && Math.abs(spot.lat - hosp.lat) < 0.01 && Math.abs(spot.lng - hosp.lng) < 0.01;
           const isHospSpot = spot.id && hosp.id && spot.id.includes(hosp.id.split('_')[0]);
@@ -6472,10 +6488,9 @@ window.DataService = (() => {
       // 病院スコア（実態ベース: 1台で回れるのは1病院のみ → 最高スコアの病院を採用）
       // 休診日は除外、ピーク中心からの距離でガウス減衰
       let hospitalScore = 0;
-      const dayOfWeekForScore = now.getDay();
       const hospScheds = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || [];
       hospScheds.forEach(sched => {
-        if (sched.closedDays && sched.closedDays.includes(dayOfWeekForScore)) return;
+        if (isHospitalClosedToday(sched.closedDays, now)) return;
         sched.dischargePeaks.forEach(dp => {
           const dpStartMin = parseInt(dp.start.split(':')[0], 10) * 60 + parseInt(dp.start.split(':')[1] || '0', 10);
           const dpEndMin = parseInt(dp.end.split(':')[0], 10) * 60 + parseInt(dp.end.split(':')[1] || '0', 10);
@@ -6661,7 +6676,9 @@ window.DataService = (() => {
     const now = new Date();
     const currentHour = now.getHours();
     const dayOfWeek = now.getDay();
-    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const todayHolidayInfo = JapaneseHolidays.getDateInfo(todayStr);
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5 && !todayHolidayInfo.isHoliday;
 
     // 需要スコア取得
     const demandScore = getDayShiftDemandScore(null);
@@ -6695,7 +6712,7 @@ window.DataService = (() => {
     // --- ルート1: 病院帰宅ルート（平日のみ、退院ピーク時間帯） ---
     if (isWeekday) {
       const activeHospitals = hospSchedules.filter(sched => {
-        if (sched.closedDays && sched.closedDays.includes(dayOfWeek)) return false;
+        if (isHospitalClosedToday(sched.closedDays, now)) return false;
         return sched.dischargePeaks.some(dp => {
           const startH = parseInt(dp.start.split(':')[0], 10);
           const endH = parseInt(dp.end.split(':')[0], 10);
@@ -13380,7 +13397,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', temperature: null, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -13405,7 +13422,7 @@ window.RevenuePage = () => {
     // GPSキャッシュから天気取得を試みる
     const cached = GpsLogService.getCurrentWeather();
     if (cached && cached.weather) {
-      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather, temperature: cached.temperature != null ? cached.temperature : null });
       AppLogger.info(`売上 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
       return;
     }
@@ -13428,9 +13445,10 @@ window.RevenuePage = () => {
           setWeatherLoading(false);
           if (data && data.current_weather) {
             const w = wmoToWeather(data.current_weather.weathercode);
+            const temp = data.current_weather.temperature != null ? data.current_weather.temperature : null;
             if (w) {
-              setForm(prev => prev.weather ? prev : { ...prev, weather: w });
-              AppLogger.info(`天気自動取得成功: ${w} (WMO code: ${data.current_weather.weathercode})`);
+              setForm(prev => prev.weather ? prev : { ...prev, weather: w, temperature: temp });
+              AppLogger.info(`天気自動取得成功: ${w} ${temp != null ? temp + '℃' : ''} (WMO code: ${data.current_weather.weathercode})`);
             }
           }
         })
@@ -14567,7 +14585,10 @@ window.RevenuePage = () => {
               }, '取得中...'),
               !weatherLoading && form.weather && React.createElement('span', {
                 style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動取得済')
+              }, '自動取得済'),
+              !weatherLoading && form.temperature != null && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '4px' },
+              }, `${form.temperature}℃`)
             ),
             React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
               ...[
@@ -15494,7 +15515,7 @@ window.RivalRidePage = () => {
   const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
 
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, time: getNowTime(), weather: '', location: '', locationCoords: null, memo: '' });
+  const [form, setForm] = useState({ date: todayDefault, time: getNowTime(), weather: '', temperature: null, location: '', locationCoords: null, memo: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -15515,7 +15536,7 @@ window.RivalRidePage = () => {
     // GPSキャッシュから天気取得を試みる
     const cached = GpsLogService.getCurrentWeather();
     if (cached && cached.weather) {
-      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather, temperature: cached.temperature != null ? cached.temperature : null });
       AppLogger.info(`他社乗車 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
       return;
     }
@@ -15534,9 +15555,10 @@ window.RivalRidePage = () => {
         setWeatherLoading(false);
         if (data && data.current_weather) {
           const w = wmoToWeather(data.current_weather.weathercode);
+          const temp = data.current_weather.temperature != null ? data.current_weather.temperature : null;
           if (w) {
-            setForm(prev => prev.weather ? prev : { ...prev, weather: w });
-            AppLogger.info(`他社乗車 天気自動取得成功: ${w}`);
+            setForm(prev => prev.weather ? prev : { ...prev, weather: w, temperature: temp });
+            AppLogger.info(`他社乗車 天気自動取得成功: ${w} ${temp != null ? temp + '℃' : ''}`);
           }
         }
       })
@@ -15904,7 +15926,10 @@ window.RivalRidePage = () => {
               }, '取得中...'),
               !weatherLoading && form.weather && React.createElement('span', {
                 style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動取得済')
+              }, '自動取得済'),
+              !weatherLoading && form.temperature != null && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '4px' },
+              }, `${form.temperature}℃`)
             ),
             React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
               ...[
@@ -23231,7 +23256,7 @@ window.GatheringMemoPage = () => {
   // ============================================================
   // State
   // ============================================================
-  const emptyForm = { date: todayDefault, time: getNowTime(), weather: '', location: '', locationCoords: null, density: '', locationType: 'other', stayMinutes: '', memo: '', source: 'manual' };
+  const emptyForm = { date: todayDefault, time: getNowTime(), weather: '', temperature: null, location: '', locationCoords: null, density: '', locationType: 'other', stayMinutes: '', memo: '', source: 'manual' };
   const [form, setForm] = useState({ ...emptyForm });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
@@ -23265,7 +23290,7 @@ window.GatheringMemoPage = () => {
     // GPSキャッシュから天気取得を試みる
     const cached = GpsLogService.getCurrentWeather();
     if (cached && cached.weather) {
-      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather, temperature: cached.temperature != null ? cached.temperature : null });
       AppLogger.info(`集客メモ 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
       return;
     }
@@ -23283,7 +23308,8 @@ window.GatheringMemoPage = () => {
         setWeatherLoading(false);
         if (data && data.current_weather) {
           const w = wmoToWeather(data.current_weather.weathercode);
-          if (w) setForm(prev => prev.weather ? prev : { ...prev, weather: w });
+          const temp = data.current_weather.temperature != null ? data.current_weather.temperature : null;
+          if (w) setForm(prev => prev.weather ? prev : { ...prev, weather: w, temperature: temp });
         }
       })
       .catch(() => setWeatherLoading(false));
@@ -23818,7 +23844,10 @@ window.GatheringMemoPage = () => {
               }, '取得中...'),
               !weatherLoading && form.weather && React.createElement('span', {
                 style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動取得済')
+              }, '自動取得済'),
+              !weatherLoading && form.temperature != null && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '4px' },
+              }, `${form.temperature}℃`)
             ),
             React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
               ...WEATHER_OPTIONS.map(w =>

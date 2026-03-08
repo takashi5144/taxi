@@ -10,7 +10,7 @@ window.RivalRidePage = () => {
   const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
 
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, time: getNowTime(), weather: '', location: '', locationCoords: null, memo: '' });
+  const [form, setForm] = useState({ date: todayDefault, time: getNowTime(), weather: '', temperature: null, location: '', locationCoords: null, memo: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -31,7 +31,7 @@ window.RivalRidePage = () => {
     // GPSキャッシュから天気取得を試みる
     const cached = GpsLogService.getCurrentWeather();
     if (cached && cached.weather) {
-      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather });
+      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather, temperature: cached.temperature != null ? cached.temperature : null });
       AppLogger.info(`他社乗車 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
       return;
     }
@@ -50,9 +50,10 @@ window.RivalRidePage = () => {
         setWeatherLoading(false);
         if (data && data.current_weather) {
           const w = wmoToWeather(data.current_weather.weathercode);
+          const temp = data.current_weather.temperature != null ? data.current_weather.temperature : null;
           if (w) {
-            setForm(prev => prev.weather ? prev : { ...prev, weather: w });
-            AppLogger.info(`他社乗車 天気自動取得成功: ${w}`);
+            setForm(prev => prev.weather ? prev : { ...prev, weather: w, temperature: temp });
+            AppLogger.info(`他社乗車 天気自動取得成功: ${w} ${temp != null ? temp + '℃' : ''}`);
           }
         }
       })
@@ -420,7 +421,10 @@ window.RivalRidePage = () => {
               }, '取得中...'),
               !weatherLoading && form.weather && React.createElement('span', {
                 style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動取得済')
+              }, '自動取得済'),
+              !weatherLoading && form.temperature != null && React.createElement('span', {
+                style: { fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '4px' },
+              }, `${form.temperature}℃`)
             ),
             React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
               ...[

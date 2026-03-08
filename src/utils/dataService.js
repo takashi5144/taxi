@@ -42,6 +42,18 @@ window.DataService = (() => {
     return dt === 'weekday' ? 'weekday' : 'holiday';
   }
 
+  // 病院休診判定: closedDays（曜日）＋祝日を統合判定
+  // 大半の病院は土日祝休診のため、祝日も休診扱いにする
+  function isHospitalClosedToday(closedDays, dateOverride) {
+    const now = dateOverride || new Date();
+    const dayOfWeek = now.getDay();
+    if (closedDays && closedDays.includes(dayOfWeek)) return true;
+    // 祝日判定
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const info = JapaneseHolidays.getDateInfo(dateStr);
+    return info.isHoliday;
+  }
+
   // ============================================================
   // 待機スポットマッチング共有ヘルパー
   // ============================================================
@@ -1686,6 +1698,7 @@ window.DataService = (() => {
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
       weather: form.weather || '',
+      temperature: form.temperature != null ? form.temperature : null,
       pickup: form.pickup || '',
       pickupTime: form.pickupTime || '',
       dropoff: form.dropoff || '',
@@ -1940,6 +1953,7 @@ window.DataService = (() => {
       holiday: dateInfo.holiday || '',
       time: form.time || '',
       weather: form.weather || '',
+      temperature: form.temperature != null ? form.temperature : null,
       location: form.location.trim(),
       locationCoords: form.locationCoords || null,
       memo: form.memo || '',
@@ -2122,6 +2136,7 @@ window.DataService = (() => {
       density: form.density,
       locationType: form.locationType || 'other',
       weather: form.weather || '',
+      temperature: form.temperature != null ? form.temperature : null,
       stayMinutes: form.stayMinutes ? parseInt(form.stayMinutes, 10) : 0,
       memo: form.memo || '',
       source: form.source || 'manual',
@@ -2933,7 +2948,7 @@ window.DataService = (() => {
     }
 
     const hospitals = schedules.map(hosp => {
-      const isClosed = hosp.closedDays.includes(dayOfWeek);
+      const isClosed = isHospitalClosedToday(hosp.closedDays, now);
       if (isClosed) {
         return { id: hosp.id, name: hosp.name, lat: hosp.lat, lng: hosp.lng,
           currentStatus: 'closed', nextEvent: null, demandWeight: 0 };
@@ -3220,9 +3235,8 @@ window.DataService = (() => {
 
     // 病院退院ピーク
     const hospSchedules = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || [];
-    const dayOfWeek = now.getDay();
     hospSchedules.forEach(hosp => {
-      if (hosp.closedDays.includes(dayOfWeek)) return;
+      if (isHospitalClosedToday(hosp.closedDays, now)) return;
       hosp.dischargePeaks.forEach(dp => {
         const dpStartMin = timeToMin(dp.start);
         const dpEndMin = timeToMin(dp.end);
@@ -3556,7 +3570,9 @@ window.DataService = (() => {
     const now = new Date();
     const currentHour = now.getHours();
     const dayOfWeek = now.getDay(); // 0=Sun
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const todayHolidayInfo = JapaneseHolidays.getDateInfo(todayStr);
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6 || todayHolidayInfo.isHoliday;
     const isOddDay = now.getDate() % 2 !== 0;
 
     // 曜日係数
@@ -3705,7 +3721,7 @@ window.DataService = (() => {
         let peakBoost = 0;
         const hospSchedules = locs.hospitalSchedules || [];
         hospSchedules.forEach(hosp => {
-          if (hosp.closedDays.includes(dayOfWeek)) return;
+          if (isHospitalClosedToday(hosp.closedDays, now)) return;
           // スポットが病院対応ならブースト
           const isNearHosp = spot.lat && hosp.lat && Math.abs(spot.lat - hosp.lat) < 0.01 && Math.abs(spot.lng - hosp.lng) < 0.01;
           const isHospSpot = spot.id && hosp.id && spot.id.includes(hosp.id.split('_')[0]);
@@ -4150,10 +4166,9 @@ window.DataService = (() => {
       // 病院スコア（実態ベース: 1台で回れるのは1病院のみ → 最高スコアの病院を採用）
       // 休診日は除外、ピーク中心からの距離でガウス減衰
       let hospitalScore = 0;
-      const dayOfWeekForScore = now.getDay();
       const hospScheds = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hospitalSchedules || [];
       hospScheds.forEach(sched => {
-        if (sched.closedDays && sched.closedDays.includes(dayOfWeekForScore)) return;
+        if (isHospitalClosedToday(sched.closedDays, now)) return;
         sched.dischargePeaks.forEach(dp => {
           const dpStartMin = parseInt(dp.start.split(':')[0], 10) * 60 + parseInt(dp.start.split(':')[1] || '0', 10);
           const dpEndMin = parseInt(dp.end.split(':')[0], 10) * 60 + parseInt(dp.end.split(':')[1] || '0', 10);
@@ -4339,7 +4354,9 @@ window.DataService = (() => {
     const now = new Date();
     const currentHour = now.getHours();
     const dayOfWeek = now.getDay();
-    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const todayHolidayInfo = JapaneseHolidays.getDateInfo(todayStr);
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5 && !todayHolidayInfo.isHoliday;
 
     // 需要スコア取得
     const demandScore = getDayShiftDemandScore(null);
@@ -4373,7 +4390,7 @@ window.DataService = (() => {
     // --- ルート1: 病院帰宅ルート（平日のみ、退院ピーク時間帯） ---
     if (isWeekday) {
       const activeHospitals = hospSchedules.filter(sched => {
-        if (sched.closedDays && sched.closedDays.includes(dayOfWeek)) return false;
+        if (isHospitalClosedToday(sched.closedDays, now)) return false;
         return sched.dischargePeaks.some(dp => {
           const startH = parseInt(dp.start.split(':')[0], 10);
           const endH = parseInt(dp.end.split(':')[0], 10);
