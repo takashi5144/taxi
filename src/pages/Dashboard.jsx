@@ -1765,6 +1765,10 @@ window.DashboardPage = () => {
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'speed'),
               top.ridesPerDay + '回/日'
             ),
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: top.occupancyRate >= 50 ? '#22c55e' : top.occupancyRate >= 30 ? '#f59e0b' : 'var(--text-secondary)' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'directions_car'),
+              '実車率' + top.occupancyRate + '%' + (top.avgRideMin > 0 ? '(平均' + top.avgRideMin + '分)' : '')
+            ),
             top.topSource && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-secondary)' } },
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '13px' } }, 'local_taxi'),
               top.topSource
@@ -1822,6 +1826,9 @@ window.DashboardPage = () => {
               },
                 React.createElement('span', null, '客単価¥' + cl.avgAmount.toLocaleString()),
                 React.createElement('span', null, cl.ridesPerDay + '回/日'),
+                React.createElement('span', {
+                  style: { color: cl.occupancyRate >= 50 ? '#22c55e' : cl.occupancyRate >= 30 ? '#f59e0b' : 'var(--text-muted)' },
+                }, '実車' + cl.occupancyRate + '%'),
                 cl.topSource && React.createElement('span', null, cl.topSource)
               )
             ),

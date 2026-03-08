@@ -2921,6 +2921,17 @@ window.DataService = (() => {
       if (e.noPassenger) return;
       const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : NaN;
       if (isNaN(hr) || hr !== hour) return;
+      // 実車時間（分）を算出: pickupTime → dropoffTime
+      let rideMinutes = 0;
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        if (!isNaN(ph) && !isNaN(pm) && !isNaN(dh) && !isNaN(dm)) {
+          rideMinutes = (dh * 60 + dm) - (ph * 60 + pm);
+          if (rideMinutes < 0) rideMinutes += 1440; // 日跨ぎ
+          if (rideMinutes > 120) rideMinutes = 0; // 異常値除外
+        }
+      }
       points.push({
         lat: e.pickupCoords.lat,
         lng: e.pickupCoords.lng,
@@ -2928,6 +2939,7 @@ window.DataService = (() => {
         pickup: e.pickup || '',
         source: e.source || '未設定',
         date: e.date || '',
+        rideMinutes,
       });
     });
 
@@ -2969,7 +2981,7 @@ window.DataService = (() => {
         }
       }
 
-      let sumLat = 0, sumLng = 0, totalAmount = 0;
+      let sumLat = 0, sumLng = 0, totalAmount = 0, totalRideMinutes = 0, rideMinutesCount = 0;
       const names = {};
       const sources = {};
       const dates = new Set();
@@ -2978,6 +2990,10 @@ window.DataService = (() => {
         sumLat += p.lat;
         sumLng += p.lng;
         totalAmount += p.amount;
+        if (p.rideMinutes > 0) {
+          totalRideMinutes += p.rideMinutes;
+          rideMinutesCount++;
+        }
         if (p.pickup) {
           const alias = TaxiApp.utils.applyPlaceAlias(p.pickup);
           names[alias] = (names[alias] || 0) + 1;
@@ -2991,8 +3007,13 @@ window.DataService = (() => {
       const topName = Object.entries(names).sort((a, b) => b[1] - a[1])[0];
       const topSource = Object.entries(sources).sort((a, b) => b[1] - a[1])[0];
       const activeDays = dates.size || 1;
-      // 1時間あたり平均金額 = 合計金額 / 稼働日数（この時間帯にこの場所で乗った日数）
+      // 1時間あたり平均金額 = 合計金額 / 稼働日数
       const avgAmountPerHour = Math.round(totalAmount / activeDays);
+      // 1時間あたり平均実車率 = (1日あたり平均実車分数) / 60分 × 100%
+      // 1日あたり平均実車分数 = 総実車分数 / 稼働日数
+      const avgRideMinPerDay = rideMinutesCount > 0 ? totalRideMinutes / activeDays : 0;
+      const occupancyRate = Math.min(100, Math.round(avgRideMinPerDay / 60 * 100));
+      const avgRideMin = rideMinutesCount > 0 ? Math.round(totalRideMinutes / rideMinutesCount) : 0;
 
       clusters.push({
         name: topName ? topName[0] : '不明',
@@ -3003,6 +3024,8 @@ window.DataService = (() => {
         avgAmountPerHour,
         activeDays,
         ridesPerDay: Math.round(count / activeDays * 10) / 10,
+        occupancyRate,
+        avgRideMin,
         topSource: topSource ? topSource[0] : null,
         names,
         sources,
