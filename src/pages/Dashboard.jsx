@@ -1690,11 +1690,20 @@ window.DashboardPage = () => {
               })
             ),
             React.createElement('div', {
-              style: { display: 'flex', gap: '10px', fontSize: '10px', color: 'var(--text-muted)' },
+              style: { display: 'flex', gap: '8px', fontSize: '10px', color: 'var(--text-muted)', flexWrap: 'wrap' },
             },
-              React.createElement('span', null, '平均¥' + cl.avgAmount.toLocaleString()),
-              cl.peakHour !== null && React.createElement('span', null, 'ピーク ' + cl.peakHour + '時台'),
-              cl.topSource && React.createElement('span', null, '主な配車: ' + cl.topSource)
+              React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px' } }, 'paid'),
+                '平均¥' + cl.avgAmount.toLocaleString()
+              ),
+              React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px' } }, 'speed'),
+                cl.ridesPerHour + '回/h'
+              ),
+              cl.peakHours && cl.peakHours.length > 0 && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px', color: '#f59e0b' } }, 'trending_up'),
+                cl.peakHours.map(ph => ph.hour + '時').join(', ')
+              )
             )
           ),
           // 合計売上

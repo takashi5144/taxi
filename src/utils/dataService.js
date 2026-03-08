@@ -2851,6 +2851,8 @@ window.DataService = (() => {
       const names = {};
       const sources = {};
       const hours = {};
+      const dates = new Set();
+      const dateHours = new Set(); // "2026-03-09_14" 形式（稼働時間帯数カウント用）
       members.forEach(mi => {
         const p = points[mi];
         sumLat += p.lat;
@@ -2863,6 +2865,10 @@ window.DataService = (() => {
         if (p.source) sources[p.source] = (sources[p.source] || 0) + 1;
         const hr = p.pickupTime ? parseInt(p.pickupTime.split(':')[0], 10) : NaN;
         if (!isNaN(hr)) hours[hr] = (hours[hr] || 0) + 1;
+        if (p.date) {
+          dates.add(p.date);
+          if (!isNaN(hr)) dateHours.add(p.date + '_' + hr);
+        }
       });
 
       const count = members.length;
@@ -2871,6 +2877,16 @@ window.DataService = (() => {
       const topHour = Object.entries(hours).sort((a, b) => b[1] - a[1])[0];
       const topSource = Object.entries(sources).sort((a, b) => b[1] - a[1])[0];
 
+      // 1時間あたり平均乗車数 = 総乗車数 / この地点での稼働時間帯数
+      const activeHours = dateHours.size || 1;
+      const ridesPerHour = Math.round(count / activeHours * 10) / 10;
+
+      // 時間帯別乗車数TOP3（乗車率の高い時間帯）
+      const peakHours = Object.entries(hours)
+        .map(([h, c]) => ({ hour: parseInt(h, 10), count: c }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3);
+
       clusters.push({
         name: topName ? topName[0] : '不明',
         count,
@@ -2878,6 +2894,9 @@ window.DataService = (() => {
         avgAmount: Math.round(totalAmount / count),
         totalAmount,
         peakHour: topHour ? parseInt(topHour[0], 10) : null,
+        peakHours,
+        ridesPerHour,
+        activeDays: dates.size,
         topSource: topSource ? topSource[0] : null,
         names,
         sources,

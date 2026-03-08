@@ -653,15 +653,19 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       });
 
       marker.addListener('click', () => {
-        const peakHourStr = cl.peakHour !== null ? cl.peakHour + '時台' : '---';
+        const peakHoursStr = cl.peakHours && cl.peakHours.length > 0
+          ? cl.peakHours.map(ph => ph.hour + '時(' + ph.count + '回)').join(', ')
+          : '---';
         const srcEntries = Object.entries(cl.sources).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([s, c]) => s + ':' + c).join(' ');
-        const content = '<div style="color:#1a1a2e;font-size:13px;min-width:180px;line-height:1.6">' +
+        const content = '<div style="color:#1a1a2e;font-size:13px;min-width:200px;line-height:1.6">' +
           '<div style="font-size:16px;font-weight:700;margin-bottom:4px">' + rank + '位 ' + cl.name + '</div>' +
           '<div>乗車回数: <b>' + cl.count + '回</b></div>' +
           '<div>平均単価: <b>¥' + cl.avgAmount.toLocaleString() + '</b></div>' +
+          '<div>1時間あたり: <b>' + cl.ridesPerHour + '回/h</b></div>' +
           '<div>合計売上: <b>¥' + cl.totalAmount.toLocaleString() + '</b></div>' +
-          '<div>ピーク時間: <b>' + peakHourStr + '</b></div>' +
-          (srcEntries ? '<div style="font-size:11px;color:#666;margin-top:2px">配車: ' + srcEntries + '</div>' : '') +
+          '<div style="margin-top:4px;padding-top:4px;border-top:1px solid #ddd">乗車が多い時間帯:</div>' +
+          '<div style="font-weight:600;color:#e65100">' + peakHoursStr + '</div>' +
+          (srcEntries ? '<div style="font-size:11px;color:#666;margin-top:4px">配車: ' + srcEntries + '</div>' : '') +
           '</div>';
         infoWindow.setContent(content);
         infoWindow.open(map, marker);
@@ -1505,11 +1509,14 @@ window.GoogleMapView = ({ fullscreen = false }) => {
                 style: { fontSize: '12px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
               }, cl.name),
               React.createElement('div', {
-                style: { fontSize: '10px', color: 'var(--text-muted)', display: 'flex', gap: '8px' },
+                style: { fontSize: '10px', color: 'var(--text-muted)', display: 'flex', gap: '6px', flexWrap: 'wrap' },
               },
                 React.createElement('span', null, cl.count + '回'),
                 React.createElement('span', null, '平均¥' + cl.avgAmount.toLocaleString()),
-                cl.peakHour !== null && React.createElement('span', null, cl.peakHour + '時台')
+                React.createElement('span', { style: { color: '#f59e0b' } }, cl.ridesPerHour + '回/h'),
+                cl.peakHours && cl.peakHours.length > 0 && React.createElement('span', null,
+                  cl.peakHours.map(ph => ph.hour + '時').join(',')
+                )
               )
             ),
             React.createElement('div', {
