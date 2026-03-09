@@ -3712,10 +3712,10 @@ window.DataService = (() => {
       });
     }
 
-    // 5. フォールバック: 最高スコアの待機or流し
+    // 5. フォールバック: 実績のある最高スコアの待機or流し
     const allSpots = [
-      ...waitingData.spots.filter(s => !s.currentDisabled).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
-      ...cruisingData.areas.map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
+      ...waitingData.spots.filter(s => !s.currentDisabled && s.hasHistory).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
+      ...cruisingData.areas.filter(a => a.hasHistory).map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
     ].sort((a, b) => b.score - a.score);
 
     if (allSpots.length > 0) {
@@ -3976,6 +3976,11 @@ window.DataService = (() => {
 
     // スポットごとに24時間分の指数を算出
     const result = spots.map(spot => {
+      // このスポットに実績があるか判定
+      const spotHistory = historyBySpot[spot.id];
+      const totalHistCount = spotHistory.reduce((sum, h) => sum + h.count, 0);
+      const hasHistory = totalHistCount > 0;
+
       const hourlyIndex = [];
       for (let h = 0; h < 24; h++) {
         // 奇数日ルール: 駅前は待機不可
@@ -4076,6 +4081,8 @@ window.DataService = (() => {
         hourlyIndex: hourlyIndex,
         currentIndex: hourlyIndex[currentHour].index,
         currentDisabled: hourlyIndex[currentHour].disabled,
+        hasHistory: hasHistory,
+        historyCount: totalHistCount,
       };
     });
 
@@ -4192,6 +4199,11 @@ window.DataService = (() => {
     });
 
     const result = areas.map(area => {
+      // このエリアに実績があるか判定
+      const areaHistory = historyByArea[area.id];
+      const totalHistCount = areaHistory.reduce((sum, h) => sum + h.count, 0);
+      const hasHistory = totalHistCount > 0;
+
       const hourlyIndex = [];
       for (let h = 0; h < 24; h++) {
         const basePattern = isWeekend ? area.basePatternWeekend : area.basePatternWeekday;
@@ -4231,6 +4243,8 @@ window.DataService = (() => {
         lng: area.lng,
         hourlyIndex: hourlyIndex,
         currentIndex: hourlyIndex[currentHour].index,
+        hasHistory: hasHistory,
+        historyCount: totalHistCount,
       };
     });
 
@@ -4462,10 +4476,10 @@ window.DataService = (() => {
     // 7-17の各時間帯スコアを計算
     const hourlyScores = [];
     for (let h = 7; h <= 17; h++) {
-      // 履歴スコア: 待機+流しの平均
+      // 履歴スコア: 実績のある待機+流しの平均
       let historyScore = 0;
-      const waitScores = waitingData.spots.map(s => (s.hourlyIndex[h] || {}).index || 0);
-      const cruiseScores = cruisingData.areas.map(a => (a.hourlyIndex[h] || {}).index || 0);
+      const waitScores = waitingData.spots.filter(s => s.hasHistory).map(s => (s.hourlyIndex[h] || {}).index || 0);
+      const cruiseScores = cruisingData.areas.filter(a => a.hasHistory).map(a => (a.hourlyIndex[h] || {}).index || 0);
       if (waitScores.length + cruiseScores.length > 0) {
         historyScore = [...waitScores, ...cruiseScores].reduce((s, v) => s + v, 0) / (waitScores.length + cruiseScores.length);
       }
@@ -4555,11 +4569,11 @@ window.DataService = (() => {
       hour: hs.hour, score: hs.score, reason: hs.topFactors.join('+') || '総合',
     }));
 
-    // ベストスポット
+    // ベストスポット（実績のある場所のみ）
     let bestSpot = { name: '---', score: 0, reason: '' };
     const allSpots = [
-      ...waitingData.spots.filter(s => !s.currentDisabled).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
-      ...cruisingData.areas.map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
+      ...waitingData.spots.filter(s => !s.currentDisabled && s.hasHistory).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
+      ...cruisingData.areas.filter(a => a.hasHistory).map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
     ].sort((a, b) => b.score - a.score);
     if (allSpots.length > 0) {
       bestSpot = { name: allSpots[0].name, score: allSpots[0].score, reason: allSpots[0].type };
@@ -4587,8 +4601,8 @@ window.DataService = (() => {
 
     const strategies = [];
 
-    // 待機スポット戦略
-    waitingData.spots.forEach(spot => {
+    // 待機スポット戦略（実績のある場所のみ）
+    waitingData.spots.filter(s => s.hasHistory).forEach(spot => {
       const hourData = spot.hourlyIndex[targetHour] || {};
       const revSpot = revForecast.spots.find(r => r.id === spot.id);
       const hourlyRevDetail = revSpot && revSpot.hourlyDetail[targetHour];
@@ -4617,8 +4631,8 @@ window.DataService = (() => {
       });
     });
 
-    // 流しエリア戦略
-    cruisingData.areas.forEach(area => {
+    // 流しエリア戦略（実績のある場所のみ）
+    cruisingData.areas.filter(a => a.hasHistory).forEach(area => {
       const hourData = area.hourlyIndex[targetHour] || {};
       const demandIdx = hourData.index || 0;
       const avgFare = 1200; // 流しは短距離中心の想定

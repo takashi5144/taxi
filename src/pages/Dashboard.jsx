@@ -1360,7 +1360,7 @@ window.DashboardPage = () => {
         // 待機スポットTOP3
         React.createElement('div', null,
           React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '待機スポット'),
-          ...waitingSpotData.spots.filter(s => !s.currentDisabled).slice(0, 3).map(spot => {
+          ...waitingSpotData.spots.filter(s => !s.currentDisabled && s.hasHistory).slice(0, 3).map(spot => {
             const barColor = spot.currentIndex >= 70 ? '#ef4444' : spot.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
             return React.createElement('div', {
               key: `ws-${spot.id}`, style: { marginBottom: '4px' },
@@ -1378,7 +1378,7 @@ window.DashboardPage = () => {
         // 流しエリアTOP3
         React.createElement('div', null,
           React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '流しエリア'),
-          ...cruisingAreaData.areas.slice(0, 3).map(area => {
+          ...cruisingAreaData.areas.filter(a => a.hasHistory).slice(0, 3).map(area => {
             const barColor = area.currentIndex >= 70 ? '#ef4444' : area.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
             return React.createElement('div', {
               key: `ca-${area.id}`, style: { marginBottom: '4px' },
