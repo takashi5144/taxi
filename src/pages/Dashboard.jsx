@@ -1653,9 +1653,10 @@ window.DashboardPage = () => {
                 style: { background: isBest ? 'rgba(139,92,246,0.06)' : 'transparent', cursor: 'pointer' },
               },
                 React.createElement('td', { style: { padding: '5px 6px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis' } },
-                  React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
                     isBest && React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', color: '#f59e0b' } }, 'emoji_events'),
-                    loc.name.replace('旭川', '')
+                    loc.name.replace('旭川', ''),
+                    loc.zooSeason && React.createElement('span', { style: { fontSize: '7px', padding: '0 3px', borderRadius: '3px', fontWeight: 700, background: loc.zooSeason === '冬期' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)', color: loc.zooSeason === '冬期' ? '#3b82f6' : '#10b981' } }, loc.zooSeason)
                   )
                 ),
                 React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${loc.totalStandbys}`),

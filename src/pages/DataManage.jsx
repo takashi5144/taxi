@@ -541,8 +541,9 @@ const GpsAnalysisTab = ({ refreshKey }) => {
         const rideInfo = p.gotRide
           ? `<br><span style="color:#00c853">→ 乗車 ¥${(p.nextRideAmount||0).toLocaleString()}${p.nextRideDropoff ? '（'+p.nextRideDropoff+'）' : ''}</span>`
           : '<br><span style="color:#e53935">→ 乗車なし</span>';
+        const seasonTag = p.zooSeason ? ` <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:${p.zooSeason === '冬期' ? '#e3f2fd' : '#e8f5e9'};color:${p.zooSeason === '冬期' ? '#1565c0' : '#2e7d32'}">${p.zooSeason}</span>` : '';
         standbyInfoWindowRef.current.setContent(
-          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:160px"><b>${name}</b> <span style="font-size:10px;color:${markerColor}">[${catLabel}]</span><br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機${rideInfo}</div>`
+          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:160px"><b>${name}</b> <span style="font-size:10px;color:${markerColor}">[${catLabel}]</span>${seasonTag}<br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機${rideInfo}</div>`
         );
         standbyInfoWindowRef.current.open(map, marker);
       });
@@ -968,7 +969,8 @@ const GpsAnalysisTab = ({ refreshKey }) => {
                   React.createElement('div', { style: { flex: 1, minWidth: 0 } },
                     React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
                       React.createElement('span', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
-                      React.createElement('span', { style: { fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: cs.color + '22', color: cs.color, fontWeight: 600, flexShrink: 0 } }, badgeLabel)
+                      React.createElement('span', { style: { fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: cs.color + '22', color: cs.color, fontWeight: 600, flexShrink: 0 } }, badgeLabel),
+                      p.zooSeason && React.createElement('span', { style: { fontSize: '8px', padding: '1px 4px', borderRadius: '3px', fontWeight: 700, background: p.zooSeason === '冬期' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)', color: p.zooSeason === '冬期' ? '#3b82f6' : '#10b981', flexShrink: 0 } }, p.zooSeason)
                     ),
                     React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, start + ' 〜 ' + end),
                     // 乗車結果

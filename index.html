@@ -1228,7 +1228,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.12.2',
+  VERSION: '3.12.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -9044,7 +9044,7 @@ window.GpsLogService = (() => {
       gender: '',
       purpose: '待機',
       source: '',
-      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}）自動記録`,
+      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}${standby.zooSeason ? '・' + standby.zooSeason : ''}）自動記録`,
       noPassenger: true,
       paymentMethod: 'cash',
     };
@@ -9384,6 +9384,17 @@ window.GpsLogService = (() => {
   }
 
   /** 待機場所のカテゴリ分類（具体的な施設名を返す） */
+  // 動物園の季節情報を取得
+  function _getZooSeason() {
+    if (window.DataService && DataService.getZooStatus) {
+      const s = DataService.getZooStatus();
+      if (!s.isOpen) return { zooSeason: null, zooOpen: false, zooReason: s.reason };
+      const seasonLabel = { summer: '夏期', autumn: '秋期', winter: '冬期' };
+      return { zooSeason: seasonLabel[s.season] || s.season, zooOpen: true, zooOpenTime: s.open, zooCloseTime: s.close };
+    }
+    return { zooSeason: null, zooOpen: false };
+  }
+
   function _classifyStandbyCategory(lat, lng) {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     if (!locs) return { category: 'other', categoryLabel: 'その他', nearbyName: null };
@@ -9425,7 +9436,19 @@ window.GpsLogService = (() => {
         const d = _haversine(lat, lng, s.lat, s.lng);
         if (d <= radius && d < bestDist) { bestSpot = s; bestDist = d; }
       }
-      if (bestSpot) return { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
+      if (bestSpot) {
+        const result = { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
+        // 動物園の場合は季節情報を付与
+        if (bestSpot.id === 'asahiyama_zoo') {
+          const zoo = _getZooSeason();
+          result.zooSeason = zoo.zooSeason;
+          result.zooOpen = zoo.zooOpen;
+          if (zoo.zooOpenTime) result.zooOpenTime = zoo.zooOpenTime;
+          if (zoo.zooCloseTime) result.zooCloseTime = zoo.zooCloseTime;
+          if (zoo.zooReason) result.zooReason = zoo.zooReason;
+        }
+        return result;
+      }
     }
 
     return { category: 'other', categoryLabel: 'その他', nearbyName: null };
@@ -9815,19 +9838,22 @@ window.GpsLogService = (() => {
       return null;
     }
 
-    // 場所別に集計
+    // 場所別に集計（動物園は季節別に分離）
     const locMap = {};
     for (const p of allPeriods) {
       const name = resolveName(p);
-      if (!name) continue; // 不明な場所はスキップ
-      if (!locMap[name]) {
-        locMap[name] = {
-          name, category: p.category, categoryLabel: p.categoryLabel,
-          lat: p.lat, lng: p.lng,
+      if (!name) continue;
+      // 動物園の場合は季節でキーを分離
+      const seasonSuffix = p.zooSeason ? `（${p.zooSeason}）` : '';
+      const key = name + seasonSuffix;
+      if (!locMap[key]) {
+        locMap[key] = {
+          name: key, baseName: name, category: p.category, categoryLabel: p.categoryLabel,
+          lat: p.lat, lng: p.lng, zooSeason: p.zooSeason || null,
           periods: [],
         };
       }
-      locMap[name].periods.push(p);
+      locMap[key].periods.push(p);
     }
 
     // 各場所のパフォーマンスを算出
@@ -9876,8 +9902,8 @@ window.GpsLogService = (() => {
       else if (avgWaitMin >= 40 || conversionRate < 40) verdict = 'caution';
 
       return {
-        name: loc.name, category: loc.category, categoryLabel: loc.categoryLabel,
-        lat: loc.lat, lng: loc.lng,
+        name: loc.name, baseName: loc.baseName, category: loc.category, categoryLabel: loc.categoryLabel,
+        lat: loc.lat, lng: loc.lng, zooSeason: loc.zooSeason,
         totalStandbys: total, rideCount: rides.length, noRideCount: noRides,
         conversionRate, avgWaitMin, avgFare, hourlyEfficiency,
         totalWaitMin: Math.round(totalWaitMin),
@@ -14364,9 +14390,10 @@ window.DashboardPage = () => {
                 style: { background: isBest ? 'rgba(139,92,246,0.06)' : 'transparent', cursor: 'pointer' },
               },
                 React.createElement('td', { style: { padding: '5px 6px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis' } },
-                  React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
                     isBest && React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', color: '#f59e0b' } }, 'emoji_events'),
-                    loc.name.replace('旭川', '')
+                    loc.name.replace('旭川', ''),
+                    loc.zooSeason && React.createElement('span', { style: { fontSize: '7px', padding: '0 3px', borderRadius: '3px', fontWeight: 700, background: loc.zooSeason === '冬期' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)', color: loc.zooSeason === '冬期' ? '#3b82f6' : '#10b981' } }, loc.zooSeason)
                   )
                 ),
                 React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${loc.totalStandbys}`),
@@ -22769,8 +22796,9 @@ const GpsAnalysisTab = ({ refreshKey }) => {
         const rideInfo = p.gotRide
           ? `<br><span style="color:#00c853">→ 乗車 ¥${(p.nextRideAmount||0).toLocaleString()}${p.nextRideDropoff ? '（'+p.nextRideDropoff+'）' : ''}</span>`
           : '<br><span style="color:#e53935">→ 乗車なし</span>';
+        const seasonTag = p.zooSeason ? ` <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:${p.zooSeason === '冬期' ? '#e3f2fd' : '#e8f5e9'};color:${p.zooSeason === '冬期' ? '#1565c0' : '#2e7d32'}">${p.zooSeason}</span>` : '';
         standbyInfoWindowRef.current.setContent(
-          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:160px"><b>${name}</b> <span style="font-size:10px;color:${markerColor}">[${catLabel}]</span><br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機${rideInfo}</div>`
+          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:160px"><b>${name}</b> <span style="font-size:10px;color:${markerColor}">[${catLabel}]</span>${seasonTag}<br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機${rideInfo}</div>`
         );
         standbyInfoWindowRef.current.open(map, marker);
       });
@@ -23196,7 +23224,8 @@ const GpsAnalysisTab = ({ refreshKey }) => {
                   React.createElement('div', { style: { flex: 1, minWidth: 0 } },
                     React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
                       React.createElement('span', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
-                      React.createElement('span', { style: { fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: cs.color + '22', color: cs.color, fontWeight: 600, flexShrink: 0 } }, badgeLabel)
+                      React.createElement('span', { style: { fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: cs.color + '22', color: cs.color, fontWeight: 600, flexShrink: 0 } }, badgeLabel),
+                      p.zooSeason && React.createElement('span', { style: { fontSize: '8px', padding: '1px 4px', borderRadius: '3px', fontWeight: 700, background: p.zooSeason === '冬期' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)', color: p.zooSeason === '冬期' ? '#3b82f6' : '#10b981', flexShrink: 0 } }, p.zooSeason)
                     ),
                     React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, start + ' 〜 ' + end),
                     // 乗車結果

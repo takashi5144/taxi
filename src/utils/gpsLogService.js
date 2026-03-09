@@ -370,7 +370,7 @@ window.GpsLogService = (() => {
       gender: '',
       purpose: '待機',
       source: '',
-      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}）自動記録`,
+      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}${standby.zooSeason ? '・' + standby.zooSeason : ''}）自動記録`,
       noPassenger: true,
       paymentMethod: 'cash',
     };
@@ -710,6 +710,17 @@ window.GpsLogService = (() => {
   }
 
   /** 待機場所のカテゴリ分類（具体的な施設名を返す） */
+  // 動物園の季節情報を取得
+  function _getZooSeason() {
+    if (window.DataService && DataService.getZooStatus) {
+      const s = DataService.getZooStatus();
+      if (!s.isOpen) return { zooSeason: null, zooOpen: false, zooReason: s.reason };
+      const seasonLabel = { summer: '夏期', autumn: '秋期', winter: '冬期' };
+      return { zooSeason: seasonLabel[s.season] || s.season, zooOpen: true, zooOpenTime: s.open, zooCloseTime: s.close };
+    }
+    return { zooSeason: null, zooOpen: false };
+  }
+
   function _classifyStandbyCategory(lat, lng) {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     if (!locs) return { category: 'other', categoryLabel: 'その他', nearbyName: null };
@@ -751,7 +762,19 @@ window.GpsLogService = (() => {
         const d = _haversine(lat, lng, s.lat, s.lng);
         if (d <= radius && d < bestDist) { bestSpot = s; bestDist = d; }
       }
-      if (bestSpot) return { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
+      if (bestSpot) {
+        const result = { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
+        // 動物園の場合は季節情報を付与
+        if (bestSpot.id === 'asahiyama_zoo') {
+          const zoo = _getZooSeason();
+          result.zooSeason = zoo.zooSeason;
+          result.zooOpen = zoo.zooOpen;
+          if (zoo.zooOpenTime) result.zooOpenTime = zoo.zooOpenTime;
+          if (zoo.zooCloseTime) result.zooCloseTime = zoo.zooCloseTime;
+          if (zoo.zooReason) result.zooReason = zoo.zooReason;
+        }
+        return result;
+      }
     }
 
     return { category: 'other', categoryLabel: 'その他', nearbyName: null };
@@ -1141,19 +1164,22 @@ window.GpsLogService = (() => {
       return null;
     }
 
-    // 場所別に集計
+    // 場所別に集計（動物園は季節別に分離）
     const locMap = {};
     for (const p of allPeriods) {
       const name = resolveName(p);
-      if (!name) continue; // 不明な場所はスキップ
-      if (!locMap[name]) {
-        locMap[name] = {
-          name, category: p.category, categoryLabel: p.categoryLabel,
-          lat: p.lat, lng: p.lng,
+      if (!name) continue;
+      // 動物園の場合は季節でキーを分離
+      const seasonSuffix = p.zooSeason ? `（${p.zooSeason}）` : '';
+      const key = name + seasonSuffix;
+      if (!locMap[key]) {
+        locMap[key] = {
+          name: key, baseName: name, category: p.category, categoryLabel: p.categoryLabel,
+          lat: p.lat, lng: p.lng, zooSeason: p.zooSeason || null,
           periods: [],
         };
       }
-      locMap[name].periods.push(p);
+      locMap[key].periods.push(p);
     }
 
     // 各場所のパフォーマンスを算出
@@ -1202,8 +1228,8 @@ window.GpsLogService = (() => {
       else if (avgWaitMin >= 40 || conversionRate < 40) verdict = 'caution';
 
       return {
-        name: loc.name, category: loc.category, categoryLabel: loc.categoryLabel,
-        lat: loc.lat, lng: loc.lng,
+        name: loc.name, baseName: loc.baseName, category: loc.category, categoryLabel: loc.categoryLabel,
+        lat: loc.lat, lng: loc.lng, zooSeason: loc.zooSeason,
         totalStandbys: total, rideCount: rides.length, noRideCount: noRides,
         conversionRate, avgWaitMin, avgFare, hourlyEfficiency,
         totalWaitMin: Math.round(totalWaitMin),
