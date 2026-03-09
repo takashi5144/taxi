@@ -207,7 +207,8 @@ window.DashboardPage = () => {
       }
       setShiftInfo({ active: false, startTime: null });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // GPS追跡を停止
+      // 未確定の空車待機を記録してからGPS追跡を停止
+      if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
       if (geo.isTracking) geo.stopTracking();
       GpsLogService.stopWeatherPolling();
       AppLogger.info('GPS追跡を停止（終業）');
@@ -219,6 +220,8 @@ window.DashboardPage = () => {
   const handleBreakStart = useCallback(() => {
     if (!shiftInfo.active) return;
     try {
+      // 未確定の空車待機を記録
+      if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
       const now = new Date();
       const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
@@ -1909,7 +1912,10 @@ window.DashboardPage = () => {
           ),
           React.createElement('div', { style: { textAlign: 'right' } },
             entry.noPassenger
-              ? React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f' } }, '¥0（待機）')
+              ? React.createElement('div', null,
+                  React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f' } }, '¥0（空車）'),
+                  entry.memo && entry.memo.includes('自動記録') && React.createElement('div', { style: { fontSize: '9px', color: '#ff9800', marginTop: '1px' } }, 'GPS自動検出')
+                )
               : React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${entry.amount.toLocaleString()}`),
             !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
           )

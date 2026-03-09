@@ -225,6 +225,9 @@ const GpsAnalysisTab = ({ refreshKey }) => {
   const [standbyDate, setStandbyDate] = useState('');
   const [standbyPeriods, setStandbyPeriods] = useState([]);
   const [standbyNames, setStandbyNames] = useState({});
+  const [standbyEfficiency, setStandbyEfficiency] = useState(null);
+  const [standbyAllDays, setStandbyAllDays] = useState(null);
+  const [standbyAllDaysLoading, setStandbyAllDaysLoading] = useState(false);
   const standbyMapRef = useRef(null);
   const standbyMapInstanceRef = useRef(null);
   const standbyMarkersRef = useRef([]);
@@ -436,33 +439,48 @@ const GpsAnalysisTab = ({ refreshKey }) => {
     return () => { cancelled = true; };
   }, [subTab, refreshKey]);
 
-  // --- 待機分析: 待機期間検出 + 逆ジオコーディング ---
+  // --- 待機分析: 待機期間検出 + 効率分析 + 逆ジオコーディング ---
   useEffect(() => {
     if (subTab !== 'standby' || !standbyDate || !window.GpsLogService) return;
     let cancelled = false;
     setLoading(true);
     setStandbyPeriods([]);
     setStandbyNames({});
-    GpsLogService.getStandbyPeriods(standbyDate).then(async periods => {
+    setStandbyEfficiency(null);
+    GpsLogService.getStandbyEfficiency(standbyDate).then(async result => {
       if (cancelled) return;
-      setStandbyPeriods(periods);
+      setStandbyPeriods(result.periods);
+      setStandbyEfficiency(result.stats);
       setLoading(false);
       // 逆ジオコーディング（500ms間隔でレート制限）
       if (window.TaxiApp && TaxiApp.utils.reverseGeocode) {
         const names = {};
-        for (let i = 0; i < periods.length; i++) {
+        for (let i = 0; i < result.periods.length; i++) {
           if (cancelled) break;
           try {
-            const name = await TaxiApp.utils.reverseGeocode(periods[i].lat, periods[i].lng);
+            // nearbyNameがあればそれを使用、なければ逆ジオコーディング
+            const p = result.periods[i];
+            const name = p.nearbyName || await TaxiApp.utils.reverseGeocode(p.lat, p.lng);
             names[i] = name;
             if (!cancelled) setStandbyNames(prev => ({ ...prev, [i]: name }));
           } catch {}
-          if (i < periods.length - 1) await new Promise(r => setTimeout(r, 500));
+          if (i < result.periods.length - 1) await new Promise(r => setTimeout(r, 500));
         }
       }
     });
     return () => { cancelled = true; };
   }, [standbyDate, subTab]);
+
+  // --- 待機分析: 全日集計（初回のみ自動取得） ---
+  useEffect(() => {
+    if (subTab !== 'standby' || !window.GpsLogService || standbyAllDays) return;
+    let cancelled = false;
+    setStandbyAllDaysLoading(true);
+    GpsLogService.getStandbyAllDaysSummary().then(result => {
+      if (!cancelled) { setStandbyAllDays(result); setStandbyAllDaysLoading(false); }
+    }).catch(() => { if (!cancelled) setStandbyAllDaysLoading(false); });
+    return () => { cancelled = true; };
+  }, [subTab]);
 
   // --- 待機分析: 地図初期化 ---
   useEffect(() => {
@@ -495,15 +513,17 @@ const GpsAnalysisTab = ({ refreshKey }) => {
     if (standbyPeriods.length === 0) return;
 
     const bounds = new google.maps.LatLngBounds();
+    const catColors = { station: '#1a73e8', hospital: '#e53935', hotel: '#9c27b0', spot: '#ff9800', other: '#6c757d' };
     standbyPeriods.forEach((p, idx) => {
       const pos = { lat: p.lat, lng: p.lng };
       bounds.extend(pos);
       const scale = Math.min(6 + p.durationMin * 0.5, 20); // 待機時間に応じたサイズ
+      const markerColor = catColors[p.category] || catColors.other;
       const marker = new google.maps.Marker({
         position: pos, map,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          fillColor: '#ff9800',
+          fillColor: markerColor,
           fillOpacity: 0.8,
           strokeColor: '#fff',
           strokeWeight: 1.5,
@@ -512,11 +532,17 @@ const GpsAnalysisTab = ({ refreshKey }) => {
         zIndex: 30,
       });
       marker.addListener('click', () => {
-        const name = standbyNames[idx] || '取得中...';
+        const iwCatMap = { station: '駅', hospital: '病院', hotel: 'ホテル', spot: 'スポット', other: 'その他' };
+        // 具体施設名を優先
+        const name = p.nearbyName || standbyNames[idx] || '取得中...';
         const start = new Date(p.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
         const end = new Date(p.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+        const catLabel = iwCatMap[p.category] || '';
+        const rideInfo = p.gotRide
+          ? `<br><span style="color:#00c853">→ 乗車 ¥${(p.nextRideAmount||0).toLocaleString()}${p.nextRideDropoff ? '（'+p.nextRideDropoff+'）' : ''}</span>`
+          : '<br><span style="color:#e53935">→ 乗車なし</span>';
         standbyInfoWindowRef.current.setContent(
-          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:140px"><b>${name}</b><br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機</div>`
+          `<div style="color:#333;font-size:13px;line-height:1.6;min-width:160px"><b>${name}</b> <span style="font-size:10px;color:${markerColor}">[${catLabel}]</span><br>${start} 〜 ${end}<br><b>${p.durationMin}分</b>待機${rideInfo}</div>`
         );
         standbyInfoWindowRef.current.open(map, marker);
       });
@@ -805,15 +831,32 @@ const GpsAnalysisTab = ({ refreshKey }) => {
       const avgMin = standbyPeriods.length > 0 ? Math.round(totalMin / standbyPeriods.length * 10) / 10 : 0;
       const maxMin = standbyPeriods.length > 0 ? Math.max(...standbyPeriods.map(p => p.durationMin)) : 0;
 
-      // 頻出待機地点の集計（逆ジオコーディング名で集約）
+      // カテゴリアイコン・色マッピング
+      const catStyle = { station: { icon: 'train', color: '#1a73e8' }, hospital: { icon: 'local_hospital', color: '#e53935' }, hotel: { icon: 'hotel', color: '#9c27b0' }, spot: { icon: 'pin_drop', color: '#ff9800' }, other: { icon: 'place', color: '#6c757d' } };
+
+      // 頻出待機地点の集計（逆ジオコーディング名+カテゴリ付きで集約）
       const freqMap = {};
       standbyPeriods.forEach((p, idx) => {
-        const name = standbyNames[idx] || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
-        if (!freqMap[name]) freqMap[name] = { name, count: 0, totalMin: 0 };
+        // 具体施設名を優先（nearbyName > 逆ジオコーディング名）
+        const name = p.nearbyName || standbyNames[idx] || `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
+        if (!freqMap[name]) freqMap[name] = { name, count: 0, totalMin: 0, gotRide: 0, totalAmount: 0, category: p.category };
         freqMap[name].count++;
         freqMap[name].totalMin += p.durationMin;
+        if (p.gotRide) { freqMap[name].gotRide++; freqMap[name].totalAmount += (p.nextRideAmount || 0); }
       });
       const freqTop5 = Object.values(freqMap).sort((a, b) => b.count - a.count || b.totalMin - a.totalMin).slice(0, 5);
+
+      // カテゴリ別集計（当日）
+      const dayCatMap = {};
+      standbyPeriods.forEach(p => {
+        const key = p.category || 'other';
+        const dayCatLabelMap = { station: '駅', hospital: '病院', hotel: 'ホテル', spot: '待機スポット', other: 'その他' };
+        if (!dayCatMap[key]) dayCatMap[key] = { count: 0, totalMin: 0, gotRide: 0, label: dayCatLabelMap[key] || 'その他' };
+        dayCatMap[key].count++;
+        dayCatMap[key].totalMin += p.durationMin;
+        if (p.gotRide) dayCatMap[key].gotRide++;
+      });
+      const dayCats = Object.entries(dayCatMap).sort((a, b) => b[1].count - a[1].count);
 
       return React.createElement(React.Fragment, null,
         // 日付選択
@@ -837,7 +880,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
         // ローディング
         loading && React.createElement('div', { style: { textAlign: 'center', padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' } }, '検出中...'),
 
-        // サマリーカード
+        // サマリーカード（効率分析付き）
         !loading && standbyPeriods.length > 0 && React.createElement(Card, { style: { marginBottom: '12px' } },
           React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', textAlign: 'center' } },
             ...[
@@ -849,45 +892,197 @@ const GpsAnalysisTab = ({ refreshKey }) => {
               React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
               React.createElement('div', { style: { fontSize: '15px', fontWeight: 600, color: item.color } }, item.value)
             ))
-          )
-        ),
-
-        // 頻出待機地点TOP5
-        !loading && freqTop5.length > 0 && React.createElement(React.Fragment, null,
-          React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', marginTop: '4px' } }, '頻出待機地点 TOP5'),
-          React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' } },
-            ...freqTop5.map((f, i) => React.createElement(Card, { key: i, style: { padding: '8px 12px' } },
-              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-                React.createElement('div', { style: { width: '24px', height: '24px', borderRadius: '50%', background: i === 0 ? '#ff9800' : i < 3 ? 'rgba(255,152,0,0.4)' : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, flexShrink: 0 } }, i + 1),
-                React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-                  React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, f.name),
-                  React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, f.count + '回 / 合計' + Math.round(f.totalMin) + '分')
-                )
-              )
+          ),
+          // 待機→乗車 効率行
+          standbyEfficiency && React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' } },
+            ...[
+              { label: '乗車成功', value: standbyEfficiency.gotRide + '/' + standbyEfficiency.total + '回', color: '#00c853' },
+              { label: '乗車率', value: standbyEfficiency.conversionRate + '%', color: standbyEfficiency.conversionRate >= 50 ? '#00c853' : standbyEfficiency.conversionRate >= 30 ? '#ff9800' : '#f44336' },
+              { label: '待機→乗車', value: standbyEfficiency.avgWaitToRide > 0 ? standbyEfficiency.avgWaitToRide + '分' : '--', color: 'var(--text-primary)' },
+            ].map((item, i) => React.createElement('div', { key: 'eff' + i },
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
+              React.createElement('div', { style: { fontSize: '15px', fontWeight: 600, color: item.color } }, item.value)
             ))
           )
         ),
 
-        // 待機履歴リスト
+        // カテゴリ別内訳（当日）
+        !loading && dayCats.length > 0 && React.createElement(React.Fragment, null,
+          React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', marginTop: '4px' } }, '場所カテゴリ別'),
+          React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' } },
+            ...dayCats.map(([key, val]) => {
+              const cs = catStyle[key] || catStyle.other;
+              const rate = val.count > 0 ? Math.round(val.gotRide / val.count * 100) : 0;
+              return React.createElement('div', { key: key, style: { flex: '1 1 auto', minWidth: '80px', background: 'var(--bg-card)', borderRadius: '10px', padding: '8px 10px', border: `1px solid ${cs.color}33` } },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: cs.color } }, cs.icon),
+                  React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: cs.color } }, val.label)
+                ),
+                React.createElement('div', { style: { fontSize: '13px', fontWeight: 700 } }, val.count + '回'),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)' } }, Math.round(val.totalMin) + '分 / 乗車率' + rate + '%')
+              );
+            })
+          )
+        ),
+
+        // 頻出待機地点TOP5（カテゴリ・効率付き）
+        !loading && freqTop5.length > 0 && React.createElement(React.Fragment, null,
+          React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', marginTop: '4px' } }, '頻出待機地点 TOP5'),
+          React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' } },
+            ...freqTop5.map((f, i) => {
+              const cs = catStyle[f.category] || catStyle.other;
+              const rate = f.count > 0 ? Math.round(f.gotRide / f.count * 100) : 0;
+              return React.createElement(Card, { key: i, style: { padding: '8px 12px' } },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                  React.createElement('div', { style: { width: '28px', height: '28px', borderRadius: '50%', background: cs.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 } },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: cs.color } }, cs.icon)
+                  ),
+                  React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, f.name),
+                    React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } },
+                      f.count + '回 / ' + Math.round(f.totalMin) + '分 / 乗車率' + rate + '%' +
+                      (f.gotRide > 0 ? ' / 平均¥' + Math.round(f.totalAmount / f.gotRide).toLocaleString() : '')
+                    )
+                  )
+                )
+              );
+            })
+          )
+        ),
+
+        // 待機履歴リスト（カテゴリ・乗車結果付き）
         !loading && standbyPeriods.length > 0 && React.createElement(React.Fragment, null,
           React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' } }, '待機履歴'),
           React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
             ...standbyPeriods.map((p, idx) => {
               const start = new Date(p.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
               const end = new Date(p.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-              const name = standbyNames[idx] || '場所取得中...';
+              const histCatLabelMap = { station: '駅', hospital: '病院', hotel: 'ホテル', spot: 'スポット', other: 'その他' };
+              // 具体施設名を優先表示（nearbyName > 逆ジオコーディング名）
+              const name = p.nearbyName || standbyNames[idx] || '場所取得中...';
+              const cs = catStyle[p.category] || catStyle.other;
+              const badgeLabel = histCatLabelMap[p.category] || 'その他';
               return React.createElement(Card, { key: idx, style: { padding: '8px 12px' } },
                 React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
-                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#ff9800' } }, 'hourglass_top'),
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: cs.color } }, cs.icon),
                   React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-                    React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
-                    React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, start + ' 〜 ' + end)
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                      React.createElement('span', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, name),
+                      React.createElement('span', { style: { fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: cs.color + '22', color: cs.color, fontWeight: 600, flexShrink: 0 } }, badgeLabel)
+                    ),
+                    React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)' } }, start + ' 〜 ' + end),
+                    // 乗車結果
+                    p.gotRide
+                      ? React.createElement('div', { style: { fontSize: '10px', color: '#00c853', marginTop: '2px' } },
+                          '→ 乗車 ¥' + (p.nextRideAmount || 0).toLocaleString() +
+                          (p.nextRideDropoff ? '（' + p.nextRideDropoff + '）' : '') +
+                          (p.nextRideSource ? ' [' + p.nextRideSource + ']' : '') +
+                          (p.waitToRideMin != null ? ' ' + p.waitToRideMin + '分後' : '')
+                        )
+                      : React.createElement('div', { style: { fontSize: '10px', color: '#f44336', marginTop: '2px' } }, '→ 乗車なし')
                   ),
                   React.createElement('div', { style: { fontSize: '15px', fontWeight: 700, color: p.durationMin >= 10 ? '#f44336' : '#ff9800', flexShrink: 0 } }, p.durationMin + '分')
                 )
               );
             })
           )
+        ),
+
+        // ============================================================
+        // 全期間集計セクション
+        // ============================================================
+        !loading && React.createElement('div', { style: { marginTop: '20px', paddingTop: '16px', borderTop: '2px solid rgba(255,255,255,0.08)' } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#1a73e8' } }, 'assessment'),
+            React.createElement('span', { style: { fontSize: '14px', fontWeight: 700 } }, '全期間 待機効率レポート')
+          ),
+
+          standbyAllDaysLoading && React.createElement('div', { style: { textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '13px' } }, '全日データ集計中...'),
+
+          standbyAllDays && standbyAllDays.overall && React.createElement(React.Fragment, null,
+            // 全体統計
+            React.createElement(Card, { style: { marginBottom: '12px' } },
+              React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' } },
+                ...[
+                  { label: '総待機回数', value: standbyAllDays.overall.totalPeriods + '回', color: '#ff9800' },
+                  { label: '総待機時間', value: standbyAllDays.overall.totalMin + '分', color: 'var(--text-primary)' },
+                  { label: '平均待機', value: standbyAllDays.overall.avgMin + '分', color: 'var(--text-primary)' },
+                ].map((item, i) => React.createElement('div', { key: 'ov' + i },
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
+                  React.createElement('div', { style: { fontSize: '15px', fontWeight: 600, color: item.color } }, item.value)
+                ))
+              ),
+              React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center', marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' } },
+                ...[
+                  { label: '分析日数', value: standbyAllDays.overall.totalDays + '日', color: 'var(--text-primary)' },
+                  { label: '乗車成功', value: standbyAllDays.overall.gotRide + '回', color: '#00c853' },
+                  { label: '全体乗車率', value: standbyAllDays.overall.conversionRate + '%', color: standbyAllDays.overall.conversionRate >= 50 ? '#00c853' : standbyAllDays.overall.conversionRate >= 30 ? '#ff9800' : '#f44336' },
+                ].map((item, i) => React.createElement('div', { key: 'ov2' + i },
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '2px' } }, item.label),
+                  React.createElement('div', { style: { fontSize: '15px', fontWeight: 600, color: item.color } }, item.value)
+                ))
+              )
+            ),
+
+            // カテゴリ別集計
+            standbyAllDays.byCategory.length > 0 && React.createElement(React.Fragment, null,
+              React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' } }, 'カテゴリ別 待機効率'),
+              React.createElement('div', { style: { overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '12px' } },
+                React.createElement('table', { style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%', minWidth: '400px' } },
+                  React.createElement('thead', null,
+                    React.createElement('tr', null,
+                      ...['場所種別', '回数', '合計(分)', '平均(分)', '乗車率', '平均売上'].map(h =>
+                        React.createElement('th', { key: h, style: { padding: '6px 8px', fontWeight: 700, textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap', color: 'var(--text-secondary)' } }, h)
+                      )
+                    )
+                  ),
+                  React.createElement('tbody', null,
+                    ...standbyAllDays.byCategory.map(c => {
+                      const cs = catStyle[c.category] || catStyle.other;
+                      return React.createElement('tr', { key: c.category },
+                        React.createElement('td', { style: { padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: cs.color } }, cs.icon),
+                            React.createElement('span', { style: { fontWeight: 600, color: cs.color } }, c.label)
+                          )
+                        ),
+                        React.createElement('td', { style: { padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', fontWeight: 600 } }, c.count),
+                        React.createElement('td', { style: { padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, Math.round(c.totalMin)),
+                        React.createElement('td', { style: { padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, c.avgMin),
+                        React.createElement('td', { style: { padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', fontWeight: 600, color: c.conversionRate >= 50 ? '#00c853' : c.conversionRate >= 30 ? '#ff9800' : '#f44336' } }, c.conversionRate + '%'),
+                        React.createElement('td', { style: { padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, c.avgAmount > 0 ? '¥' + c.avgAmount.toLocaleString() : '--')
+                      );
+                    })
+                  )
+                )
+              )
+            ),
+
+            // 場所別ランキング
+            standbyAllDays.byPlace.length > 0 && React.createElement(React.Fragment, null,
+              React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' } }, '場所別 待機ランキング（全期間）'),
+              React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' } },
+                ...standbyAllDays.byPlace.slice(0, 10).map((pl, i) => {
+                  const cs = catStyle[pl.category] || catStyle.other;
+                  return React.createElement(Card, { key: i, style: { padding: '8px 12px' } },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                      React.createElement('div', { style: { width: '24px', height: '24px', borderRadius: '50%', background: cs.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '12px', fontWeight: 700, color: cs.color } }, i + 1),
+                      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: cs.color, flexShrink: 0 } }, cs.icon),
+                      React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                        React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, pl.name),
+                        React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-secondary)' } },
+                          pl.count + '回 / ' + Math.round(pl.totalMin) + '分 / 乗車率' + pl.conversionRate + '%' +
+                          (pl.avgAmount > 0 ? ' / 平均¥' + pl.avgAmount.toLocaleString() : '')
+                        )
+                      )
+                    )
+                  );
+                })
+              )
+            )
+          ),
+
+          !standbyAllDays && !standbyAllDaysLoading && React.createElement('div', { style: { textAlign: 'center', padding: '12px', color: 'var(--text-secondary)', fontSize: '12px' } }, 'データなし')
         ),
 
         // データなし表示
@@ -1475,7 +1670,10 @@ window.DataManagePage = () => {
         ),
         React.createElement('div', { style: { marginRight: '8px', whiteSpace: 'nowrap', textAlign: 'right' } },
           entry.noPassenger
-            ? React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f', fontSize: '15px' } }, '¥0（待機）')
+            ? React.createElement('div', null,
+                React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f', fontSize: '15px' } }, '¥0（空車）'),
+                entry.memo && entry.memo.includes('自動記録') && React.createElement('div', { style: { fontSize: '9px', color: '#ff9800', marginTop: '1px' } }, 'GPS自動検出')
+              )
             : React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${entry.amount.toLocaleString()}`),
           !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
         ),

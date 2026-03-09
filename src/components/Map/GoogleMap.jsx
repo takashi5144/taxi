@@ -103,6 +103,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const [showTraffic, setShowTraffic] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [heatmapMode, setHeatmapMode] = useState('timeAware');
+  const [heatmapHour, setHeatmapHour] = useState(new Date().getHours());
   const [heatmapStats, setHeatmapStats] = useState(null);
   const [showAiHeatmap, setShowAiHeatmap] = useState(false);
   const [aiTraining, setAiTraining] = useState(false);
@@ -339,6 +340,14 @@ window.GoogleMapView = ({ fullscreen = false }) => {
           const totalPts = points.reduce((s, p) => s + p.weight, 0);
           renderLayer(points, vacantGradient, { totalRides: totalPts, timeFiltered: points.length, mode: 'gpsVacant' });
         });
+      } else if (heatmapMode === 'hourFilter') {
+        // 時間帯指定モード
+        const hourGradient = [
+          'rgba(0,0,0,0)', 'rgba(0,200,83,0.15)', 'rgba(0,230,118,0.35)', 'rgba(76,175,80,0.5)',
+          'rgba(139,195,74,0.65)', 'rgba(205,220,57,0.78)', 'rgba(255,235,59,0.88)', 'rgba(255,152,0,0.95)', 'rgba(244,67,54,1)',
+        ];
+        const result = DataService.getHeatmapDataByHour(heatmapHour);
+        renderLayer(result.points, hourGradient, result.stats);
       } else {
         // 既存の同期モード
         const result = DataService.getSmartHeatmapData(heatmapMode);
@@ -382,7 +391,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       if (zoomListener) google.maps.event.removeListener(zoomListener);
       if (heatmapLayerRef.current) { heatmapLayerRef.current.setMap(null); heatmapLayerRef.current = null; }
     };
-  }, [showHeatmap, heatmapMode]);
+  }, [showHeatmap, heatmapMode, heatmapHour]);
 
   // AI予測ヒートマップの表示/非表示
   useEffect(() => {
@@ -698,6 +707,21 @@ window.GoogleMapView = ({ fullscreen = false }) => {
       if (showHeatmap && window.google.maps.visualization) {
         if (heatmapMode === 'gpsVacant') {
           // 空車GPSモードはデータ変更時に自動リフレッシュしない（非同期のため）
+        } else if (heatmapMode === 'hourFilter') {
+          const result = DataService.getHeatmapDataByHour(heatmapHour);
+          setHeatmapStats(result.stats);
+          const points = result.points;
+          if (points.length > 0) {
+            const heatData = points.map(p => ({
+              location: new google.maps.LatLng(p.lat, p.lng),
+              weight: p.weight,
+            }));
+            if (heatmapLayerRef.current) {
+              heatmapLayerRef.current.setData(heatData);
+            }
+          } else if (heatmapLayerRef.current) {
+            heatmapLayerRef.current.setData([]);
+          }
         } else {
           const result = DataService.getSmartHeatmapData(heatmapMode);
           setHeatmapStats(result.stats);
@@ -1025,6 +1049,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             { id: 'transit', label: '交通', icon: 'directions_transit', color: '#ec4899' },
             { id: 'combined', label: '統合', icon: 'merge_type', color: '#7c3aed' },
             { id: 'gpsVacant', label: '空車GPS', icon: 'directions_car', color: '#ff9800' },
+            { id: 'hourFilter', label: '時間指定', icon: 'filter_alt', color: '#4caf50' },
           ].map(m => React.createElement('button', {
             key: m.id,
             onClick: () => setHeatmapMode(m.id),
@@ -1041,6 +1066,29 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, m.icon),
             m.label
           ))
+        ),
+
+        // 時間帯指定スライダー（hourFilterモード時のみ）
+        showHeatmap && heatmapMode === 'hourFilter' && React.createElement('div', {
+          style: {
+            display: 'flex', alignItems: 'center', gap: '8px',
+            background: 'rgba(0,0,0,0.5)', borderRadius: '8px', padding: '8px 12px',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: '#4caf50' } }, 'schedule'),
+          React.createElement('span', { style: { fontSize: '13px', fontWeight: 700, color: '#fff', minWidth: '42px' } },
+            `${heatmapHour}:00`
+          ),
+          React.createElement('input', {
+            type: 'range', min: 0, max: 23, step: 1, value: heatmapHour,
+            onChange: (e) => setHeatmapHour(parseInt(e.target.value, 10)),
+            style: { flex: 1, accentColor: '#4caf50', cursor: 'pointer' },
+          }),
+          React.createElement('span', { style: { fontSize: '11px', color: 'rgba(255,255,255,0.6)' } },
+            heatmapStats && heatmapStats.mode === 'hourFilter'
+              ? `${heatmapStats.totalRides}件`
+              : ''
+          )
         ),
 
         // AI需要予測トグル
@@ -1154,13 +1202,14 @@ window.GoogleMapView = ({ fullscreen = false }) => {
 
       // ヒートマップ情報パネル
       showHeatmap && heatmapStats && (() => {
-        const modeColor = { timeAware: '#2196F3', all: '#FF9800', transit: '#ec4899', combined: '#7c3aed', gpsVacant: '#ff9800' }[heatmapMode] || '#FF9800';
+        const modeColor = { timeAware: '#2196F3', all: '#FF9800', transit: '#ec4899', combined: '#7c3aed', gpsVacant: '#ff9800', hourFilter: '#4caf50' }[heatmapMode] || '#FF9800';
         const modeDesc = {
           timeAware: '現在時間帯(±2h)・曜日・鮮度で重み付け',
           all: '全期間の乗車データを均等表示',
           transit: 'バス・JR到着 + 病院ピークの需要分布',
           combined: '乗車実績 + 交通需要の統合',
           gpsVacant: 'GPS軌跡の空車走行エリアを可視化（直近30日）',
+          hourFilter: `${heatmapHour}時台の乗車データのみ表示`,
         }[heatmapMode];
         return React.createElement('div', {
           style: {
@@ -1198,6 +1247,8 @@ window.GoogleMapView = ({ fullscreen = false }) => {
                   ? 'linear-gradient(to right, rgba(124,58,237,0.2), #7c3aed, #c83028)'
                   : heatmapMode === 'gpsVacant'
                   ? 'linear-gradient(to right, rgba(255,152,0,0.2), #ff9800, #e65100, #b71c1c)'
+                  : heatmapMode === 'hourFilter'
+                  ? 'linear-gradient(to right, rgba(76,175,80,0.2), #4caf50, #ffeb3b, #ff9800, #f44336)'
                   : 'linear-gradient(to right, rgba(0,100,255,0.3), #00d278, #ffdc1e, #ffa000, #dc1e1e)',
               },
             }),

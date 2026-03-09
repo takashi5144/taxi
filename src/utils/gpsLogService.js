@@ -245,6 +245,144 @@ window.GpsLogService = (() => {
     if (window.AppLogger) AppLogger.warn('GpsLogService init error:', e);
   });
 
+  // --- リアルタイム待機検出 ---
+  const RT_STANDBY_RADIUS = 50;       // 50m以内なら停車中
+  const RT_STANDBY_MIN_MS = 180000;   // 3分以上で待機確定
+  const RT_STANDBY_RIDE_CHECK_MS = 120000; // 待機終了後2分間は乗車チェック猶予
+  let _rtAnchor = null;   // { lat, lng, startTime, lastTime }
+  let _rtPendingStandby = null; // 待機終了後の乗車チェック待ち { ...standbyData, movedAt }
+  let _rtLastEntryCount = 0; // 直前の売上記録数（乗車検出用）
+
+  /** リアルタイム待機検出: GPS受信のたびに呼ばれる */
+  function _rtDetectStandby(lat, lng, now) {
+    // まず前回の未確定待機をチェック
+    _rtCheckPendingStandby(now);
+
+    if (_rtAnchor === null) {
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+      return;
+    }
+
+    const dist = _haversine(_rtAnchor.lat, _rtAnchor.lng, lat, lng);
+    if (dist <= RT_STANDBY_RADIUS) {
+      // まだ同じ場所にいる
+      _rtAnchor.lastTime = now;
+    } else {
+      // 動き始めた → 待機期間を確定するか判定
+      const duration = _rtAnchor.lastTime - _rtAnchor.startTime;
+      if (duration >= RT_STANDBY_MIN_MS) {
+        // 待機確定 → 乗車チェック待ちに入れる
+        const avgLat = _rtAnchor.lat;
+        const avgLng = _rtAnchor.lng;
+        const catInfo = _classifyStandbyCategory(avgLat, avgLng);
+        _rtPendingStandby = {
+          lat: avgLat, lng: avgLng,
+          startTime: _rtAnchor.startTime,
+          endTime: _rtAnchor.lastTime,
+          durationMin: Math.round(duration / 60000 * 10) / 10,
+          movedAt: now,
+          ...catInfo,
+        };
+        // 現在の売上記録数を記憶
+        try { _rtLastEntryCount = DataService.getEntries().length; } catch { _rtLastEntryCount = 0; }
+      }
+      // アンカーリセット
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+    }
+  }
+
+  /** 待機終了後の乗車チェック: 猶予時間内に売上が追加されなければ空車待機を自動記録 */
+  function _rtCheckPendingStandby(now) {
+    if (!_rtPendingStandby) return;
+    const elapsed = now - _rtPendingStandby.movedAt;
+    if (elapsed < RT_STANDBY_RIDE_CHECK_MS) return; // まだ猶予中
+
+    // 猶予時間経過 → 売上が増えたかチェック
+    let currentCount = 0;
+    try { currentCount = DataService.getEntries().length; } catch {}
+    const gotRide = currentCount > _rtLastEntryCount;
+
+    if (!gotRide) {
+      // 乗車なし → 空車待機を自動記録
+      _autoRecordVacantStandby(_rtPendingStandby);
+    }
+    _rtPendingStandby = null;
+  }
+
+  /** リアルタイム待機状態のフラッシュ（終業時・休憩開始時に呼ぶ） */
+  function flushRealtimeStandby() {
+    const now = Date.now();
+    // アンカー中の待機を確定
+    if (_rtAnchor) {
+      const duration = _rtAnchor.lastTime - _rtAnchor.startTime;
+      if (duration >= RT_STANDBY_MIN_MS) {
+        const catInfo = _classifyStandbyCategory(_rtAnchor.lat, _rtAnchor.lng);
+        const standby = {
+          lat: _rtAnchor.lat, lng: _rtAnchor.lng,
+          startTime: _rtAnchor.startTime,
+          endTime: _rtAnchor.lastTime,
+          durationMin: Math.round(duration / 60000 * 10) / 10,
+          movedAt: now,
+          ...catInfo,
+        };
+        // 直近に売上追加がなければ空車待機として記録
+        let currentCount = 0;
+        try { currentCount = DataService.getEntries().length; } catch {}
+        if (currentCount <= _rtLastEntryCount) {
+          _autoRecordVacantStandby(standby);
+        }
+      }
+      _rtAnchor = null;
+    }
+    // ペンディング中の待機もチェック
+    if (_rtPendingStandby) {
+      let currentCount = 0;
+      try { currentCount = DataService.getEntries().length; } catch {}
+      if (currentCount <= _rtLastEntryCount) {
+        _autoRecordVacantStandby(_rtPendingStandby);
+      }
+      _rtPendingStandby = null;
+    }
+  }
+
+  /** 空車待機を売上データに自動記録（noPassenger: true） */
+  function _autoRecordVacantStandby(standby) {
+    if (!window.DataService) return;
+    const dateStr = getLocalDateString(new Date(standby.startTime));
+    const startT = new Date(standby.startTime);
+    const endT = new Date(standby.endTime);
+    const pickupTime = `${String(startT.getHours()).padStart(2,'0')}:${String(startT.getMinutes()).padStart(2,'0')}`;
+    const dropoffTime = `${String(endT.getHours()).padStart(2,'0')}:${String(endT.getMinutes()).padStart(2,'0')}`;
+    const placeName = standby.nearbyName || standby.categoryLabel || '';
+
+    const form = {
+      amount: '0',
+      date: dateStr,
+      weather: _weatherCache ? _weatherCache.w : '',
+      temperature: _weatherCache ? _weatherCache.tp : null,
+      pickup: placeName,
+      pickupTime: pickupTime,
+      dropoff: placeName,
+      dropoffTime: dropoffTime,
+      pickupCoords: { lat: standby.lat, lng: standby.lng },
+      dropoffCoords: { lat: standby.lat, lng: standby.lng },
+      passengers: '0',
+      gender: '',
+      purpose: '待機',
+      source: '',
+      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}）自動記録`,
+      noPassenger: true,
+      paymentMethod: 'cash',
+    };
+
+    try {
+      DataService.addEntry(form);
+      if (window.AppLogger) AppLogger.info(`空車待機を自動記録: ${placeName || '不明'} ${standby.durationMin}分 [${standby.categoryLabel}]`);
+    } catch (e) {
+      if (window.AppLogger) AppLogger.warn('空車待機の自動記録に失敗:', e);
+    }
+  }
+
   // --- 公開API ---
 
   function _isMobile() {
@@ -277,6 +415,10 @@ window.GpsLogService = (() => {
       w: _weatherCache ? _weatherCache.w : null,
       tp: _weatherCache ? _weatherCache.tp : null,
     });
+
+    // リアルタイム待機検出
+    _rtDetectStandby(Math.round(lat * 1e6) / 1e6, Math.round(lng * 1e6) / 1e6, now);
+
     return true;
   }
 
@@ -567,6 +709,53 @@ window.GpsLogService = (() => {
     });
   }
 
+  /** 待機場所のカテゴリ分類（具体的な施設名を返す） */
+  function _classifyStandbyCategory(lat, lng) {
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    if (!locs) return { category: 'other', categoryLabel: 'その他', nearbyName: null };
+
+    // 駅チェック
+    if (locs.station) {
+      const d = _haversine(lat, lng, locs.station.lat, locs.station.lng);
+      if (d <= 300) return { category: 'station', categoryLabel: locs.station.name, nearbyName: locs.station.name };
+    }
+
+    // 病院チェック（具体的な病院名を表示）
+    if (locs.hospitalSchedules) {
+      let bestHosp = null;
+      let bestDist = Infinity;
+      for (const h of locs.hospitalSchedules) {
+        const d = _haversine(lat, lng, h.lat, h.lng);
+        if (d <= 300 && d < bestDist) { bestHosp = h; bestDist = d; }
+      }
+      if (bestHosp) return { category: 'hospital', categoryLabel: bestHosp.name, nearbyName: bestHosp.name };
+    }
+
+    // ホテルチェック（具体的なホテル名を表示）
+    if (locs.hotels) {
+      let bestHotel = null;
+      let bestDist = Infinity;
+      for (const h of locs.hotels) {
+        const d = _haversine(lat, lng, h.lat, h.lng);
+        if (d <= 200 && d < bestDist) { bestHotel = h; bestDist = d; }
+      }
+      if (bestHotel) return { category: 'hotel', categoryLabel: bestHotel.name, nearbyName: bestHotel.name };
+    }
+
+    // 待機スポットチェック（イオン等、具体名）
+    if (locs.waitingSpots) {
+      let bestSpot = null;
+      let bestDist = Infinity;
+      for (const s of locs.waitingSpots) {
+        const d = _haversine(lat, lng, s.lat, s.lng);
+        if (d <= 300 && d < bestDist) { bestSpot = s; bestDist = d; }
+      }
+      if (bestSpot) return { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
+    }
+
+    return { category: 'other', categoryLabel: 'その他', nearbyName: null };
+  }
+
   /** 待機クラスターを確定するヘルパー */
   function _finalizeStandby(points, startIdx, endIdx) {
     if (startIdx > endIdx || points.length === 0) return null;
@@ -577,7 +766,9 @@ window.GpsLogService = (() => {
     if (durationMin < 3) return null; // 3分未満は破棄
     const lat = cluster.reduce((s, p) => s + p.lat, 0) / cluster.length;
     const lng = cluster.reduce((s, p) => s + p.lng, 0) / cluster.length;
-    return { startTime, endTime, durationMin: Math.round(durationMin * 10) / 10, lat, lng, pointCount: cluster.length };
+    // カテゴリ分類を自動付与
+    const catInfo = _classifyStandbyCategory(lat, lng);
+    return { startTime, endTime, durationMin: Math.round(durationMin * 10) / 10, lat, lng, pointCount: cluster.length, ...catInfo };
   }
 
   /** GPS待機期間自動検出 (async) */
@@ -801,6 +992,122 @@ window.GpsLogService = (() => {
     }
   }
 
+  /** 待機効率分析: 各待機期間の直後に乗車があったかを判定 (async) */
+  async function getStandbyEfficiency(dateStr) {
+    const periods = await getStandbyPeriods(dateStr);
+    if (periods.length === 0) return { periods: [], stats: { total: 0, gotRide: 0, noRide: 0, conversionRate: 0, avgWaitToRide: 0 } };
+
+    const entries = DataService.getEntries();
+    const dayEntries = entries.filter(e => e.date === dateStr && e.pickupTime);
+
+    const enriched = periods.map(p => {
+      const standbyEnd = p.endTime;
+      // 待機終了後15分以内に乗車があれば「待機→乗車成功」とみなす
+      let nextRide = null;
+      let minGap = Infinity;
+      for (const e of dayEntries) {
+        const pickupMs = new Date(dateStr + 'T' + e.pickupTime + ':00').getTime();
+        const gap = pickupMs - standbyEnd;
+        if (gap >= -60000 && gap <= 900000 && gap < minGap) { // -1分〜+15分
+          minGap = gap;
+          nextRide = e;
+        }
+      }
+      return {
+        ...p,
+        gotRide: !!nextRide,
+        nextRideAmount: nextRide ? (nextRide.amount || 0) : null,
+        nextRidePickup: nextRide ? (nextRide.pickup || '') : null,
+        nextRideDropoff: nextRide ? (nextRide.dropoff || '') : null,
+        nextRideSource: nextRide ? (nextRide.source || '') : null,
+        waitToRideMin: nextRide ? Math.round(minGap / 60000 * 10) / 10 : null,
+      };
+    });
+
+    const gotRideCount = enriched.filter(p => p.gotRide).length;
+    const rideWaits = enriched.filter(p => p.gotRide && p.waitToRideMin != null);
+    const avgWaitToRide = rideWaits.length > 0 ? Math.round(rideWaits.reduce((s, p) => s + p.waitToRideMin, 0) / rideWaits.length * 10) / 10 : 0;
+
+    return {
+      periods: enriched,
+      stats: {
+        total: periods.length,
+        gotRide: gotRideCount,
+        noRide: periods.length - gotRideCount,
+        conversionRate: periods.length > 0 ? Math.round(gotRideCount / periods.length * 100) : 0,
+        avgWaitToRide,
+      },
+    };
+  }
+
+  /** 全日待機集計: 全GPSログ日の待機データをカテゴリ別・場所別に集約 (async) */
+  async function getStandbyAllDaysSummary() {
+    const dates = await getLogDates();
+    const allPeriods = [];
+    for (const d of dates) {
+      const eff = await getStandbyEfficiency(d);
+      eff.periods.forEach(p => allPeriods.push({ ...p, date: d }));
+    }
+    if (allPeriods.length === 0) return { byCategory: [], byPlace: [], overall: null };
+
+    // カテゴリ別集計
+    const catMap = {};
+    allPeriods.forEach(p => {
+      const key = p.category || 'other';
+      const catLabelMap = { station: '駅', hospital: '病院', hotel: 'ホテル', spot: '待機スポット', other: 'その他' };
+      if (!catMap[key]) catMap[key] = { category: key, label: catLabelMap[key] || 'その他', count: 0, totalMin: 0, gotRide: 0, totalAmount: 0 };
+      catMap[key].count++;
+      catMap[key].totalMin += p.durationMin;
+      if (p.gotRide) {
+        catMap[key].gotRide++;
+        catMap[key].totalAmount += (p.nextRideAmount || 0);
+      }
+    });
+    const byCategory = Object.values(catMap).map(c => ({
+      ...c,
+      avgMin: Math.round(c.totalMin / c.count * 10) / 10,
+      conversionRate: c.count > 0 ? Math.round(c.gotRide / c.count * 100) : 0,
+      avgAmount: c.gotRide > 0 ? Math.round(c.totalAmount / c.gotRide) : 0,
+    })).sort((a, b) => b.count - a.count);
+
+    // 場所別集計（nearbyName優先）
+    const placeMap = {};
+    for (const p of allPeriods) {
+      let name = p.nearbyName;
+      if (!name && window.TaxiApp && TaxiApp.utils.matchKnownPlace) {
+        name = TaxiApp.utils.matchKnownPlace(p.lat, p.lng);
+      }
+      if (!name) name = `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`;
+      if (!placeMap[name]) placeMap[name] = { name, category: p.category, categoryLabel: p.categoryLabel, count: 0, totalMin: 0, gotRide: 0, totalAmount: 0 };
+      placeMap[name].count++;
+      placeMap[name].totalMin += p.durationMin;
+      if (p.gotRide) {
+        placeMap[name].gotRide++;
+        placeMap[name].totalAmount += (p.nextRideAmount || 0);
+      }
+    }
+    const byPlace = Object.values(placeMap).map(pl => ({
+      ...pl,
+      avgMin: Math.round(pl.totalMin / pl.count * 10) / 10,
+      conversionRate: pl.count > 0 ? Math.round(pl.gotRide / pl.count * 100) : 0,
+      avgAmount: pl.gotRide > 0 ? Math.round(pl.totalAmount / pl.gotRide) : 0,
+    })).sort((a, b) => b.count - a.count);
+
+    // 全体統計
+    const totalGotRide = allPeriods.filter(p => p.gotRide).length;
+    const totalMin = allPeriods.reduce((s, p) => s + p.durationMin, 0);
+    const overall = {
+      totalPeriods: allPeriods.length,
+      totalDays: dates.length,
+      totalMin: Math.round(totalMin),
+      avgMin: Math.round(totalMin / allPeriods.length * 10) / 10,
+      gotRide: totalGotRide,
+      conversionRate: allPeriods.length > 0 ? Math.round(totalGotRide / allPeriods.length * 100) : 0,
+    };
+
+    return { byCategory, byPlace, overall };
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -824,6 +1131,9 @@ window.GpsLogService = (() => {
     getAllDailyTrends,
     getTrackData,
     getStandbyPeriods,
+    getStandbyEfficiency,
+    getStandbyAllDaysSummary,
+    flushRealtimeStandby,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
