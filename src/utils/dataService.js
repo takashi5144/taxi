@@ -1755,14 +1755,20 @@ window.DataService = (() => {
     const entries = _getRawEntries();
     const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
-    // 割引額を先に計算（クーポン・タクシーチケットは支払方法なので除外）
+    // 割引額を計算（障害者割引など、クーポン・チケット以外）
     const _discountAmt = (() => {
       const d = form.discounts || {};
       return Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'ticket' && k !== 'coupon').reduce((sum, [, v]) => sum + (parseInt(v) || 0), 0);
     })();
+    // クーポン金額
+    const _couponAmt = parseInt((form.discounts || {}).coupon) || 0;
+    const _couponUnitPrice = parseInt((form.discounts || {})._couponUnitPrice) || 0;
+    const _couponSheets = parseInt((form.discounts || {})._couponSheets) || 0;
+    // メインの売上額 = 元金額 - 割引 - クーポン
+    const mainAmount = parseInt(form.amount) - _discountAmt - _couponAmt;
     const entry = {
       id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-      amount: parseInt(form.amount) - _discountAmt,
+      amount: mainAmount,
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
@@ -1785,36 +1791,72 @@ window.DataService = (() => {
       paymentMethod: form.paymentMethod || 'cash',
       discounts: (() => {
         const d = form.discounts || {};
-        return Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([type, amount]) => {
+        // クーポンは別エントリにするので除外
+        return Object.entries(d).filter(([k, v]) => !k.startsWith('_') && k !== 'coupon' && v && parseInt(v) > 0).map(([type, amount]) => {
           const item = { type, amount: parseInt(amount) };
-          if (type === 'coupon') {
-            item.unitPrice = parseInt(d._couponUnitPrice) || parseInt(amount);
-            item.sheets = parseInt(d._couponSheets) || 1;
-          }
           return item;
         });
       })(),
       discountAmount: _discountAmt,
       discountType: (() => {
         const d = form.discounts || {};
-        const types = Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([t]) => t);
+        const types = Object.entries(d).filter(([k, v]) => !k.startsWith('_') && k !== 'coupon' && v && parseInt(v) > 0).map(([t]) => t);
         return types.join(',');
       })(),
+      couponAmount: _couponAmt > 0 ? _couponAmt : 0,
       waitingTime: '',
       timestamp: new Date().toISOString(),
     };
 
     entries.unshift(entry);
+
+    // クーポン分は別エントリとして未収で記録
+    let couponEntry = null;
+    if (_couponAmt > 0) {
+      couponEntry = {
+        id: Date.now() + '_coupon_' + Math.random().toString(36).substr(2, 5),
+        amount: _couponAmt,
+        date: entryDate,
+        dayOfWeek: dateInfo.dayOfWeek,
+        holiday: dateInfo.holiday || '',
+        weather: form.weather || '',
+        temperature: form.temperature != null ? form.temperature : null,
+        pickup: form.pickup || '',
+        pickupTime: form.pickupTime || '',
+        dropoff: form.dropoff || '',
+        dropoffTime: form.dropoffTime || '',
+        passengers: '',
+        gender: '',
+        purpose: '',
+        memo: `クーポン未収（¥${_couponUnitPrice.toLocaleString()}×${_couponSheets}枚）`,
+        source: form.source || '',
+        pickupCoords: form.pickupCoords || null,
+        dropoffCoords: form.dropoffCoords || null,
+        pickupLandmark: form.pickupLandmark || '',
+        dropoffLandmark: form.dropoffLandmark || '',
+        noPassenger: false,
+        paymentMethod: 'uncollected',
+        discounts: [],
+        discountAmount: 0,
+        discountType: '',
+        couponAmount: 0,
+        waitingTime: '',
+        timestamp: new Date().toISOString(),
+      };
+      entries.unshift(couponEntry);
+    }
+
     saveEntries(entries);
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
     const paymentStr = entry.paymentMethod === 'uncollected' ? ' [未収]' : entry.paymentMethod === 'didi' ? ' [DIDI決済]' : '';
     const discountStr = entry.discountAmount > 0 ? ` [割引¥${entry.discountAmount}]` : '';
-    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
+    const couponStr = _couponAmt > 0 ? ` [クーポン¥${_couponAmt}→未収]` : '';
+    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr}${couponStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
     // 自動ファイル保存
     autoSaveToFile();
     _syncToCloud('revenue', entries);
     _notifyDataChanged('revenue');
-    return { success: true, entry };
+    return { success: true, entry, couponEntry };
   }
 
   function deleteEntry(id) {

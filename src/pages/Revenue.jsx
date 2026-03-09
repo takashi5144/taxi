@@ -730,9 +730,10 @@ window.RevenuePage = () => {
   const todayDiscountDisability = getDiscountByType(todayEntries, 'disability');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
-  // クーポン未収金額（クーポンは未収扱い）
-  const todayCouponUncollected = todayDiscountCoupon.total;
-  const todayTotalUncollected = todayUncollected + todayCouponUncollected;
+  // クーポン未収はクーポン分が別エントリ（paymentMethod='uncollected'）として記録されるため、
+  // todayUncollected にクーポン未収の金額も含まれる
+  const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
+  const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
   const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
 
   // GPS取得ボタンのスタイル
@@ -796,7 +797,7 @@ window.RevenuePage = () => {
             `消費税: ¥${(todayCash - Math.floor(todayCash / 1.1)).toLocaleString()}`
           )
         ),
-        // 未収（クーポン未収含む）
+        // 未収
         React.createElement('div', {
           style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)' },
         },
@@ -819,10 +820,7 @@ window.RevenuePage = () => {
             style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
           },
             React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
-              `クーポン未収: ¥${todayCouponUncollected.toLocaleString()}`
-            ),
-            React.createElement('div', { style: { fontSize: 11, color: 'var(--color-error)', fontWeight: 700, marginTop: 2 } },
-              `未収+クーポン合計: ¥${todayTotalUncollected.toLocaleString()}`
+              `うちクーポン未収: ¥${todayCouponUncollected.toLocaleString()}`
             )
           )
         ),
@@ -1472,30 +1470,39 @@ window.RevenuePage = () => {
             ),
             (() => {
               const d = form.discounts || {};
-              const totalDiscount = Object.entries(d).filter(([k]) => !k.startsWith('_')).reduce((s, [, v]) => s + (parseInt(v) || 0), 0);
               const amt = parseInt(form.amount) || 0;
+              const disabilityAmt = parseInt(d.disability) || 0;
               const couponAmt = parseInt(d.coupon) || 0;
-              const cashAfterDiscount = amt - totalDiscount;
-              const cashReceived = cashAfterDiscount - couponAmt;
-              if (totalDiscount > 0 && amt > 0) {
+              const ticketAmt = parseInt(d.ticket) || 0;
+              const discountOnly = disabilityAmt;
+              const totalDeduction = discountOnly + couponAmt + ticketAmt;
+              const remaining = amt - totalDeduction;
+              if (totalDeduction > 0 && amt > 0) {
+                const payLabel = form.paymentMethod === 'cash' ? '現金' : form.paymentMethod === 'didi' ? 'DIDI決済' : '未収';
                 return React.createElement('div', {
                   style: {
-                    marginTop: '6px', padding: '6px 10px', borderRadius: '6px',
+                    marginTop: '6px', padding: '8px 10px', borderRadius: '6px',
                     background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.15)',
                     fontSize: '12px', color: 'var(--text-secondary)',
                     display: 'flex', flexDirection: 'column', gap: '4px',
                   },
                 },
-                  React.createElement('div', { style: { display: 'flex', gap: '12px' } },
-                    React.createElement('span', null, `割引合計: -¥${totalDiscount.toLocaleString()}`),
-                    React.createElement('span', null, `割引後: ¥${cashAfterDiscount.toLocaleString()}`),
-                    React.createElement('span', { style: { color: '#a78bfa' } },
-                      `割引率: ${Math.round((totalDiscount / amt) * 100)}%`
-                    )
+                  React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                    React.createElement('span', null, `金額: ¥${amt.toLocaleString()}`)
                   ),
-                  couponAmt > 0 && React.createElement('div', { style: { display: 'flex', gap: '12px', color: '#a78bfa' } },
-                    React.createElement('span', null, `クーポン未収: ¥${couponAmt.toLocaleString()}`),
-                    React.createElement('span', { style: { fontWeight: 700 } }, `現金受取: ¥${Math.max(0, cashReceived).toLocaleString()}`)
+                  disabilityAmt > 0 && React.createElement('div', { style: { color: '#a78bfa' } },
+                    `障害者割引: -¥${disabilityAmt.toLocaleString()}`
+                  ),
+                  couponAmt > 0 && React.createElement('div', { style: { color: '#a78bfa' } },
+                    `クーポン: -¥${couponAmt.toLocaleString()}（別途未収として記録）`
+                  ),
+                  ticketAmt > 0 && React.createElement('div', { style: { color: '#a78bfa' } },
+                    `チケット: -¥${ticketAmt.toLocaleString()}`
+                  ),
+                  React.createElement('div', {
+                    style: { borderTop: '1px solid rgba(167,139,250,0.2)', paddingTop: '4px', marginTop: '2px', fontWeight: 700, color: 'var(--color-accent)' },
+                  },
+                    `お支払い（${payLabel}）: ¥${Math.max(0, remaining).toLocaleString()}`
                   )
                 );
               }
@@ -2071,7 +2078,7 @@ window.RevenuePage = () => {
             entry.paymentMethod === 'didi' && React.createElement('div', {
               style: { fontSize: '10px', color: 'var(--color-warning)', fontWeight: 600, marginTop: '2px' }
             }, 'DIDI決済'),
-            (entry.discountAmount > 0 || (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.some(d => d.type === 'ticket' || d.type === 'coupon'))) && React.createElement('div', {
+            (entry.discountAmount > 0 || entry.couponAmount > 0 || (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.some(d => d.type === 'ticket' || d.type === 'coupon'))) && React.createElement('div', {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
               (() => {
@@ -2096,18 +2103,29 @@ window.RevenuePage = () => {
                     ))
                   );
                 }
-                // 旧フォーマットフォールバック
-                return React.createElement(React.Fragment, null,
-                  React.createElement('div', { style: { color: '#a78bfa', fontWeight: 600 } },
-                    typeLabels[entry.discountType] || entry.discountType || '割引'
-                  ),
-                  React.createElement('div', { style: { color: 'var(--text-muted)', marginTop: '1px' } },
-                    `割引前: ¥${(entry.amount + entry.discountAmount).toLocaleString()}`
-                  ),
-                  React.createElement('div', { style: { color: '#a78bfa' } },
-                    `割引額: -¥${entry.discountAmount.toLocaleString()}`
-                  )
-                );
+                // 旧フォーマットフォールバック or couponAmountのみ
+                if (entry.discountAmount > 0) {
+                  return React.createElement(React.Fragment, null,
+                    React.createElement('div', { style: { color: '#a78bfa', fontWeight: 600 } },
+                      typeLabels[entry.discountType] || entry.discountType || '割引'
+                    ),
+                    React.createElement('div', { style: { color: 'var(--text-muted)', marginTop: '1px' } },
+                      `割引前: ¥${(entry.amount + entry.discountAmount + (entry.couponAmount || 0)).toLocaleString()}`
+                    ),
+                    React.createElement('div', { style: { color: '#a78bfa' } },
+                      `割引額: -¥${entry.discountAmount.toLocaleString()}`
+                    ),
+                    entry.couponAmount > 0 && React.createElement('div', { style: { color: '#a78bfa', marginTop: '2px' } },
+                      `クーポン: -¥${entry.couponAmount.toLocaleString()}（別途未収）`
+                    )
+                  );
+                }
+                if (entry.couponAmount > 0) {
+                  return React.createElement('div', { style: { color: '#a78bfa', fontWeight: 600 } },
+                    `クーポン: -¥${entry.couponAmount.toLocaleString()}（別途未収）`
+                  );
+                }
+                return null;
               })()
             )
           ),
