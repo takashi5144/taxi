@@ -130,6 +130,19 @@ window.DashboardPage = () => {
   const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
   const slowPeriodRoutes = useMemo(() => DataService.getSlowPeriodCruisingRoutes(), [refreshKey, weatherImpact]);
   const waitVsCruise = useMemo(() => DataService.getWaitingVsCruisingEfficiency(dayTypeFilter), [refreshKey, dayTypeFilter]);
+  const [standbyAnalysis, setStandbyAnalysis] = useState(null);
+  const [standbyAnalysisLoading, setStandbyAnalysisLoading] = useState(false);
+  const [standbyDetailPlace, setStandbyDetailPlace] = useState(null);
+
+  // 待機場所分析のロード
+  useEffect(() => {
+    if (!window.GpsLogService) return;
+    setStandbyAnalysisLoading(true);
+    GpsLogService.getStandbyLocationAnalysis().then(data => {
+      setStandbyAnalysis(data);
+      setStandbyAnalysisLoading(false);
+    }).catch(() => setStandbyAnalysisLoading(false));
+  }, [refreshKey]);
 
   // 始業/終業シフト管理
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
@@ -1554,7 +1567,181 @@ window.DashboardPage = () => {
       )
     ),
 
-    // (旧イベント需要アラート → 日勤タイムラインに統合済み)
+    // ============================================================
+    // 待機場所パフォーマンス比較カード
+    // ============================================================
+    standbyAnalysis && standbyAnalysis.locations.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(59,130,246,0.06))',
+        border: '1px solid rgba(139,92,246,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#8b5cf6' } }, 'leaderboard'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機場所パフォーマンス比較')
+        ),
+        React.createElement('span', {
+          style: { fontSize: '10px', color: 'var(--text-muted)', padding: '2px 8px', borderRadius: '10px', background: 'rgba(139,92,246,0.12)' },
+        }, `${standbyAnalysis.locations.length}箇所`)
+      ),
+
+      // 全体サマリー
+      React.createElement('div', {
+        style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' },
+      },
+        ...[
+          { label: '最高効率', value: standbyAnalysis.recommendation.best, color: '#10b981' },
+          { label: '平均待ち', value: `${standbyAnalysis.recommendation.overallAvgWait}分`, color: standbyAnalysis.recommendation.overallAvgWait >= 60 ? '#ef4444' : standbyAnalysis.recommendation.overallAvgWait >= 30 ? '#f59e0b' : '#10b981' },
+          standbyAnalysis.cruisingAvgFare > 0 ? { label: '流し平均', value: `\u00A5${standbyAnalysis.cruisingAvgFare.toLocaleString()}`, color: '#a855f7' } : null,
+        ].filter(Boolean).map((item, idx) =>
+          React.createElement('div', {
+            key: `sa-sum-${idx}`,
+            style: { flex: 1, minWidth: '80px', padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' },
+          },
+            React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)', marginBottom: '2px' } }, item.label),
+            React.createElement('div', { style: { fontSize: '14px', fontWeight: 700, color: item.color } }, item.value)
+          )
+        )
+      ),
+
+      // 場所比較テーブル
+      React.createElement('div', { style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '10px' } },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              ...['場所', '回数', '平均待ち', '乗車率', '平均売上', '時給効率', '判定'].map(label =>
+                React.createElement('th', {
+                  key: label,
+                  style: { padding: '5px 6px', fontWeight: 700, textAlign: label === '場所' ? 'left' : 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap', fontSize: '10px' },
+                }, label)
+              )
+            )
+          ),
+          React.createElement('tbody', null,
+            ...standbyAnalysis.locations.map((loc, i) => {
+              const waitColor = loc.avgWaitMin >= 60 ? '#ef4444' : loc.avgWaitMin >= 30 ? '#f59e0b' : '#10b981';
+              const crColor = loc.conversionRate >= 50 ? '#10b981' : loc.conversionRate >= 30 ? '#f59e0b' : '#ef4444';
+              const verdictMap = { good: { label: '良い', color: '#10b981', bg: 'rgba(16,185,129,0.15)' }, caution: { label: '注意', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' }, avoid: { label: '流し推奨', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' } };
+              const v = verdictMap[loc.verdict] || verdictMap.caution;
+              const isBest = i === 0;
+              return React.createElement('tr', {
+                key: `sa-loc-${i}`,
+                onClick: () => setStandbyDetailPlace(standbyDetailPlace === loc.name ? null : loc.name),
+                style: { background: isBest ? 'rgba(139,92,246,0.06)' : 'transparent', cursor: 'pointer' },
+              },
+                React.createElement('td', { style: { padding: '5px 6px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                  React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                    isBest && React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', color: '#f59e0b' } }, 'emoji_events'),
+                    loc.name.replace('旭川', '')
+                  )
+                ),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${loc.totalStandbys}`),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', fontWeight: 700, color: waitColor, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${loc.avgWaitMin}分`),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', fontWeight: 600, color: crColor, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${loc.conversionRate}%`),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, loc.avgFare > 0 ? `\u00A5${loc.avgFare.toLocaleString()}` : '-'),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: loc.hourlyEfficiency >= 3000 ? '#10b981' : loc.hourlyEfficiency >= 1500 ? '#f59e0b' : '#ef4444' } },
+                  `\u00A5${loc.hourlyEfficiency.toLocaleString()}/h`
+                ),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                  React.createElement('span', { style: { fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: v.bg, color: v.color } }, v.label)
+                )
+              );
+            })
+          )
+        )
+      ),
+
+      // 詳細タイムライン（場所タップ時に展開）
+      standbyDetailPlace && (() => {
+        const loc = standbyAnalysis.locations.find(l => l.name === standbyDetailPlace);
+        if (!loc || Object.keys(loc.hourly).length === 0) return null;
+        const hours = Object.values(loc.hourly).sort((a, b) => a.hour - b.hour);
+        return React.createElement('div', {
+          style: { padding: '10px', borderRadius: '8px', background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.15)', marginBottom: '8px' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#8b5cf6' } }, 'timeline'),
+            React.createElement('span', { style: { fontWeight: 700, fontSize: '12px' } }, `${loc.name.replace('旭川', '')} 時間帯別パフォーマンス`)
+          ),
+          React.createElement('div', { style: { overflowX: 'auto' } },
+            React.createElement('table', { style: { borderCollapse: 'collapse', fontSize: '10px', width: '100%' } },
+              React.createElement('thead', null,
+                React.createElement('tr', null,
+                  ...['時間', 'データ数', '平均待ち', '乗車率', '平均売上'].map(label =>
+                    React.createElement('th', { key: label, style: { padding: '4px 6px', fontWeight: 700, textAlign: label === '時間' ? 'left' : 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' } }, label)
+                  )
+                )
+              ),
+              React.createElement('tbody', null,
+                ...hours.map(h => {
+                  const wc = h.avgWaitMin >= 60 ? '#ef4444' : h.avgWaitMin >= 30 ? '#f59e0b' : '#10b981';
+                  const cc = h.conversionRate >= 50 ? '#10b981' : h.conversionRate >= 30 ? '#f59e0b' : '#ef4444';
+                  const recommend = h.avgWaitMin >= 60 ? '流し推奨' : h.avgWaitMin >= 40 ? '注意' : null;
+                  return React.createElement('tr', { key: `h-${h.hour}` },
+                    React.createElement('td', { style: { padding: '4px 6px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                      `${h.hour}時`,
+                      recommend && React.createElement('span', {
+                        style: { marginLeft: '4px', fontSize: '8px', fontWeight: 700, padding: '1px 4px', borderRadius: '3px',
+                          background: recommend === '流し推奨' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                          color: recommend === '流し推奨' ? '#ef4444' : '#f59e0b' },
+                      }, recommend)
+                    ),
+                    React.createElement('td', { style: { padding: '4px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${h.count}回`),
+                    React.createElement('td', { style: { padding: '4px 6px', textAlign: 'center', fontWeight: 700, color: wc, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${h.avgWaitMin}分`),
+                    React.createElement('td', { style: { padding: '4px 6px', textAlign: 'center', fontWeight: 600, color: cc, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${h.conversionRate}%`),
+                    React.createElement('td', { style: { padding: '4px 6px', textAlign: 'center', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, h.avgFare > 0 ? `\u00A5${h.avgFare.toLocaleString()}` : '-')
+                  );
+                })
+              )
+            )
+          ),
+          // 流し比較のアドバイス
+          loc.verdict === 'avoid' && React.createElement('div', {
+            style: { marginTop: '8px', padding: '6px 10px', borderRadius: '6px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#ef4444' } }, 'warning'),
+            React.createElement('span', { style: { color: '#ef4444', fontWeight: 600 } },
+              `平均待ち時間${loc.avgWaitMin}分は長すぎます。この場所では流しで客を探した方が効率的です。`
+            )
+          ),
+          loc.verdict === 'caution' && React.createElement('div', {
+            style: { marginTop: '8px', padding: '6px 10px', borderRadius: '6px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#f59e0b' } }, 'info'),
+            React.createElement('span', { style: { color: '#f59e0b' } },
+              `待ち時間がやや長めです。時間帯を選んで待機するか、流しを検討してください。`
+            )
+          )
+        );
+      })(),
+
+      // 凡例
+      React.createElement('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center', fontSize: '9px', color: 'var(--text-muted)', flexWrap: 'wrap' } },
+        React.createElement('span', null, '時給効率 = (乗車率 × 平均売上) ÷ (待ち+乗車)時間'),
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' } }), '良い'
+        ),
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#f59e0b' } }), '注意'
+        ),
+        React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+          React.createElement('span', { style: { width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444' } }), '流し推奨'
+        )
+      )
+    ),
+
+    // ローディング表示
+    standbyAnalysisLoading && !standbyAnalysis && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)', textAlign: 'center' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#8b5cf6', animation: 'spin 1s linear infinite' } }, 'sync'),
+      React.createElement('span', { style: { marginLeft: '8px', fontSize: '12px', color: 'var(--text-secondary)' } }, '待機場所分析を読み込み中...')
+    ),
 
     // 閑散期流しルート
     slowPeriodRoutes && slowPeriodRoutes.isSlowPeriod && React.createElement(Card, {

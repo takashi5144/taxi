@@ -1108,6 +1108,133 @@ window.GpsLogService = (() => {
     return { byCategory, byPlace, overall };
   }
 
+  /**
+   * 待機場所別の詳細パフォーマンス分析
+   * - 場所別: 平均待ち時間、平均売上、時給効率、乗車率
+   * - 時間帯別: 各場所の0-23時の待ち時間・売上の分布
+   * - 流しとの比較: 待ち時間が長い場所は流しを推奨
+   */
+  async function getStandbyLocationAnalysis() {
+    const dates = await getLogDates();
+    const allPeriods = [];
+    for (const d of dates) {
+      const eff = await getStandbyEfficiency(d);
+      eff.periods.forEach(p => allPeriods.push({ ...p, date: d }));
+    }
+    if (allPeriods.length === 0) return { locations: [], recommendation: null };
+
+    // 売上データから流しの実績を集計
+    const entries = DataService.getEntries();
+    const cruisingEntries = entries.filter(e => e.source === '流し' && e.amount > 0);
+    const cruisingAvgFare = cruisingEntries.length > 0
+      ? Math.round(cruisingEntries.reduce((s, e) => s + (e.amount || 0), 0) / cruisingEntries.length)
+      : 0;
+
+    // 場所名の解決
+    function resolveName(p) {
+      if (p.nearbyName) return p.nearbyName;
+      if (window.TaxiApp && TaxiApp.utils.matchKnownPlace) {
+        const n = TaxiApp.utils.matchKnownPlace(p.lat, p.lng);
+        if (n) return n;
+      }
+      return null;
+    }
+
+    // 場所別に集計
+    const locMap = {};
+    for (const p of allPeriods) {
+      const name = resolveName(p);
+      if (!name) continue; // 不明な場所はスキップ
+      if (!locMap[name]) {
+        locMap[name] = {
+          name, category: p.category, categoryLabel: p.categoryLabel,
+          lat: p.lat, lng: p.lng,
+          periods: [],
+        };
+      }
+      locMap[name].periods.push(p);
+    }
+
+    // 各場所のパフォーマンスを算出
+    const locations = Object.values(locMap).map(loc => {
+      const total = loc.periods.length;
+      const rides = loc.periods.filter(p => p.gotRide);
+      const noRides = total - rides.length;
+      const conversionRate = total > 0 ? Math.round(rides.length / total * 100) : 0;
+
+      // 待ち時間（全待機の平均）
+      const totalWaitMin = loc.periods.reduce((s, p) => s + p.durationMin, 0);
+      const avgWaitMin = total > 0 ? Math.round(totalWaitMin / total * 10) / 10 : 0;
+
+      // 売上（乗車成功時のみの平均）
+      const totalAmount = rides.reduce((s, p) => s + (p.nextRideAmount || 0), 0);
+      const avgFare = rides.length > 0 ? Math.round(totalAmount / rides.length) : 0;
+
+      // 時給効率 = (乗車率 × 平均売上) / (平均待ち時間 + 乗車時間15分想定) × 60
+      const cycleMin = avgWaitMin + 15;
+      const hourlyEfficiency = cycleMin > 0 ? Math.round((conversionRate / 100) * avgFare / cycleMin * 60) : 0;
+
+      // 時間帯別分析（0-23時）
+      const hourly = {};
+      for (let h = 0; h < 24; h++) {
+        const hPeriods = loc.periods.filter(p => {
+          const startH = new Date(p.startTime).getHours();
+          return startH === h;
+        });
+        if (hPeriods.length === 0) continue;
+        const hRides = hPeriods.filter(p => p.gotRide);
+        const hTotalWait = hPeriods.reduce((s, p) => s + p.durationMin, 0);
+        const hTotalAmount = hRides.reduce((s, p) => s + (p.nextRideAmount || 0), 0);
+        hourly[h] = {
+          hour: h,
+          count: hPeriods.length,
+          avgWaitMin: Math.round(hTotalWait / hPeriods.length * 10) / 10,
+          rides: hRides.length,
+          conversionRate: Math.round(hRides.length / hPeriods.length * 100),
+          avgFare: hRides.length > 0 ? Math.round(hTotalAmount / hRides.length) : 0,
+        };
+      }
+
+      // 推奨判定
+      let verdict = 'good'; // good / caution / avoid
+      if (avgWaitMin >= 60 || conversionRate < 20) verdict = 'avoid';
+      else if (avgWaitMin >= 40 || conversionRate < 40) verdict = 'caution';
+
+      return {
+        name: loc.name, category: loc.category, categoryLabel: loc.categoryLabel,
+        lat: loc.lat, lng: loc.lng,
+        totalStandbys: total, rideCount: rides.length, noRideCount: noRides,
+        conversionRate, avgWaitMin, avgFare, hourlyEfficiency,
+        totalWaitMin: Math.round(totalWaitMin),
+        totalAmount,
+        hourly, verdict,
+      };
+    });
+
+    // 時給効率でソート
+    locations.sort((a, b) => b.hourlyEfficiency - a.hourlyEfficiency);
+
+    // ベスト・ワースト
+    const best = locations.length > 0 ? locations[0] : null;
+    const worst = locations.length > 1 ? locations[locations.length - 1] : null;
+
+    // 全体の平均待ち時間
+    const overallAvgWait = locations.length > 0
+      ? Math.round(locations.reduce((s, l) => s + l.avgWaitMin * l.totalStandbys, 0) / allPeriods.length * 10) / 10
+      : 0;
+
+    return {
+      locations,
+      cruisingAvgFare,
+      recommendation: {
+        best: best ? best.name : '---',
+        worst: worst ? worst.name : '---',
+        overallAvgWait,
+        shouldCruiseThreshold: 60, // 60分以上で流し推奨
+      },
+    };
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -1133,6 +1260,7 @@ window.GpsLogService = (() => {
     getStandbyPeriods,
     getStandbyEfficiency,
     getStandbyAllDaysSummary,
+    getStandbyLocationAnalysis,
     flushRealtimeStandby,
     // 座標検索API
     findNearestEntry,
