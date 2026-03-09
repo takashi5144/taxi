@@ -2627,7 +2627,7 @@ window.DataService = (() => {
   function migrateStationDropoffPurpose() {
     const KEY = 'taxi_migration_station_dropoff_purpose';
     if (localStorage.getItem(KEY)) return;
-    const entries = getEntries();
+    const entries = _getRawEntries();
     let count = 0;
     entries.forEach(e => {
       if (e.dropoff === '旭川駅前北口' && e.purpose !== '駅移動') {
@@ -2879,7 +2879,7 @@ window.DataService = (() => {
               resolve({ success: false, message: 'ファイル形式が正しくありません' }); return;
             }
             // 既存データとマージ（IDで重複排除 + サニタイズ）
-            const existing = getEntries();
+            const existing = _getRawEntries();
             const existingIds = new Set(existing.map(e => e.id));
             let newCount = 0;
             entries.forEach(entry => {
@@ -2974,7 +2974,7 @@ window.DataService = (() => {
     const cloudEntries = await loadFromCloud(type);
     if (!cloudEntries || cloudEntries.length === 0) return { merged: 0 };
 
-    const local = type === 'revenue' ? getEntries() : type === 'gathering' ? getGatheringMemos() : getRivalEntries();
+    const local = type === 'revenue' ? _getRawEntries() : type === 'gathering' ? getGatheringMemos() : getRivalEntries();
     const localIds = new Set(local.map(e => e.id));
     let merged = 0;
     cloudEntries.forEach(entry => {
