@@ -380,7 +380,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.12.0',
+  VERSION: '3.12.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -593,6 +593,14 @@ window.APP_CONSTANTS = {
           basePatternWeekday: [0,0,0,0,0,0,3,10,25,35,40,35,40,55,60,45,18,6,2,0,0,0,0,0],
           basePatternWeekend: [0,0,0,0,0,0,0,2,5,8,10,8,5,3,2,1,0,0,0,0,0,0,0,0],
           peakBoost: { startHour: 13, endHour: 15, boost: 18 },
+        },
+        {
+          id: 'asahiyama_zoo', name: '旭山動物園', shortName: '動物園',
+          lat: 43.7688, lng: 142.4849,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,0,5,20,35,40,35,30,40,55,60,45,15,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,0,10,30,50,55,50,45,55,65,70,55,20,0,0,0,0,0],
+          peakBoost: null,
         },
         {
           id: 'aeon', name: 'イオンモール旭川駅前', shortName: 'イオン',

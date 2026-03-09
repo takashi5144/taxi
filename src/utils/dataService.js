@@ -59,7 +59,7 @@ window.DataService = (() => {
   // ============================================================
   const _spotKeywords = {
     station: /駅前|駅/, asahikawa_medical: /医大|医科大/, red_cross: /赤十字/,
-    kosei: /厚生/, shiritsu: /市立/, aeon: /イオン/,
+    kosei: /厚生/, shiritsu: /市立/, asahiyama_zoo: /動物園|旭山/, aeon: /イオン/,
   };
   function _matchSpot(spotId, text, coords, spotDef) {
     const kw = _spotKeywords[spotId];

@@ -742,13 +742,14 @@ window.GpsLogService = (() => {
       if (bestHotel) return { category: 'hotel', categoryLabel: bestHotel.name, nearbyName: bestHotel.name };
     }
 
-    // 待機スポットチェック（イオン等、具体名）
+    // 待機スポットチェック（イオン、動物園等、具体名）
     if (locs.waitingSpots) {
       let bestSpot = null;
       let bestDist = Infinity;
       for (const s of locs.waitingSpots) {
+        const radius = s.id === 'asahiyama_zoo' ? 500 : 300; // 動物園は敷地が広い
         const d = _haversine(lat, lng, s.lat, s.lng);
-        if (d <= 300 && d < bestDist) { bestSpot = s; bestDist = d; }
+        if (d <= radius && d < bestDist) { bestSpot = s; bestDist = d; }
       }
       if (bestSpot) return { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
     }
