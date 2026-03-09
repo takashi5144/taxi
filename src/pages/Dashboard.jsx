@@ -137,22 +137,24 @@ window.DashboardPage = () => {
   const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
   const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
 
-  // 待機場所分析のロード
+  // 待機場所分析のロード（グローバルキャッシュも更新）
   useEffect(() => {
     if (!window.GpsLogService) return;
     setStandbyAnalysisLoading(true);
     GpsLogService.getStandbyLocationAnalysis().then(data => {
       setStandbyAnalysis(data);
+      window._cachedStandbyAnalysis = data;
       setStandbyAnalysisLoading(false);
     }).catch(() => setStandbyAnalysisLoading(false));
   }, [refreshKey]);
 
-  // 流しエリア分析のロード
+  // 流しエリア分析のロード（グローバルキャッシュも更新）
   useEffect(() => {
     if (!window.GpsLogService || !GpsLogService.getCruisingAreaPerformance) return;
     setCruisingPerfLoading(true);
     GpsLogService.getCruisingAreaPerformance().then(data => {
       setCruisingPerf(data);
+      window._cachedCruisingPerf = data;
       setCruisingPerfLoading(false);
     }).catch(() => setCruisingPerfLoading(false));
   }, [refreshKey]);
@@ -623,6 +625,23 @@ window.DashboardPage = () => {
           background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
           transition: 'width 0.5s ease',
         } })
+      ),
+      // GPS実車率（cruisingPerfがある場合）
+      cruisingPerf && cruisingPerf.overall && cruisingPerf.overall.totalMin > 0 && React.createElement('div', {
+        style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', color: '#a855f7' } }, 'gps_fixed'),
+          React.createElement('span', null, `GPS実車率（${cruisingPerf.overall.daysAnalyzed}日間）`)
+        ),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { style: { fontWeight: 700, color: cruisingPerf.overall.rate >= 40 ? '#10b981' : cruisingPerf.overall.rate >= 25 ? '#f59e0b' : '#ef4444' } },
+            `${cruisingPerf.overall.rate}%`
+          ),
+          React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+            `${Math.round(cruisingPerf.overall.totalMin / 60)}h走行 ${cruisingPerf.overall.totalRides}回乗車`
+          )
+        )
       )
     ),
 
@@ -707,6 +726,22 @@ window.DashboardPage = () => {
                   g.hourlyRevenue > 0 ? `\u00A5${g.hourlyRevenue.toLocaleString()}` : '-'
                 );
               })
+            ),
+            // GPS実績行（データがある場合のみ表示）
+            (waitVsCruise.gpsStandbyEfficiency || waitVsCruise.gpsCruisingEfficiency) && React.createElement('tr', { style: { background: 'rgba(16,185,129,0.04)' } },
+              React.createElement('td', { style: { padding: '5px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px', color: '#10b981' } },
+                React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'gps_fixed'),
+                  'GPS実績時給'
+                )
+              ),
+              React.createElement('td', { style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#10b981', fontSize: '10px' } },
+                waitVsCruise.gpsStandbyEfficiency ? `\u00A5${waitVsCruise.gpsStandbyEfficiency.avgHourlyRevenue.toLocaleString()}` : '-'
+              ),
+              React.createElement('td', { style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#10b981', fontSize: '10px' } },
+                waitVsCruise.gpsCruisingEfficiency ? `\u00A5${waitVsCruise.gpsCruisingEfficiency.avgHourlyRevenue.toLocaleString()}` : '-'
+              ),
+              React.createElement('td', { style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px', color: 'var(--text-muted)' } }, '-')
             )
           )
         )
@@ -994,7 +1029,7 @@ window.DashboardPage = () => {
             } }, `${i + 1}`),
             React.createElement('div', { style: { flex: 1, minWidth: 0 } },
               React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, spot.name),
-              React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '2px' } },
+              React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' } },
                 spot.tags.map(tag =>
                   React.createElement('span', {
                     key: tag,
@@ -1005,6 +1040,19 @@ window.DashboardPage = () => {
                     },
                   }, tag)
                 ),
+                // 待機場所のGPS実績verdict
+                (() => {
+                  if (!standbyAnalysis || !standbyAnalysis.locations) return null;
+                  const match = standbyAnalysis.locations.find(l => spot.name.includes(l.name) || l.name.includes(spot.name));
+                  if (!match) return null;
+                  const vMap = { good: { label: '実績良', bg: 'rgba(16,185,129,0.2)', color: '#10b981' }, caution: { label: '注意', bg: 'rgba(245,158,11,0.2)', color: '#f59e0b' }, avoid: { label: '待ち長', bg: 'rgba(239,68,68,0.2)', color: '#ef4444' } };
+                  const v = vMap[match.verdict];
+                  if (!v) return null;
+                  return React.createElement('span', {
+                    key: 'verdict',
+                    style: { fontSize: '8px', fontWeight: 700, padding: '1px 5px', borderRadius: '6px', background: v.bg, color: v.color },
+                  }, `${v.label} ${match.avgWaitMin}分待`);
+                })(),
                 React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${spot.count}回`)
               )
             )
@@ -1424,11 +1472,19 @@ window.DashboardPage = () => {
           React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '流しエリア'),
           ...cruisingAreaData.areas.filter(a => a.hasHistory).slice(0, 3).map(area => {
             const barColor = area.currentIndex >= 70 ? '#ef4444' : area.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
+            const gpsArea = cruisingPerf && cruisingPerf.areas ? cruisingPerf.areas.find(a => a.id === area.id) : null;
             return React.createElement('div', {
               key: `ca-${area.id}`, style: { marginBottom: '4px' },
             },
               React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
-                React.createElement('span', { style: { fontWeight: 600 } }, area.shortName),
+                React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 } },
+                  area.shortName,
+                  gpsArea && React.createElement('span', {
+                    style: { fontSize: '7px', fontWeight: 700, padding: '0 3px', borderRadius: '3px',
+                      background: gpsArea.rate >= 30 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                      color: gpsArea.rate >= 30 ? '#10b981' : '#ef4444' },
+                  }, `${gpsArea.rate}%`)
+                ),
                 React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(area.currentIndex))
               ),
               React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
@@ -1560,17 +1616,42 @@ window.DashboardPage = () => {
                   style: { padding: '5px 8px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' },
                 },
                   React.createElement('span', {
-                    style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', marginRight: '6px',
-                      background: s.type === 'waiting' ? '#3b82f6' : '#a855f7' },
-                  }),
-                  s.shortName
+                    style: { display: 'inline-flex', alignItems: 'center', gap: '3px' },
+                  },
+                    React.createElement('span', {
+                      style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
+                        background: s.type === 'waiting' ? '#3b82f6' : '#a855f7' },
+                    }),
+                    s.shortName,
+                    // GPS verdict badge for waiting spots
+                    s.gpsVerdict && React.createElement('span', {
+                      style: { fontSize: '7px', fontWeight: 700, padding: '0 3px', borderRadius: '3px',
+                        background: s.gpsVerdict === 'good' ? 'rgba(16,185,129,0.2)' : s.gpsVerdict === 'caution' ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)',
+                        color: s.gpsVerdict === 'good' ? '#10b981' : s.gpsVerdict === 'caution' ? '#f59e0b' : '#ef4444' },
+                    }, s.gpsVerdict === 'good' ? '実績良' : s.gpsVerdict === 'caution' ? '注意' : '非推奨'),
+                    // GPS occupancy rate badge for cruising areas
+                    s.gpsOccupancyRate != null && React.createElement('span', {
+                      style: { fontSize: '7px', fontWeight: 700, padding: '0 3px', borderRadius: '3px',
+                        background: s.gpsOccupancyRate >= 30 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                        color: s.gpsOccupancyRate >= 30 ? '#10b981' : '#ef4444' },
+                    }, `実車${s.gpsOccupancyRate}%`)
+                  )
                 ),
                 React.createElement('td', {
                   style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' },
-                }, `\u00A5${s.expectedHourlyRevenue.toLocaleString()}`),
+                },
+                  `\u00A5${s.expectedHourlyRevenue.toLocaleString()}`,
+                  // Show GPS hourly efficiency as sub-text
+                  (s.gpsHourlyEff || s.gpsHourlyRevenue) && React.createElement('div', { style: { fontSize: '8px', color: '#10b981', fontWeight: 600 } },
+                    `GPS:\u00A5${(s.gpsHourlyEff || s.gpsHourlyRevenue).toLocaleString()}`
+                  )
+                ),
                 React.createElement('td', {
                   style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-secondary)' },
-                }, s.type === 'waiting' ? `${s.expectedWaitMin}分` : '流し'),
+                },
+                  s.type === 'waiting' ? `${s.expectedWaitMin}分` : '流し',
+                  s.gpsAvgWait != null && React.createElement('div', { style: { fontSize: '8px', color: '#10b981' } }, `実績${s.gpsAvgWait}分`)
+                ),
                 React.createElement('td', {
                   style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' },
                 },

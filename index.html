@@ -1228,7 +1228,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.13.0',
+  VERSION: '3.14.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -6110,17 +6110,39 @@ window.DataService = (() => {
     }
 
     // 5. フォールバック: 実績のある最高スコアの待機or流し
+    // 待機場所のverdict（GPS実績）を考慮: avoid判定の場所を除外
+    const standbyVerdicts = {};
+    if (window._cachedStandbyAnalysis && window._cachedStandbyAnalysis.locations) {
+      window._cachedStandbyAnalysis.locations.forEach(l => { standbyVerdicts[l.name] = l; });
+    }
+    // 流しエリアの実車率（GPS実績）を考慮: 低実車率エリアを抑制
+    const cruisingRates = {};
+    if (window._cachedCruisingPerf && window._cachedCruisingPerf.areas) {
+      window._cachedCruisingPerf.areas.forEach(a => { cruisingRates[a.id] = a; });
+    }
+
     const allSpots = [
-      ...waitingData.spots.filter(s => !s.currentDisabled && s.hasHistory).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
-      ...cruisingData.areas.filter(a => a.hasHistory).map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
+      ...waitingData.spots.filter(s => !s.currentDisabled && s.hasHistory).map(s => {
+        const verdict = Object.values(standbyVerdicts).find(v => s.name.includes(v.name) || v.name.includes(s.name));
+        const penalized = verdict && verdict.verdict === 'avoid';
+        return { name: s.name, score: penalized ? Math.round(s.currentIndex * 0.5) : s.currentIndex, type: '待機', verdict: verdict ? verdict.verdict : null, hourlyEff: verdict ? verdict.hourlyEfficiency : null };
+      }),
+      ...cruisingData.areas.filter(a => a.hasHistory).map(a => {
+        const perf = cruisingRates[a.id];
+        const lowRate = perf && perf.rate < 20;
+        return { name: a.name, score: lowRate ? Math.round(a.currentIndex * 0.6) : a.currentIndex, type: '流し', occupancyRate: perf ? perf.rate : null };
+      }),
     ].sort((a, b) => b.score - a.score);
 
     if (allSpots.length > 0) {
+      let reason = `需要スコア${allSpots[0].score}（現在最高）`;
+      if (allSpots[0].verdict === 'good') reason += '・実績良好';
+      if (allSpots[0].occupancyRate != null) reason += `・実車率${allSpots[0].occupancyRate}%`;
       candidates.push({
         action: allSpots[0].type === '待機' ? `${allSpots[0].name}で待機` : `${allSpots[0].name}で流し`,
-        reason: `需要スコア${allSpots[0].score}（現在最高）`,
+        reason,
         urgency: 'plan', demandScore: allSpots[0].score,
-        estimatedRevenue: 1500, estimatedWaitMin: 20, priority: 40,
+        estimatedRevenue: allSpots[0].hourlyEff || 1500, estimatedWaitMin: 20, priority: 40,
       });
     }
 
@@ -7052,13 +7074,38 @@ window.DataService = (() => {
       });
     });
 
-    // 流しエリア戦略（実績のある場所のみ）
+    // 待機スポットにGPS実績のverdict/時給効率を付与
+    const standbyMap = {};
+    if (window._cachedStandbyAnalysis && window._cachedStandbyAnalysis.locations) {
+      window._cachedStandbyAnalysis.locations.forEach(l => { standbyMap[l.name] = l; });
+    }
+    strategies.forEach(s => {
+      if (s.type !== 'waiting') return;
+      const match = Object.values(standbyMap).find(v => s.location.includes(v.name) || v.name.includes(s.location));
+      if (match) {
+        s.gpsVerdict = match.verdict;
+        s.gpsHourlyEff = match.hourlyEfficiency;
+        s.gpsAvgWait = match.avgWaitMin;
+        s.gpsConversion = match.conversionRate;
+      }
+    });
+
+    // 流しエリア戦略（実績のある場所のみ）— GPS実車率を反映
+    const cruisingPerfMap = {};
+    if (window._cachedCruisingPerf && window._cachedCruisingPerf.areas) {
+      window._cachedCruisingPerf.areas.forEach(a => { cruisingPerfMap[a.id] = a; });
+    }
+
     cruisingData.areas.filter(a => a.hasHistory).forEach(area => {
       const hourData = area.hourlyIndex[targetHour] || {};
       const demandIdx = hourData.index || 0;
-      const avgFare = 1200; // 流しは短距離中心の想定
-      const ridesPerHour = demandIdx >= 60 ? 3 : demandIdx >= 40 ? 2 : 1;
-      const hourlyRev = avgFare * ridesPerHour;
+      const perf = cruisingPerfMap[area.id];
+      // GPS実績があれば実データ使用、なければ推定
+      const avgFare = perf && perf.avgFare > 0 ? perf.avgFare : 1200;
+      const ridesPerHour = perf && perf.hourly && perf.hourly[targetHour]
+        ? perf.hourly[targetHour].ridesPerHour
+        : (demandIdx >= 60 ? 3 : demandIdx >= 40 ? 2 : 1);
+      const hourlyRev = perf && perf.hourlyRevenue > 0 ? perf.hourlyRevenue : avgFare * ridesPerHour;
 
       strategies.push({
         type: 'cruising', location: area.name, shortName: area.shortName || area.name,
@@ -7068,6 +7115,8 @@ window.DataService = (() => {
         riskLevel: demandIdx < 30 ? 'high' : demandIdx < 50 ? 'medium' : 'low',
         demandScore: demandIdx, disabled: false,
         factors: [],
+        gpsOccupancyRate: perf ? perf.rate : null,
+        gpsHourlyRevenue: perf ? perf.hourlyRevenue : null,
       });
     });
 
@@ -7206,30 +7255,43 @@ window.DataService = (() => {
       if (r.id === 'hotel_route') usedAreaIds.add('downtown');
     });
 
+    // GPS実車率データを参照してルート選定を改善
+    const gpsCruisingPerf = window._cachedCruisingPerf;
+    const gpsPerfMap = {};
+    if (gpsCruisingPerf && gpsCruisingPerf.areas) {
+      gpsCruisingPerf.areas.forEach(a => { gpsPerfMap[a.id] = a; });
+    }
+
     const cruisingIndex = getCruisingAreaDemandIndex();
     const availableAreas = cruisingAreas
       .filter(a => !usedAreaIds.has(a.id))
       .map(a => {
         const areaData = cruisingIndex.areas.find(ca => ca.id === a.id) || {};
         const idx = areaData.hourlyIndex ? (areaData.hourlyIndex[currentHour] || {}).index || 0 : 0;
-        return { ...a, demandIdx: idx };
+        const perf = gpsPerfMap[a.id];
+        // GPS実車率が高いエリアを優先
+        const gpsBonus = perf && perf.rate >= 30 ? 15 : perf && perf.rate >= 20 ? 5 : 0;
+        return { ...a, demandIdx: idx + gpsBonus, gpsRate: perf ? perf.rate : null, gpsHourlyRev: perf ? perf.hourlyRevenue : null };
       })
       .sort((a, b) => b.demandIdx - a.demandIdx)
       .slice(0, 3);
 
     if (availableAreas.length >= 2) {
       const avgDemand = availableAreas.reduce((s, a) => s + a.demandIdx, 0) / availableAreas.length;
+      const gpsAnnotations = availableAreas.filter(a => a.gpsRate != null).map(a => `${a.shortName}実車率${a.gpsRate}%`);
       routes.push({
         id: 'demand_explore',
         label: '需要探索ルート',
         areas: availableAreas.map(a => a.shortName),
         stayMinutes: availableAreas.map(() => 15),
         expectedRevenue: Math.round(1200 * (avgDemand >= 30 ? 2 : 1.2)),
-        factor: '相対的に需要が高いエリアを巡回',
+        factor: gpsAnnotations.length > 0
+          ? `GPS実績: ${gpsAnnotations.join('、')}`
+          : '相対的に需要が高いエリアを巡回',
         tip: `${availableAreas[0].shortName}から開始し、反応がなければ${availableAreas.length >= 2 ? availableAreas[1].shortName : '次'}へ移動`,
+        gpsAreas: availableAreas.filter(a => a.gpsRate != null).map(a => ({ name: a.shortName, rate: a.gpsRate, hourlyRev: a.gpsHourlyRev })),
       });
     }
-
     // --- 一般アドバイス ---
     const generalTips = [];
     if (currentHour >= 7 && currentHour <= 9) {
@@ -7244,6 +7306,13 @@ window.DataService = (() => {
     }
     if (isLowRevenue) {
       generalTips.push('売上ペース低下中。1回の長距離より回転数重視で中心部を流す');
+    }
+    // 避けるべきエリア（GPS実車率が極端に低い）
+    if (gpsCruisingPerf && gpsCruisingPerf.areas) {
+      const lowRateAreas = gpsCruisingPerf.areas.filter(a => a.rate < 15 && a.totalMin >= 30);
+      if (lowRateAreas.length > 0) {
+        generalTips.push(`実車率が低いエリア: ${lowRateAreas.map(a => `${a.shortName}(${a.rate}%)`).join('、')} — 避けた方が効率的`);
+      }
     }
 
     return { isSlowPeriod: true, trigger, currentScore, dailyRate, routes, generalTips };
@@ -7490,7 +7559,45 @@ window.DataService = (() => {
       });
     }
 
-    return { waiting, cruising, app, recommendation, recommendationType, hourlyComparison, totalRides: enriched.length };
+    // GPS実績データ統合（GpsLogServiceが利用可能な場合）
+    let gpsStandbyEfficiency = null;
+    let gpsCruisingEfficiency = null;
+    if (window._cachedStandbyAnalysis) {
+      const sa = window._cachedStandbyAnalysis;
+      if (sa.locations && sa.locations.length > 0) {
+        const goodLocs = sa.locations.filter(l => l.verdict === 'good');
+        const avgEff = sa.locations.reduce((s, l) => s + l.hourlyEfficiency, 0) / sa.locations.length;
+        gpsStandbyEfficiency = {
+          avgHourlyRevenue: Math.round(avgEff),
+          bestLocation: sa.recommendation.best,
+          avgWaitMin: sa.recommendation.overallAvgWait,
+          locationCount: sa.locations.length,
+          goodCount: goodLocs.length,
+        };
+      }
+    }
+    if (window._cachedCruisingPerf) {
+      const cp = window._cachedCruisingPerf;
+      if (cp.overall && cp.overall.totalMin > 0) {
+        gpsCruisingEfficiency = {
+          avgHourlyRevenue: cp.overall.hourlyRevenue || 0,
+          occupancyRate: cp.overall.rate,
+          totalRides: cp.overall.totalRides,
+          daysAnalyzed: cp.overall.daysAnalyzed,
+        };
+      }
+    }
+
+    // GPS実績で推奨を補強
+    if (gpsStandbyEfficiency && gpsCruisingEfficiency) {
+      if (gpsStandbyEfficiency.avgHourlyRevenue > gpsCruisingEfficiency.avgHourlyRevenue * 1.15) {
+        recommendation += ` (GPS実績: 待機¥${gpsStandbyEfficiency.avgHourlyRevenue.toLocaleString()}/h > 流し¥${gpsCruisingEfficiency.avgHourlyRevenue.toLocaleString()}/h)`;
+      } else if (gpsCruisingEfficiency.avgHourlyRevenue > gpsStandbyEfficiency.avgHourlyRevenue * 1.15) {
+        recommendation += ` (GPS実績: 流し¥${gpsCruisingEfficiency.avgHourlyRevenue.toLocaleString()}/h > 待機¥${gpsStandbyEfficiency.avgHourlyRevenue.toLocaleString()}/h)`;
+      }
+    }
+
+    return { waiting, cruising, app, recommendation, recommendationType, hourlyComparison, totalRides: enriched.length, gpsStandbyEfficiency, gpsCruisingEfficiency };
   }
 
   // ============================================================
@@ -13024,22 +13131,24 @@ window.DashboardPage = () => {
   const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
   const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
 
-  // 待機場所分析のロード
+  // 待機場所分析のロード（グローバルキャッシュも更新）
   useEffect(() => {
     if (!window.GpsLogService) return;
     setStandbyAnalysisLoading(true);
     GpsLogService.getStandbyLocationAnalysis().then(data => {
       setStandbyAnalysis(data);
+      window._cachedStandbyAnalysis = data;
       setStandbyAnalysisLoading(false);
     }).catch(() => setStandbyAnalysisLoading(false));
   }, [refreshKey]);
 
-  // 流しエリア分析のロード
+  // 流しエリア分析のロード（グローバルキャッシュも更新）
   useEffect(() => {
     if (!window.GpsLogService || !GpsLogService.getCruisingAreaPerformance) return;
     setCruisingPerfLoading(true);
     GpsLogService.getCruisingAreaPerformance().then(data => {
       setCruisingPerf(data);
+      window._cachedCruisingPerf = data;
       setCruisingPerfLoading(false);
     }).catch(() => setCruisingPerfLoading(false));
   }, [refreshKey]);
@@ -13510,6 +13619,23 @@ window.DashboardPage = () => {
           background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
           transition: 'width 0.5s ease',
         } })
+      ),
+      // GPS実車率（cruisingPerfがある場合）
+      cruisingPerf && cruisingPerf.overall && cruisingPerf.overall.totalMin > 0 && React.createElement('div', {
+        style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', color: '#a855f7' } }, 'gps_fixed'),
+          React.createElement('span', null, `GPS実車率（${cruisingPerf.overall.daysAnalyzed}日間）`)
+        ),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { style: { fontWeight: 700, color: cruisingPerf.overall.rate >= 40 ? '#10b981' : cruisingPerf.overall.rate >= 25 ? '#f59e0b' : '#ef4444' } },
+            `${cruisingPerf.overall.rate}%`
+          ),
+          React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
+            `${Math.round(cruisingPerf.overall.totalMin / 60)}h走行 ${cruisingPerf.overall.totalRides}回乗車`
+          )
+        )
       )
     ),
 
@@ -13594,6 +13720,22 @@ window.DashboardPage = () => {
                   g.hourlyRevenue > 0 ? `\u00A5${g.hourlyRevenue.toLocaleString()}` : '-'
                 );
               })
+            ),
+            // GPS実績行（データがある場合のみ表示）
+            (waitVsCruise.gpsStandbyEfficiency || waitVsCruise.gpsCruisingEfficiency) && React.createElement('tr', { style: { background: 'rgba(16,185,129,0.04)' } },
+              React.createElement('td', { style: { padding: '5px 8px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px', color: '#10b981' } },
+                React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'gps_fixed'),
+                  'GPS実績時給'
+                )
+              ),
+              React.createElement('td', { style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#10b981', fontSize: '10px' } },
+                waitVsCruise.gpsStandbyEfficiency ? `\u00A5${waitVsCruise.gpsStandbyEfficiency.avgHourlyRevenue.toLocaleString()}` : '-'
+              ),
+              React.createElement('td', { style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#10b981', fontSize: '10px' } },
+                waitVsCruise.gpsCruisingEfficiency ? `\u00A5${waitVsCruise.gpsCruisingEfficiency.avgHourlyRevenue.toLocaleString()}` : '-'
+              ),
+              React.createElement('td', { style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px', color: 'var(--text-muted)' } }, '-')
             )
           )
         )
@@ -13881,7 +14023,7 @@ window.DashboardPage = () => {
             } }, `${i + 1}`),
             React.createElement('div', { style: { flex: 1, minWidth: 0 } },
               React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, spot.name),
-              React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '2px' } },
+              React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '2px', flexWrap: 'wrap' } },
                 spot.tags.map(tag =>
                   React.createElement('span', {
                     key: tag,
@@ -13892,6 +14034,19 @@ window.DashboardPage = () => {
                     },
                   }, tag)
                 ),
+                // 待機場所のGPS実績verdict
+                (() => {
+                  if (!standbyAnalysis || !standbyAnalysis.locations) return null;
+                  const match = standbyAnalysis.locations.find(l => spot.name.includes(l.name) || l.name.includes(spot.name));
+                  if (!match) return null;
+                  const vMap = { good: { label: '実績良', bg: 'rgba(16,185,129,0.2)', color: '#10b981' }, caution: { label: '注意', bg: 'rgba(245,158,11,0.2)', color: '#f59e0b' }, avoid: { label: '待ち長', bg: 'rgba(239,68,68,0.2)', color: '#ef4444' } };
+                  const v = vMap[match.verdict];
+                  if (!v) return null;
+                  return React.createElement('span', {
+                    key: 'verdict',
+                    style: { fontSize: '8px', fontWeight: 700, padding: '1px 5px', borderRadius: '6px', background: v.bg, color: v.color },
+                  }, `${v.label} ${match.avgWaitMin}分待`);
+                })(),
                 React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${spot.count}回`)
               )
             )
@@ -14311,11 +14466,19 @@ window.DashboardPage = () => {
           React.createElement('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' } }, '流しエリア'),
           ...cruisingAreaData.areas.filter(a => a.hasHistory).slice(0, 3).map(area => {
             const barColor = area.currentIndex >= 70 ? '#ef4444' : area.currentIndex >= 50 ? '#f59e0b' : '#3b82f6';
+            const gpsArea = cruisingPerf && cruisingPerf.areas ? cruisingPerf.areas.find(a => a.id === area.id) : null;
             return React.createElement('div', {
               key: `ca-${area.id}`, style: { marginBottom: '4px' },
             },
               React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
-                React.createElement('span', { style: { fontWeight: 600 } }, area.shortName),
+                React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 } },
+                  area.shortName,
+                  gpsArea && React.createElement('span', {
+                    style: { fontSize: '7px', fontWeight: 700, padding: '0 3px', borderRadius: '3px',
+                      background: gpsArea.rate >= 30 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                      color: gpsArea.rate >= 30 ? '#10b981' : '#ef4444' },
+                  }, `${gpsArea.rate}%`)
+                ),
                 React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(area.currentIndex))
               ),
               React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
@@ -14447,17 +14610,42 @@ window.DashboardPage = () => {
                   style: { padding: '5px 8px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' },
                 },
                   React.createElement('span', {
-                    style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', marginRight: '6px',
-                      background: s.type === 'waiting' ? '#3b82f6' : '#a855f7' },
-                  }),
-                  s.shortName
+                    style: { display: 'inline-flex', alignItems: 'center', gap: '3px' },
+                  },
+                    React.createElement('span', {
+                      style: { display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
+                        background: s.type === 'waiting' ? '#3b82f6' : '#a855f7' },
+                    }),
+                    s.shortName,
+                    // GPS verdict badge for waiting spots
+                    s.gpsVerdict && React.createElement('span', {
+                      style: { fontSize: '7px', fontWeight: 700, padding: '0 3px', borderRadius: '3px',
+                        background: s.gpsVerdict === 'good' ? 'rgba(16,185,129,0.2)' : s.gpsVerdict === 'caution' ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)',
+                        color: s.gpsVerdict === 'good' ? '#10b981' : s.gpsVerdict === 'caution' ? '#f59e0b' : '#ef4444' },
+                    }, s.gpsVerdict === 'good' ? '実績良' : s.gpsVerdict === 'caution' ? '注意' : '非推奨'),
+                    // GPS occupancy rate badge for cruising areas
+                    s.gpsOccupancyRate != null && React.createElement('span', {
+                      style: { fontSize: '7px', fontWeight: 700, padding: '0 3px', borderRadius: '3px',
+                        background: s.gpsOccupancyRate >= 30 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                        color: s.gpsOccupancyRate >= 30 ? '#10b981' : '#ef4444' },
+                    }, `実車${s.gpsOccupancyRate}%`)
+                  )
                 ),
                 React.createElement('td', {
                   style: { padding: '5px 8px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: isBest ? '#10b981' : 'var(--text-primary)' },
-                }, `\u00A5${s.expectedHourlyRevenue.toLocaleString()}`),
+                },
+                  `\u00A5${s.expectedHourlyRevenue.toLocaleString()}`,
+                  // Show GPS hourly efficiency as sub-text
+                  (s.gpsHourlyEff || s.gpsHourlyRevenue) && React.createElement('div', { style: { fontSize: '8px', color: '#10b981', fontWeight: 600 } },
+                    `GPS:\u00A5${(s.gpsHourlyEff || s.gpsHourlyRevenue).toLocaleString()}`
+                  )
+                ),
                 React.createElement('td', {
                   style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-secondary)' },
-                }, s.type === 'waiting' ? `${s.expectedWaitMin}分` : '流し'),
+                },
+                  s.type === 'waiting' ? `${s.expectedWaitMin}分` : '流し',
+                  s.gpsAvgWait != null && React.createElement('div', { style: { fontSize: '8px', color: '#10b981' } }, `実績${s.gpsAvgWait}分`)
+                ),
                 React.createElement('td', {
                   style: { padding: '5px 8px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' },
                 },

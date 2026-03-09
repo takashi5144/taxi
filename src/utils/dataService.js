@@ -3761,17 +3761,39 @@ window.DataService = (() => {
     }
 
     // 5. フォールバック: 実績のある最高スコアの待機or流し
+    // 待機場所のverdict（GPS実績）を考慮: avoid判定の場所を除外
+    const standbyVerdicts = {};
+    if (window._cachedStandbyAnalysis && window._cachedStandbyAnalysis.locations) {
+      window._cachedStandbyAnalysis.locations.forEach(l => { standbyVerdicts[l.name] = l; });
+    }
+    // 流しエリアの実車率（GPS実績）を考慮: 低実車率エリアを抑制
+    const cruisingRates = {};
+    if (window._cachedCruisingPerf && window._cachedCruisingPerf.areas) {
+      window._cachedCruisingPerf.areas.forEach(a => { cruisingRates[a.id] = a; });
+    }
+
     const allSpots = [
-      ...waitingData.spots.filter(s => !s.currentDisabled && s.hasHistory).map(s => ({ name: s.name, score: s.currentIndex, type: '待機' })),
-      ...cruisingData.areas.filter(a => a.hasHistory).map(a => ({ name: a.name, score: a.currentIndex, type: '流し' })),
+      ...waitingData.spots.filter(s => !s.currentDisabled && s.hasHistory).map(s => {
+        const verdict = Object.values(standbyVerdicts).find(v => s.name.includes(v.name) || v.name.includes(s.name));
+        const penalized = verdict && verdict.verdict === 'avoid';
+        return { name: s.name, score: penalized ? Math.round(s.currentIndex * 0.5) : s.currentIndex, type: '待機', verdict: verdict ? verdict.verdict : null, hourlyEff: verdict ? verdict.hourlyEfficiency : null };
+      }),
+      ...cruisingData.areas.filter(a => a.hasHistory).map(a => {
+        const perf = cruisingRates[a.id];
+        const lowRate = perf && perf.rate < 20;
+        return { name: a.name, score: lowRate ? Math.round(a.currentIndex * 0.6) : a.currentIndex, type: '流し', occupancyRate: perf ? perf.rate : null };
+      }),
     ].sort((a, b) => b.score - a.score);
 
     if (allSpots.length > 0) {
+      let reason = `需要スコア${allSpots[0].score}（現在最高）`;
+      if (allSpots[0].verdict === 'good') reason += '・実績良好';
+      if (allSpots[0].occupancyRate != null) reason += `・実車率${allSpots[0].occupancyRate}%`;
       candidates.push({
         action: allSpots[0].type === '待機' ? `${allSpots[0].name}で待機` : `${allSpots[0].name}で流し`,
-        reason: `需要スコア${allSpots[0].score}（現在最高）`,
+        reason,
         urgency: 'plan', demandScore: allSpots[0].score,
-        estimatedRevenue: 1500, estimatedWaitMin: 20, priority: 40,
+        estimatedRevenue: allSpots[0].hourlyEff || 1500, estimatedWaitMin: 20, priority: 40,
       });
     }
 
@@ -4703,13 +4725,38 @@ window.DataService = (() => {
       });
     });
 
-    // 流しエリア戦略（実績のある場所のみ）
+    // 待機スポットにGPS実績のverdict/時給効率を付与
+    const standbyMap = {};
+    if (window._cachedStandbyAnalysis && window._cachedStandbyAnalysis.locations) {
+      window._cachedStandbyAnalysis.locations.forEach(l => { standbyMap[l.name] = l; });
+    }
+    strategies.forEach(s => {
+      if (s.type !== 'waiting') return;
+      const match = Object.values(standbyMap).find(v => s.location.includes(v.name) || v.name.includes(s.location));
+      if (match) {
+        s.gpsVerdict = match.verdict;
+        s.gpsHourlyEff = match.hourlyEfficiency;
+        s.gpsAvgWait = match.avgWaitMin;
+        s.gpsConversion = match.conversionRate;
+      }
+    });
+
+    // 流しエリア戦略（実績のある場所のみ）— GPS実車率を反映
+    const cruisingPerfMap = {};
+    if (window._cachedCruisingPerf && window._cachedCruisingPerf.areas) {
+      window._cachedCruisingPerf.areas.forEach(a => { cruisingPerfMap[a.id] = a; });
+    }
+
     cruisingData.areas.filter(a => a.hasHistory).forEach(area => {
       const hourData = area.hourlyIndex[targetHour] || {};
       const demandIdx = hourData.index || 0;
-      const avgFare = 1200; // 流しは短距離中心の想定
-      const ridesPerHour = demandIdx >= 60 ? 3 : demandIdx >= 40 ? 2 : 1;
-      const hourlyRev = avgFare * ridesPerHour;
+      const perf = cruisingPerfMap[area.id];
+      // GPS実績があれば実データ使用、なければ推定
+      const avgFare = perf && perf.avgFare > 0 ? perf.avgFare : 1200;
+      const ridesPerHour = perf && perf.hourly && perf.hourly[targetHour]
+        ? perf.hourly[targetHour].ridesPerHour
+        : (demandIdx >= 60 ? 3 : demandIdx >= 40 ? 2 : 1);
+      const hourlyRev = perf && perf.hourlyRevenue > 0 ? perf.hourlyRevenue : avgFare * ridesPerHour;
 
       strategies.push({
         type: 'cruising', location: area.name, shortName: area.shortName || area.name,
@@ -4719,6 +4766,8 @@ window.DataService = (() => {
         riskLevel: demandIdx < 30 ? 'high' : demandIdx < 50 ? 'medium' : 'low',
         demandScore: demandIdx, disabled: false,
         factors: [],
+        gpsOccupancyRate: perf ? perf.rate : null,
+        gpsHourlyRevenue: perf ? perf.hourlyRevenue : null,
       });
     });
 
@@ -4857,30 +4906,43 @@ window.DataService = (() => {
       if (r.id === 'hotel_route') usedAreaIds.add('downtown');
     });
 
+    // GPS実車率データを参照してルート選定を改善
+    const gpsCruisingPerf = window._cachedCruisingPerf;
+    const gpsPerfMap = {};
+    if (gpsCruisingPerf && gpsCruisingPerf.areas) {
+      gpsCruisingPerf.areas.forEach(a => { gpsPerfMap[a.id] = a; });
+    }
+
     const cruisingIndex = getCruisingAreaDemandIndex();
     const availableAreas = cruisingAreas
       .filter(a => !usedAreaIds.has(a.id))
       .map(a => {
         const areaData = cruisingIndex.areas.find(ca => ca.id === a.id) || {};
         const idx = areaData.hourlyIndex ? (areaData.hourlyIndex[currentHour] || {}).index || 0 : 0;
-        return { ...a, demandIdx: idx };
+        const perf = gpsPerfMap[a.id];
+        // GPS実車率が高いエリアを優先
+        const gpsBonus = perf && perf.rate >= 30 ? 15 : perf && perf.rate >= 20 ? 5 : 0;
+        return { ...a, demandIdx: idx + gpsBonus, gpsRate: perf ? perf.rate : null, gpsHourlyRev: perf ? perf.hourlyRevenue : null };
       })
       .sort((a, b) => b.demandIdx - a.demandIdx)
       .slice(0, 3);
 
     if (availableAreas.length >= 2) {
       const avgDemand = availableAreas.reduce((s, a) => s + a.demandIdx, 0) / availableAreas.length;
+      const gpsAnnotations = availableAreas.filter(a => a.gpsRate != null).map(a => `${a.shortName}実車率${a.gpsRate}%`);
       routes.push({
         id: 'demand_explore',
         label: '需要探索ルート',
         areas: availableAreas.map(a => a.shortName),
         stayMinutes: availableAreas.map(() => 15),
         expectedRevenue: Math.round(1200 * (avgDemand >= 30 ? 2 : 1.2)),
-        factor: '相対的に需要が高いエリアを巡回',
+        factor: gpsAnnotations.length > 0
+          ? `GPS実績: ${gpsAnnotations.join('、')}`
+          : '相対的に需要が高いエリアを巡回',
         tip: `${availableAreas[0].shortName}から開始し、反応がなければ${availableAreas.length >= 2 ? availableAreas[1].shortName : '次'}へ移動`,
+        gpsAreas: availableAreas.filter(a => a.gpsRate != null).map(a => ({ name: a.shortName, rate: a.gpsRate, hourlyRev: a.gpsHourlyRev })),
       });
     }
-
     // --- 一般アドバイス ---
     const generalTips = [];
     if (currentHour >= 7 && currentHour <= 9) {
@@ -4895,6 +4957,13 @@ window.DataService = (() => {
     }
     if (isLowRevenue) {
       generalTips.push('売上ペース低下中。1回の長距離より回転数重視で中心部を流す');
+    }
+    // 避けるべきエリア（GPS実車率が極端に低い）
+    if (gpsCruisingPerf && gpsCruisingPerf.areas) {
+      const lowRateAreas = gpsCruisingPerf.areas.filter(a => a.rate < 15 && a.totalMin >= 30);
+      if (lowRateAreas.length > 0) {
+        generalTips.push(`実車率が低いエリア: ${lowRateAreas.map(a => `${a.shortName}(${a.rate}%)`).join('、')} — 避けた方が効率的`);
+      }
     }
 
     return { isSlowPeriod: true, trigger, currentScore, dailyRate, routes, generalTips };
@@ -5141,7 +5210,45 @@ window.DataService = (() => {
       });
     }
 
-    return { waiting, cruising, app, recommendation, recommendationType, hourlyComparison, totalRides: enriched.length };
+    // GPS実績データ統合（GpsLogServiceが利用可能な場合）
+    let gpsStandbyEfficiency = null;
+    let gpsCruisingEfficiency = null;
+    if (window._cachedStandbyAnalysis) {
+      const sa = window._cachedStandbyAnalysis;
+      if (sa.locations && sa.locations.length > 0) {
+        const goodLocs = sa.locations.filter(l => l.verdict === 'good');
+        const avgEff = sa.locations.reduce((s, l) => s + l.hourlyEfficiency, 0) / sa.locations.length;
+        gpsStandbyEfficiency = {
+          avgHourlyRevenue: Math.round(avgEff),
+          bestLocation: sa.recommendation.best,
+          avgWaitMin: sa.recommendation.overallAvgWait,
+          locationCount: sa.locations.length,
+          goodCount: goodLocs.length,
+        };
+      }
+    }
+    if (window._cachedCruisingPerf) {
+      const cp = window._cachedCruisingPerf;
+      if (cp.overall && cp.overall.totalMin > 0) {
+        gpsCruisingEfficiency = {
+          avgHourlyRevenue: cp.overall.hourlyRevenue || 0,
+          occupancyRate: cp.overall.rate,
+          totalRides: cp.overall.totalRides,
+          daysAnalyzed: cp.overall.daysAnalyzed,
+        };
+      }
+    }
+
+    // GPS実績で推奨を補強
+    if (gpsStandbyEfficiency && gpsCruisingEfficiency) {
+      if (gpsStandbyEfficiency.avgHourlyRevenue > gpsCruisingEfficiency.avgHourlyRevenue * 1.15) {
+        recommendation += ` (GPS実績: 待機¥${gpsStandbyEfficiency.avgHourlyRevenue.toLocaleString()}/h > 流し¥${gpsCruisingEfficiency.avgHourlyRevenue.toLocaleString()}/h)`;
+      } else if (gpsCruisingEfficiency.avgHourlyRevenue > gpsStandbyEfficiency.avgHourlyRevenue * 1.15) {
+        recommendation += ` (GPS実績: 流し¥${gpsCruisingEfficiency.avgHourlyRevenue.toLocaleString()}/h > 待機¥${gpsStandbyEfficiency.avgHourlyRevenue.toLocaleString()}/h)`;
+      }
+    }
+
+    return { waiting, cruising, app, recommendation, recommendationType, hourlyComparison, totalRides: enriched.length, gpsStandbyEfficiency, gpsCruisingEfficiency };
   }
 
   // ============================================================
