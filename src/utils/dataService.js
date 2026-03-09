@@ -143,10 +143,10 @@ window.DataService = (() => {
   let _gatheringCache = null;
   let _gatheringCacheRaw = null;
 
-  function getEntries() {
+  // 全エントリ（空車含む）を生データとして取得（内部CRUD用）
+  function _getRawEntries() {
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
-      if (saved === _entriesCacheRaw && _entriesCache !== null) return _entriesCache;
       const entries = saved ? JSON.parse(saved) : [];
       entries.forEach(e => {
         if (e.date) {
@@ -155,9 +155,30 @@ window.DataService = (() => {
           e.holiday = info.holiday || '';
         }
       });
+      return entries;
+    } catch {
+      return [];
+    }
+  }
+
+  function getEntries() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
+      if (saved === _entriesCacheRaw && _entriesCache !== null) return _entriesCache;
+      const entries = _getRawEntries();
       _entriesCacheRaw = saved;
       _entriesCache = _sortByDateTimeDesc(entries.filter(e => !e.noPassenger), 'date', 'dropoffTime');
       return _entriesCache;
+    } catch {
+      return [];
+    }
+  }
+
+  // 空車記録のみ取得
+  function getVacantEntries() {
+    try {
+      const entries = _getRawEntries();
+      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger), 'date', 'dropoffTime');
     } catch {
       return [];
     }
@@ -183,7 +204,7 @@ window.DataService = (() => {
       const json = JSON.stringify(sorted);
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, json);
       _entriesCacheRaw = json;
-      _entriesCache = sorted;
+      _entriesCache = sorted.filter(e => !e.noPassenger);
       return true;
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
@@ -201,7 +222,7 @@ window.DataService = (() => {
     const matchKnown = TaxiApp.utils.matchKnownPlace;
     let changed = false;
 
-    const entries = getEntries();
+    const entries = _getRawEntries();
     entries.forEach(e => {
       // pickup テキスト自体をエイリアス/座標で統一
       if (e.pickupCoords && e.pickupCoords.lat) {
@@ -1731,7 +1752,7 @@ window.DataService = (() => {
     const validation = validateEntry(form);
     if (!validation.valid) return { success: false, errors: validation.errors };
 
-    const entries = getEntries();
+    const entries = _getRawEntries();
     const entryDate = form.date || getLocalDateString();
     const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
     // 割引額を先に計算（クーポン・タクシーチケットは支払方法なので除外）
@@ -1797,7 +1818,7 @@ window.DataService = (() => {
   }
 
   function deleteEntry(id) {
-    const entries = getEntries();
+    const entries = _getRawEntries();
     const filtered = entries.filter(e => e.id !== id);
     saveEntries(filtered);
     AppLogger.info('売上記録を削除しました');
@@ -1824,7 +1845,7 @@ window.DataService = (() => {
   }
 
   function moveToTrash(id) {
-    const entries = getEntries();
+    const entries = _getRawEntries();
     const entry = entries.find(e => e.id === id);
     if (!entry) return false;
     const trashEntry = { ...entry, _trashType: 'revenue', _deletedAt: new Date().toISOString(), _trashId: Date.now() + '_' + Math.random().toString(36).substr(2, 5) };
@@ -1875,7 +1896,7 @@ window.DataService = (() => {
     trash.splice(idx, 1);
     saveTrash(trash);
     if (type === 'revenue') {
-      const entries = getEntries();
+      const entries = _getRawEntries();
       entries.unshift(item);
       saveEntries(entries);
       autoSaveToFile();
@@ -1920,7 +1941,7 @@ window.DataService = (() => {
   }
 
   function updateEntry(id, updates) {
-    const entries = getEntries();
+    const entries = _getRawEntries();
     const idx = entries.findIndex(e => e.id === id);
     if (idx === -1) return { success: false, errors: ['記録が見つかりません'] };
     if (updates.amount != null) {
@@ -5498,6 +5519,7 @@ window.DataService = (() => {
   return {
     // データ取得
     getEntries,
+    getVacantEntries,
     saveEntries,
 
     // サマリー

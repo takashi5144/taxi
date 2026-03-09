@@ -700,11 +700,13 @@ window.RevenuePage = () => {
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash');
-  const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected' || e.paymentMethod === 'didi');
+  const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
   const todayDidiEntries = todayEntries.filter(e => e.paymentMethod === 'didi');
+  const todayUberEntries = todayEntries.filter(e => e.source === 'Uber');
   const todayCash = todayCashEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayDidi = todayDidiEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayUber = todayUberEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayDiscount = todayEntries.reduce((sum, e) => sum + (e.discountAmount || 0), 0);
   // 各割引種別の合計額を算出（新旧フォーマット両対応）
   const getDiscountByType = (entries, dtype) => {
@@ -770,9 +772,9 @@ window.RevenuePage = () => {
         )
       ),
 
-      // 現金・未収・DIDI決済 内訳
+      // 現金・未収・DIDI決済・Uber 内訳
       React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
+        style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
       },
         // 現金
         React.createElement('div', {
@@ -794,7 +796,7 @@ window.RevenuePage = () => {
             `消費税: ¥${(todayCash - Math.floor(todayCash / 1.1)).toLocaleString()}`
           )
         ),
-        // 未収（DIDI決済含む + クーポン未収）
+        // 未収（クーポン未収含む）
         React.createElement('div', {
           style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)' },
         },
@@ -843,6 +845,26 @@ window.RevenuePage = () => {
           React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
             `消費税: ¥${(todayDidi - Math.floor(todayDidi / 1.1)).toLocaleString()}`
           )
+        ),
+        // Uber
+        React.createElement('div', {
+          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.15)' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#fff', fontWeight: 600, marginBottom: 6 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'hail'),
+            'Uber'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#fff' } },
+            `¥${todayUber.toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+            `税抜: ¥${Math.floor(todayUber / 1.1).toLocaleString()}`
+          ),
+          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+            `消費税: ¥${(todayUber - Math.floor(todayUber / 1.1)).toLocaleString()}`
+          )
         )
       ),
 
@@ -890,6 +912,9 @@ window.RevenuePage = () => {
         ),
         React.createElement('span', { style: { color: 'var(--color-warning)' } },
           `DIDI: ${todayDidiEntries.length}件`
+        ),
+        React.createElement('span', { style: { color: '#fff' } },
+          `Uber: ${todayUberEntries.length}件`
         ),
         React.createElement('span', { style: { color: 'var(--text-muted)' } },
           `全${entries.length}件 累計¥${allTotal.toLocaleString()}`
