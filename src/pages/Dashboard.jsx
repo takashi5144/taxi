@@ -1379,14 +1379,32 @@ window.DashboardPage = () => {
               key: `ws-${spot.id}`, style: { marginBottom: '4px' },
             },
               React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '1px' } },
-                React.createElement('span', { style: { fontWeight: 600 } }, spot.shortName),
+                React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 } },
+                  spot.shortName,
+                  spot.zooStatus && spot.zooStatus.isOpen && React.createElement('span', {
+                    style: { fontSize: '8px', padding: '0 3px', borderRadius: '3px', fontWeight: 700,
+                      background: spot.zooStatus.season === 'winter' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)',
+                      color: spot.zooStatus.season === 'winter' ? '#3b82f6' : '#10b981' },
+                  }, spot.zooStatus.season === 'winter' ? '冬期' : spot.zooStatus.season === 'autumn' ? '秋期' : '夏期')
+                ),
                 React.createElement('span', { style: { fontWeight: 700, color: barColor } }, String(spot.currentIndex))
               ),
               React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' } },
                 React.createElement('div', { style: { width: `${spot.currentIndex}%`, height: '100%', borderRadius: '2px', background: barColor } })
               )
             );
-          })
+          }),
+          // 動物園休園表示
+          (() => {
+            const zoo = waitingSpotData.spots.find(s => s.id === 'asahiyama_zoo');
+            if (!zoo || !zoo.zooStatus || zoo.zooStatus.isOpen) return null;
+            return React.createElement('div', {
+              style: { marginTop: '2px', fontSize: '9px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '3px' },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'event_busy'),
+              `動物園: ${zoo.zooStatus.reason}`
+            );
+          })()
         ),
         // 流しエリアTOP3
         React.createElement('div', null,

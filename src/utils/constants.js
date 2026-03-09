@@ -380,7 +380,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.12.1',
+  VERSION: '3.12.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -598,9 +598,28 @@ window.APP_CONSTANTS = {
           id: 'asahiyama_zoo', name: '旭山動物園', shortName: '動物園',
           lat: 43.7688, lng: 142.4849,
           hasOddDayRule: false,
-          basePatternWeekday: [0,0,0,0,0,0,0,0,5,20,35,40,35,30,40,55,60,45,15,0,0,0,0,0],
-          basePatternWeekend: [0,0,0,0,0,0,0,0,10,30,50,55,50,45,55,65,70,55,20,0,0,0,0,0],
+          // 夏期（9:30-17:15）用パターン — 閉園前15-17時がピーク
+          basePatternWeekday: [0,0,0,0,0,0,0,0,0,20,35,40,35,30,40,55,60,45,0,0,0,0,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,0,0,30,50,55,50,45,55,65,70,55,0,0,0,0,0,0],
+          // 冬期（10:30-15:30）用パターン — 閉園前14-15時がピーク
+          basePatternWinterWeekday: [0,0,0,0,0,0,0,0,0,0,10,25,30,35,50,55,20,0,0,0,0,0,0,0],
+          basePatternWinterWeekend: [0,0,0,0,0,0,0,0,0,0,15,35,45,50,60,65,25,0,0,0,0,0,0,0],
           peakBoost: null,
+          // 営業スケジュール
+          zooSchedule: {
+            // 夏期開園 (例年4月下旬〜10月中旬)
+            summer: { startMonth: 4, startDay: 26, endMonth: 10, endDay: 15, open: '9:30', close: '17:15', lastEntry: '16:00' },
+            // 秋期 (10月中旬〜11月上旬)
+            autumn: { startMonth: 10, startDay: 16, endMonth: 11, endDay: 3, open: '9:30', close: '16:30', lastEntry: '16:00' },
+            // 冬期開園 (11月中旬〜翌4月上旬)
+            winter: { startMonth: 11, startDay: 11, endMonth: 4, endDay: 7, open: '10:30', close: '15:30', lastEntry: '15:00' },
+            // 休園期間
+            closedPeriods: [
+              { startMonth: 4, startDay: 8, endMonth: 4, endDay: 25, reason: '春季休園' },
+              { startMonth: 11, startDay: 4, endMonth: 11, endDay: 10, reason: '秋季休園' },
+              { startMonth: 12, startDay: 30, endMonth: 1, endDay: 1, reason: '年末年始' },
+            ],
+          },
         },
         {
           id: 'aeon', name: 'イオンモール旭川駅前', shortName: 'イオン',

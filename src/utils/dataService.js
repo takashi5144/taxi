@@ -55,6 +55,54 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 旭山動物園 営業状態判定
+  // ============================================================
+  function getZooStatus(dateObj) {
+    const d = dateObj || new Date();
+    const m = d.getMonth() + 1; // 1-12
+    const day = d.getDate();
+    const mmdd = m * 100 + day; // 例: 3月9日 → 309
+
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const zooSpot = locs && locs.waitingSpots && locs.waitingSpots.find(s => s.id === 'asahiyama_zoo');
+    if (!zooSpot || !zooSpot.zooSchedule) return { isOpen: false, season: 'unknown', reason: '情報なし' };
+    const sched = zooSpot.zooSchedule;
+
+    // 休園期間チェック
+    for (const cp of sched.closedPeriods) {
+      let cpStart = cp.startMonth * 100 + cp.startDay;
+      let cpEnd = cp.endMonth * 100 + cp.endDay;
+      if (cpStart <= cpEnd) {
+        if (mmdd >= cpStart && mmdd <= cpEnd) return { isOpen: false, season: 'closed', reason: cp.reason };
+      } else {
+        // 年跨ぎ (12/30〜1/1)
+        if (mmdd >= cpStart || mmdd <= cpEnd) return { isOpen: false, season: 'closed', reason: cp.reason };
+      }
+    }
+
+    // 夏期
+    const su = sched.summer;
+    const suStart = su.startMonth * 100 + su.startDay;
+    const suEnd = su.endMonth * 100 + su.endDay;
+    if (mmdd >= suStart && mmdd <= suEnd) return { isOpen: true, season: 'summer', open: su.open, close: su.close, lastEntry: su.lastEntry };
+
+    // 秋期
+    const au = sched.autumn;
+    const auStart = au.startMonth * 100 + au.startDay;
+    const auEnd = au.endMonth * 100 + au.endDay;
+    if (mmdd >= auStart && mmdd <= auEnd) return { isOpen: true, season: 'autumn', open: au.open, close: au.close, lastEntry: au.lastEntry };
+
+    // 冬期 (11/11〜翌4/7、年跨ぎ)
+    const wi = sched.winter;
+    const wiStart = wi.startMonth * 100 + wi.startDay;
+    const wiEnd = wi.endMonth * 100 + wi.endDay;
+    if (mmdd >= wiStart || mmdd <= wiEnd) return { isOpen: true, season: 'winter', open: wi.open, close: wi.close, lastEntry: wi.lastEntry };
+
+    // どの期間にも該当しない → 休園
+    return { isOpen: false, season: 'closed', reason: '開園期間外' };
+  }
+
+  // ============================================================
   // 待機スポットマッチング共有ヘルパー
   // ============================================================
   const _spotKeywords = {
@@ -3974,6 +4022,9 @@ window.DataService = (() => {
       return h * 60 + m;
     }
 
+    // 動物園の営業状態を取得
+    const zooStatus = getZooStatus(now);
+
     // スポットごとに24時間分の指数を算出
     const result = spots.map(spot => {
       // このスポットに実績があるか判定
@@ -3982,6 +4033,20 @@ window.DataService = (() => {
       const hasHistory = totalHistCount > 0;
 
       const hourlyIndex = [];
+
+      // 動物園: 休園中は全時間帯0
+      if (spot.id === 'asahiyama_zoo' && !zooStatus.isOpen) {
+        for (let h = 0; h < 24; h++) {
+          hourlyIndex.push({ hour: h, index: 0, disabled: true, zooReason: zooStatus.reason });
+        }
+        return {
+          id: spot.id, name: spot.name, shortName: spot.shortName,
+          lat: spot.lat, lng: spot.lng, hourlyIndex,
+          currentIndex: 0, currentDisabled: true, hasHistory, historyCount: totalHistCount,
+          zooStatus,
+        };
+      }
+
       for (let h = 0; h < 24; h++) {
         // 奇数日ルール: 駅前は待機不可
         if (spot.hasOddDayRule && isOddDay) {
@@ -3989,7 +4054,13 @@ window.DataService = (() => {
           continue;
         }
 
-        const basePattern = isWeekend ? spot.basePatternWeekend : spot.basePatternWeekday;
+        // 動物園: 季節に応じたパターン切替
+        let basePattern;
+        if (spot.id === 'asahiyama_zoo' && zooStatus.season === 'winter') {
+          basePattern = isWeekend ? (spot.basePatternWinterWeekend || spot.basePatternWeekend) : (spot.basePatternWinterWeekday || spot.basePatternWeekday);
+        } else {
+          basePattern = isWeekend ? spot.basePatternWeekend : spot.basePatternWeekday;
+        }
         let base = basePattern[h] || 0;
 
         // 履歴データとのブレンド
@@ -4083,6 +4154,7 @@ window.DataService = (() => {
         currentDisabled: hourlyIndex[currentHour].disabled,
         hasHistory: hasHistory,
         historyCount: totalHistCount,
+        zooStatus: spot.id === 'asahiyama_zoo' ? zooStatus : undefined,
       };
     });
 
@@ -5435,6 +5507,7 @@ window.DataService = (() => {
     getUpcomingEventAlerts,
     getSmartHeatmapData,
     getHeatmapDataByHour,
+    getZooStatus,
 
     // 交通需要連動
     getDailyDemandSchedule,
