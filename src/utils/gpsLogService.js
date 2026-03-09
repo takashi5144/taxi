@@ -1257,9 +1257,158 @@ window.GpsLogService = (() => {
         best: best ? best.name : '---',
         worst: worst ? worst.name : '---',
         overallAvgWait,
-        shouldCruiseThreshold: 60, // 60分以上で流し推奨
+        shouldCruiseThreshold: 60,
       },
     };
+  }
+
+  /**
+   * 流しエリア別パフォーマンス分析
+   * GPSログからエリアごとの滞在時間・実車率・売上を時間帯別に算出
+   */
+  async function getCruisingAreaPerformance() {
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const areas = locs && locs.cruisingAreas || [];
+    const waitingSpots = locs && locs.waitingSpots || [];
+    if (areas.length === 0) return { areas: [], overall: null };
+
+    const dates = await getLogDates();
+    if (dates.length === 0) return { areas: [], overall: null };
+
+    // 全エリア+待機スポットの座標リスト（GPSポイント→エリアマッチ用）
+    const allLocations = [
+      ...areas.map(a => ({ id: a.id, name: a.name, shortName: a.shortName, lat: a.lat, lng: a.lng, type: 'cruising', radius: 1500 })),
+      ...waitingSpots.map(s => ({ id: s.id, name: s.name, shortName: s.shortName, lat: s.lat, lng: s.lng, type: 'waiting', radius: s.id === 'asahiyama_zoo' ? 500 : 300 })),
+    ];
+
+    // GPSポイントを最寄りエリアに分類
+    function matchArea(lat, lng) {
+      let bestArea = null;
+      let bestDist = Infinity;
+      for (const a of allLocations) {
+        if (a.type !== 'cruising') continue;
+        const d = _haversine(lat, lng, a.lat, a.lng);
+        if (d < a.radius && d < bestDist) { bestArea = a; bestDist = d; }
+      }
+      return bestArea;
+    }
+
+    // エリア別・時間帯別の集計
+    const areaStats = {};
+    areas.forEach(a => {
+      areaStats[a.id] = { id: a.id, name: a.name, shortName: a.shortName, hourly: {} };
+      for (let h = 0; h < 24; h++) {
+        areaStats[a.id].hourly[h] = { totalPoints: 0, occupiedPoints: 0, rides: 0, totalAmount: 0, dates: new Set() };
+      }
+    });
+
+    // 売上データを日付×時間帯×エリアで準備
+    const entries = DataService.getEntries();
+    const ridesByDateHourArea = {};
+    entries.forEach(e => {
+      if (!e.pickupTime || !e.pickupCoords || !e.pickupCoords.lat) return;
+      const hr = parseInt(e.pickupTime.split(':')[0], 10);
+      if (isNaN(hr)) return;
+      const area = matchArea(e.pickupCoords.lat, e.pickupCoords.lng);
+      if (!area) return;
+      const key = `${e.date}_${hr}_${area.id}`;
+      if (!ridesByDateHourArea[key]) ridesByDateHourArea[key] = { rides: 0, amount: 0 };
+      ridesByDateHourArea[key].rides++;
+      ridesByDateHourArea[key].amount += (e.amount || 0);
+    });
+
+    // GPSログを処理（直近30日分に制限）
+    const targetDates = dates.slice(0, 30);
+    for (const dateStr of targetDates) {
+      const classified = await classifyEntries(dateStr);
+      if (classified.length === 0) continue;
+
+      for (const p of classified) {
+        const area = matchArea(p.lat, p.lng);
+        if (!area) continue;
+        const hr = new Date(p.t).getHours();
+        const stat = areaStats[area.id];
+        if (!stat) continue;
+        stat.hourly[hr].totalPoints++;
+        if (p.status === 'occupied') stat.hourly[hr].occupiedPoints++;
+        stat.hourly[hr].dates.add(dateStr);
+      }
+    }
+
+    // 売上データをマージ
+    for (const dateStr of targetDates) {
+      for (let hr = 0; hr < 24; hr++) {
+        areas.forEach(a => {
+          const key = `${dateStr}_${hr}_${a.id}`;
+          const ride = ridesByDateHourArea[key];
+          if (ride) {
+            areaStats[a.id].hourly[hr].rides += ride.rides;
+            areaStats[a.id].hourly[hr].amount += ride.amount;
+          }
+        });
+      }
+    }
+
+    const INTERVAL_SEC = THROTTLE_MS / 1000; // GPS記録間隔(秒)
+
+    // 結果の整形
+    const result = areas.map(a => {
+      const stat = areaStats[a.id];
+      let totalMinAll = 0, occupiedMinAll = 0, totalRides = 0, totalAmount = 0;
+      const hourlyData = {};
+
+      for (let h = 0; h < 24; h++) {
+        const hs = stat.hourly[h];
+        if (hs.totalPoints === 0) continue;
+        const totalMin = Math.round(hs.totalPoints * INTERVAL_SEC / 60 * 10) / 10;
+        const occupiedMin = Math.round(hs.occupiedPoints * INTERVAL_SEC / 60 * 10) / 10;
+        const vacantMin = Math.round((totalMin - occupiedMin) * 10) / 10;
+        const rate = totalMin > 0 ? Math.round(occupiedMin / totalMin * 100) : 0;
+        const dayCount = hs.dates.size;
+        const avgMinPerDay = dayCount > 0 ? Math.round(totalMin / dayCount * 10) / 10 : 0;
+
+        hourlyData[h] = {
+          hour: h, totalMin, occupiedMin, vacantMin, rate,
+          rides: hs.rides, amount: hs.amount, dayCount, avgMinPerDay,
+          avgFare: hs.rides > 0 ? Math.round(hs.amount / hs.rides) : 0,
+          ridesPerHour: totalMin > 0 ? Math.round(hs.rides / (totalMin / 60) * 10) / 10 : 0,
+        };
+
+        totalMinAll += totalMin;
+        occupiedMinAll += occupiedMin;
+        totalRides += hs.rides;
+        totalAmount += hs.amount;
+      }
+
+      const overallRate = totalMinAll > 0 ? Math.round(occupiedMinAll / totalMinAll * 100) : 0;
+      const hourlyRevenue = totalMinAll > 0 ? Math.round(totalAmount / (totalMinAll / 60)) : 0;
+
+      return {
+        id: a.id, name: a.name, shortName: a.shortName,
+        totalMin: Math.round(totalMinAll), occupiedMin: Math.round(occupiedMinAll),
+        vacantMin: Math.round(totalMinAll - occupiedMinAll),
+        rate: overallRate, totalRides, totalAmount, hourlyRevenue,
+        avgFare: totalRides > 0 ? Math.round(totalAmount / totalRides) : 0,
+        hourly: hourlyData,
+        hasData: totalMinAll > 0,
+      };
+    }).filter(a => a.hasData);
+
+    result.sort((a, b) => b.hourlyRevenue - a.hourlyRevenue);
+
+    // 全体統計
+    const totalAll = result.reduce((s, a) => s + a.totalMin, 0);
+    const occAll = result.reduce((s, a) => s + a.occupiedMin, 0);
+    const overall = {
+      totalMin: totalAll, occupiedMin: occAll,
+      rate: totalAll > 0 ? Math.round(occAll / totalAll * 100) : 0,
+      totalRides: result.reduce((s, a) => s + a.totalRides, 0),
+      totalAmount: result.reduce((s, a) => s + a.totalAmount, 0),
+      areaCount: result.length,
+      daysAnalyzed: targetDates.length,
+    };
+
+    return { areas: result, overall };
   }
 
   return {
@@ -1288,6 +1437,7 @@ window.GpsLogService = (() => {
     getStandbyEfficiency,
     getStandbyAllDaysSummary,
     getStandbyLocationAnalysis,
+    getCruisingAreaPerformance,
     flushRealtimeStandby,
     // 座標検索API
     findNearestEntry,

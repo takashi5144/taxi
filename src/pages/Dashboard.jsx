@@ -133,6 +133,9 @@ window.DashboardPage = () => {
   const [standbyAnalysis, setStandbyAnalysis] = useState(null);
   const [standbyAnalysisLoading, setStandbyAnalysisLoading] = useState(false);
   const [standbyDetailPlace, setStandbyDetailPlace] = useState(null);
+  const [cruisingPerf, setCruisingPerf] = useState(null);
+  const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
+  const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
 
   // 待機場所分析のロード
   useEffect(() => {
@@ -142,6 +145,16 @@ window.DashboardPage = () => {
       setStandbyAnalysis(data);
       setStandbyAnalysisLoading(false);
     }).catch(() => setStandbyAnalysisLoading(false));
+  }, [refreshKey]);
+
+  // 流しエリア分析のロード
+  useEffect(() => {
+    if (!window.GpsLogService || !GpsLogService.getCruisingAreaPerformance) return;
+    setCruisingPerfLoading(true);
+    GpsLogService.getCruisingAreaPerformance().then(data => {
+      setCruisingPerf(data);
+      setCruisingPerfLoading(false);
+    }).catch(() => setCruisingPerfLoading(false));
   }, [refreshKey]);
 
   // 始業/終業シフト管理
@@ -1760,6 +1773,152 @@ window.DashboardPage = () => {
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#8b5cf6', animation: 'spin 1s linear infinite' } }, 'sync'),
       React.createElement('span', { style: { marginLeft: '8px', fontSize: '12px', color: 'var(--text-secondary)' } }, '待機場所分析を読み込み中...')
+    ),
+
+    // ============================================================
+    // 流しエリア実車率カード
+    // ============================================================
+    cruisingPerf && cruisingPerf.areas.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(168,85,247,0.10), rgba(236,72,153,0.06))',
+        border: '1px solid rgba(168,85,247,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#a855f7' } }, 'directions_car'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '流しエリア実車率')
+        ),
+        React.createElement('span', {
+          style: { fontSize: '10px', color: 'var(--text-muted)', padding: '2px 8px', borderRadius: '10px', background: 'rgba(168,85,247,0.12)' },
+        }, `直近${cruisingPerf.overall.daysAnalyzed}日`)
+      ),
+
+      // 全体サマリー
+      cruisingPerf.overall && React.createElement('div', {
+        style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' },
+      },
+        ...[
+          { label: '全体実車率', value: `${cruisingPerf.overall.rate}%`, color: cruisingPerf.overall.rate >= 40 ? '#10b981' : cruisingPerf.overall.rate >= 25 ? '#f59e0b' : '#ef4444' },
+          { label: '総走行', value: `${Math.round(cruisingPerf.overall.totalMin / 60)}h`, color: '#a855f7' },
+          { label: '乗車数', value: `${cruisingPerf.overall.totalRides}回`, color: '#3b82f6' },
+          { label: '総売上', value: `\u00A5${cruisingPerf.overall.totalAmount.toLocaleString()}`, color: '#10b981' },
+        ].map((item, idx) =>
+          React.createElement('div', {
+            key: `cp-sum-${idx}`,
+            style: { flex: 1, minWidth: '70px', padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' },
+          },
+            React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)', marginBottom: '2px' } }, item.label),
+            React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: item.color } }, item.value)
+          )
+        )
+      ),
+
+      // エリア比較テーブル
+      React.createElement('div', { style: { overflowX: 'auto', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '10px' } },
+        React.createElement('table', {
+          style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%' },
+        },
+          React.createElement('thead', null,
+            React.createElement('tr', null,
+              ...['エリア', '滞在', '実車率', '乗車数', '平均単価', '時給'].map(label =>
+                React.createElement('th', {
+                  key: label,
+                  style: { padding: '5px 6px', fontWeight: 700, textAlign: label === 'エリア' ? 'left' : 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap', fontSize: '10px' },
+                }, label)
+              )
+            )
+          ),
+          React.createElement('tbody', null,
+            ...cruisingPerf.areas.map((area, i) => {
+              const rateColor = area.rate >= 40 ? '#10b981' : area.rate >= 25 ? '#f59e0b' : '#ef4444';
+              const isBest = i === 0;
+              return React.createElement('tr', {
+                key: `cp-area-${i}`,
+                onClick: () => setCruisingDetailArea(cruisingDetailArea === area.id ? null : area.id),
+                style: { background: isBest ? 'rgba(168,85,247,0.06)' : 'transparent', cursor: 'pointer' },
+              },
+                React.createElement('td', { style: { padding: '5px 6px', fontWeight: isBest ? 700 : 500, borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' } },
+                  React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '3px' } },
+                    isBest && React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', color: '#f59e0b' } }, 'emoji_events'),
+                    area.shortName
+                  )
+                ),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px' } }, `${Math.round(area.totalMin)}分`),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', fontWeight: 700, color: rateColor, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${area.rate}%`),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${area.totalRides}`),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, area.avgFare > 0 ? `\u00A5${area.avgFare.toLocaleString()}` : '-'),
+                React.createElement('td', { style: { padding: '5px 6px', textAlign: 'center', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.05)', color: area.hourlyRevenue >= 3000 ? '#10b981' : area.hourlyRevenue >= 1500 ? '#f59e0b' : '#ef4444' } },
+                  area.hourlyRevenue > 0 ? `\u00A5${area.hourlyRevenue.toLocaleString()}` : '-'
+                )
+              );
+            })
+          )
+        )
+      ),
+
+      // 詳細タイムライン（エリアタップ時に展開）
+      cruisingDetailArea && (() => {
+        const area = cruisingPerf.areas.find(a => a.id === cruisingDetailArea);
+        if (!area || Object.keys(area.hourly).length === 0) return null;
+        const hours = Object.values(area.hourly).sort((a, b) => a.hour - b.hour);
+        return React.createElement('div', {
+          style: { padding: '10px', borderRadius: '8px', background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.15)', marginBottom: '8px' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#a855f7' } }, 'timeline'),
+            React.createElement('span', { style: { fontWeight: 700, fontSize: '12px' } }, `${area.shortName} 時間帯別実車率`)
+          ),
+          React.createElement('div', { style: { overflowX: 'auto' } },
+            React.createElement('table', { style: { borderCollapse: 'collapse', fontSize: '10px', width: '100%' } },
+              React.createElement('thead', null,
+                React.createElement('tr', null,
+                  ...['時間', '滞在', '実車率', '乗車', '売上', '回/h'].map(label =>
+                    React.createElement('th', { key: label, style: { padding: '4px 5px', fontWeight: 700, textAlign: label === '時間' ? 'left' : 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' } }, label)
+                  )
+                )
+              ),
+              React.createElement('tbody', null,
+                ...hours.map(h => {
+                  const rc = h.rate >= 40 ? '#10b981' : h.rate >= 25 ? '#f59e0b' : '#ef4444';
+                  return React.createElement('tr', { key: `ch-${h.hour}` },
+                    React.createElement('td', { style: { padding: '4px 5px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                      `${h.hour}時`,
+                      h.rate === 0 && h.totalMin >= 10 && React.createElement('span', {
+                        style: { marginLeft: '3px', fontSize: '8px', fontWeight: 700, padding: '1px 3px', borderRadius: '3px', background: 'rgba(239,68,68,0.15)', color: '#ef4444' },
+                      }, '空車')
+                    ),
+                    React.createElement('td', { style: { padding: '4px 5px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '9px' } },
+                      `${h.avgMinPerDay}分/日`
+                    ),
+                    React.createElement('td', { style: { padding: '4px 5px', textAlign: 'center', fontWeight: 700, color: rc, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${h.rate}%`),
+                    React.createElement('td', { style: { padding: '4px 5px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, `${h.rides}回`),
+                    React.createElement('td', { style: { padding: '4px 5px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' } }, h.amount > 0 ? `\u00A5${h.amount.toLocaleString()}` : '-'),
+                    React.createElement('td', { style: { padding: '4px 5px', textAlign: 'center', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)', color: h.ridesPerHour >= 2 ? '#10b981' : h.ridesPerHour >= 1 ? '#f59e0b' : '#ef4444' } }, `${h.ridesPerHour}`)
+                  );
+                })
+              )
+            )
+          )
+        );
+      })(),
+
+      // 凡例
+      React.createElement('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center', fontSize: '9px', color: 'var(--text-muted)', flexWrap: 'wrap' } },
+        React.createElement('span', null, '実車率 = 実車時間 ÷ 総滞在時間'),
+        React.createElement('span', null, '時給 = 売上 ÷ 滞在時間(h)'),
+        React.createElement('span', null, 'タップで時間帯別を表示')
+      )
+    ),
+
+    // 流し分析ローディング
+    cruisingPerfLoading && !cruisingPerf && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)', textAlign: 'center' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#a855f7', animation: 'spin 1s linear infinite' } }, 'sync'),
+      React.createElement('span', { style: { marginLeft: '8px', fontSize: '12px', color: 'var(--text-secondary)' } }, '流しエリア分析を読み込み中...')
     ),
 
     // 閑散期流しルート
