@@ -462,8 +462,8 @@ window.RevenuePage = () => {
     if (capturedStandby) {
       formWithCoords.standbyInfo = {
         locationName: capturedStandby.locationName,
-        durationMin: capturedStandby.durationMin,
-        durationSec: capturedStandby.durationSec,
+        startTime: capturedStandby.startTimeHHMM || '',
+        endTime: capturedStandby.endTimeHHMM || '',
         category: capturedStandby.category,
         lat: capturedStandby.lat,
         lng: capturedStandby.lng,
@@ -600,8 +600,8 @@ window.RevenuePage = () => {
       pickupLandmark: entry.pickupLandmark || null,
       dropoffLandmark: entry.dropoffLandmark || null,
       standbyLocation: (entry.standbyInfo && entry.standbyInfo.locationName) || '',
-      standbyDurationMin: (entry.standbyInfo && entry.standbyInfo.durationMin) || '',
-      standbyDurationSec: (entry.standbyInfo && entry.standbyInfo.durationSec) || '',
+      standbyStartTime: (entry.standbyInfo && entry.standbyInfo.startTime) || '',
+      standbyEndTime: (entry.standbyInfo && entry.standbyInfo.endTime) || '',
     });
     setEditingId(entry.id);
     setEditErrors([]);
@@ -703,10 +703,10 @@ window.RevenuePage = () => {
       dropoffCoords: editForm.dropoffCoords || null,
       pickupLandmark: editForm.pickupLandmark || null,
       dropoffLandmark: editForm.dropoffLandmark || null,
-      standbyInfo: (editForm.standbyLocation || editForm.standbyDurationMin) ? {
+      standbyInfo: (editForm.standbyLocation || editForm.standbyStartTime) ? {
         locationName: editForm.standbyLocation || '',
-        durationMin: parseInt(editForm.standbyDurationMin) || 0,
-        durationSec: parseInt(editForm.standbyDurationSec) || 0,
+        startTime: editForm.standbyStartTime || '',
+        endTime: editForm.standbyEndTime || '',
       } : null,
     };
     delete updates.discounts; // 一旦削除してからセット
@@ -1241,10 +1241,10 @@ window.RevenuePage = () => {
             }, 'hourglass_top'),
             React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
               React.createElement('span', { style: { fontWeight: 600 } },
-                '待機場所: ' + capturedStandby.locationName
+                capturedStandby.locationName
               ),
               React.createElement('span', { style: { fontSize: '11px', color: 'rgba(255, 167, 38, 0.85)' } },
-                '待機時間: ' + capturedStandby.durationMin + '分' + String(capturedStandby.durationSec).padStart(2, '0') + '秒'
+                (capturedStandby.startTimeHHMM || '') + ' 〜 ' + (capturedStandby.endTimeHHMM || '') + '（' + capturedStandby.durationMin + '分' + String(capturedStandby.durationSec).padStart(2, '0') + '秒）'
               )
             )
           ),
@@ -1855,24 +1855,21 @@ window.RevenuePage = () => {
                 placeholder: '例: 旭川駅',
               })
             ),
-            // 待機時間
+            // 待機時間（開始〜終了）
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機時間'),
               React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
                 React.createElement('input', {
-                  type: 'number', min: '0', value: editForm.standbyDurationMin || '',
-                  onChange: (e) => setEditForm({ ...editForm, standbyDurationMin: e.target.value }),
-                  style: { width: '60px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', textAlign: 'center' },
-                  placeholder: '0',
+                  type: 'time', value: editForm.standbyStartTime || '',
+                  onChange: (e) => setEditForm({ ...editForm, standbyStartTime: e.target.value }),
+                  style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' },
                 }),
-                React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '分'),
+                React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '〜'),
                 React.createElement('input', {
-                  type: 'number', min: '0', max: '59', value: editForm.standbyDurationSec || '',
-                  onChange: (e) => setEditForm({ ...editForm, standbyDurationSec: e.target.value }),
-                  style: { width: '60px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', textAlign: 'center' },
-                  placeholder: '0',
-                }),
-                React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '秒')
+                  type: 'time', value: editForm.standbyEndTime || '',
+                  onChange: (e) => setEditForm({ ...editForm, standbyEndTime: e.target.value }),
+                  style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' },
+                })
               )
             ),
             // 天候（ボタン選択 — 新規フォームと同じ）

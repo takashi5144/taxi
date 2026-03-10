@@ -48,7 +48,7 @@ window.Header = () => {
       }, 'hourglass_top'),
       React.createElement('span', {
         style: { fontVariantNumeric: 'tabular-nums', fontWeight: 600 },
-      }, standbyStatus.durationMin + ':' + String(standbyStatus.durationSec).padStart(2, '0')),
+      }, (standbyStatus.startTimeHHMM || '') + '〜 ' + standbyStatus.durationMin + ':' + String(standbyStatus.durationSec).padStart(2, '0')),
       standbyStatus.locationName && React.createElement('span', {
         style: {
           overflow: 'hidden',

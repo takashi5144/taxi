@@ -345,6 +345,12 @@ window.GpsLogService = (() => {
     }
   }
 
+  /** タイムスタンプをHH:MM形式に変換 */
+  function _tsToHHMM(ts) {
+    const d = new Date(ts);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
   /** リアルタイム待機状態を取得（UI表示用） */
   function getRealtimeStandbyStatus() {
     if (!_rtAnchor) return null;
@@ -356,6 +362,8 @@ window.GpsLogService = (() => {
       lat: _rtAnchor.lat,
       lng: _rtAnchor.lng,
       startTime: _rtAnchor.startTime,
+      startTimeHHMM: _tsToHHMM(_rtAnchor.startTime),
+      endTimeHHMM: _tsToHHMM(now),
       durationMs: duration,
       durationMin: Math.floor(duration / 60000),
       durationSec: Math.floor((duration % 60000) / 1000),
@@ -367,13 +375,16 @@ window.GpsLogService = (() => {
   /** 直前に完了した待機情報を取得（売上記録UI用） */
   function getLastCompletedStandby() {
     if (_rtPendingStandby) {
+      const duration = _rtPendingStandby.endTime - _rtPendingStandby.startTime;
       return {
         lat: _rtPendingStandby.lat,
         lng: _rtPendingStandby.lng,
         startTime: _rtPendingStandby.startTime,
         endTime: _rtPendingStandby.endTime,
-        durationMin: Math.floor((_rtPendingStandby.endTime - _rtPendingStandby.startTime) / 60000),
-        durationSec: Math.floor(((_rtPendingStandby.endTime - _rtPendingStandby.startTime) % 60000) / 1000),
+        startTimeHHMM: _tsToHHMM(_rtPendingStandby.startTime),
+        endTimeHHMM: _tsToHHMM(_rtPendingStandby.endTime),
+        durationMin: Math.floor(duration / 60000),
+        durationSec: Math.floor((duration % 60000) / 1000),
         locationName: _rtPendingStandby.nearbyName || _rtPendingStandby.categoryLabel || null,
         category: _rtPendingStandby.category,
       };
