@@ -392,6 +392,21 @@ window.GpsLogService = (() => {
     return null;
   }
 
+  /** 待機開始時刻を手動で変更（HH:MM形式） */
+  function setStandbyStartTime(hhmm) {
+    if (!_rtAnchor) return false;
+    const parts = hhmm.split(':');
+    if (parts.length !== 2) return false;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return false;
+    const d = new Date(_rtAnchor.startTime);
+    d.setHours(h, m, 0, 0);
+    _rtAnchor.startTime = d.getTime();
+    if (window.AppLogger) AppLogger.info(`待機開始時刻を手動変更: ${hhmm}`);
+    return true;
+  }
+
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
@@ -1493,6 +1508,7 @@ window.GpsLogService = (() => {
     flushRealtimeStandby,
     getRealtimeStandbyStatus,
     getLastCompletedStandby,
+    setStandbyStartTime,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,

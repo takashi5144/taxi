@@ -713,9 +713,10 @@ a:hover {
   }
 
   .header__standby-indicator {
-    max-width: 180px !important;
+    max-width: 260px !important;
     padding: 3px 8px !important;
     font-size: 11px !important;
+    flex-wrap: wrap;
   }
 
   .sidebar {
@@ -1239,7 +1240,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.16.0',
+  VERSION: '3.16.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -9345,6 +9346,21 @@ window.GpsLogService = (() => {
     return null;
   }
 
+  /** 待機開始時刻を手動で変更（HH:MM形式） */
+  function setStandbyStartTime(hhmm) {
+    if (!_rtAnchor) return false;
+    const parts = hhmm.split(':');
+    if (parts.length !== 2) return false;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return false;
+    const d = new Date(_rtAnchor.startTime);
+    d.setHours(h, m, 0, 0);
+    _rtAnchor.startTime = d.getTime();
+    if (window.AppLogger) AppLogger.info(`待機開始時刻を手動変更: ${hhmm}`);
+    return true;
+  }
+
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
@@ -10446,6 +10462,7 @@ window.GpsLogService = (() => {
     flushRealtimeStandby,
     getRealtimeStandbyStatus,
     getLastCompletedStandby,
+    setStandbyStartTime,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
@@ -10613,6 +10630,15 @@ window.MapProvider = ({ children }) => {
     };
   }, []);
 
+  // 待機開始時刻を手動変更
+  const updateStandbyStartTime = useCallback((hhmm) => {
+    if (window.GpsLogService && GpsLogService.setStandbyStartTime(hhmm)) {
+      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      return true;
+    }
+    return false;
+  }, []);
+
   // useMemoでvalueを安定化（不要な再レンダリング防止）
   const value = useMemo(() => ({
     currentPosition,
@@ -10632,7 +10658,8 @@ window.MapProvider = ({ children }) => {
     updatePosition,
     startTracking,
     stopTracking,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking]);
+    updateStandbyStartTime,
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking, updateStandbyStartTime]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };
@@ -13044,8 +13071,11 @@ window.TrafficLegend = ({ visible }) => {
 (function() {
 // Header.jsx - ヘッダーナビゲーション
 window.Header = () => {
+  const { useState } = React;
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
-  const { standbyStatus } = useMapContext();
+  const { standbyStatus, updateStandbyStartTime } = useMapContext();
+  const [editingStartTime, setEditingStartTime] = useState(false);
+  const [editStartTimeValue, setEditStartTimeValue] = useState('');
 
   return React.createElement('header', { className: 'header' },
     // メニュートグル（モバイル）
@@ -13078,28 +13108,76 @@ window.Header = () => {
         fontSize: '12px',
         color: '#ffa726',
         fontWeight: 500,
-        whiteSpace: 'nowrap',
         overflow: 'hidden',
-        maxWidth: '280px',
+        maxWidth: '400px',
         flexShrink: 0,
         animation: 'standbyPulse 2s ease-in-out infinite',
       },
     },
       React.createElement('span', {
         className: 'material-icons-round',
-        style: { fontSize: '16px', color: '#ffa726' },
+        style: { fontSize: '16px', color: '#ffa726', flexShrink: 0 },
       }, 'hourglass_top'),
+      // 場所名
       React.createElement('span', {
-        style: { fontVariantNumeric: 'tabular-nums', fontWeight: 600 },
-      }, (standbyStatus.startTimeHHMM || '') + '〜 ' + standbyStatus.durationMin + ':' + String(standbyStatus.durationSec).padStart(2, '0')),
-      standbyStatus.locationName && React.createElement('span', {
         style: {
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          color: 'rgba(255, 167, 38, 0.85)',
-          fontSize: '11px',
+          fontWeight: 600, fontSize: '12px', flexShrink: 0,
+          maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         },
-      }, standbyStatus.locationName)
+      }, standbyStatus.locationName || '待機中'),
+      // 時刻表示（開始時刻タップで編集可能）
+      editingStartTime
+        ? React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 },
+            onClick: (e) => e.stopPropagation(),
+          },
+            React.createElement('input', {
+              type: 'time',
+              value: editStartTimeValue,
+              onChange: (e) => setEditStartTimeValue(e.target.value),
+              onBlur: () => {
+                if (editStartTimeValue) {
+                  updateStandbyStartTime(editStartTimeValue);
+                }
+                setEditingStartTime(false);
+              },
+              onKeyDown: (e) => {
+                if (e.key === 'Enter') {
+                  if (editStartTimeValue) {
+                    updateStandbyStartTime(editStartTimeValue);
+                  }
+                  setEditingStartTime(false);
+                } else if (e.key === 'Escape') {
+                  setEditingStartTime(false);
+                }
+              },
+              autoFocus: true,
+              style: {
+                width: '70px', padding: '2px 4px', borderRadius: '4px',
+                border: '1px solid rgba(255,167,38,0.5)', background: 'rgba(0,0,0,0.3)',
+                color: '#ffa726', fontSize: '11px', colorScheme: 'dark',
+                outline: 'none',
+              },
+            }),
+            React.createElement('span', { style: { fontSize: '11px' } }, '〜')
+          )
+        : React.createElement('span', {
+            style: {
+              fontVariantNumeric: 'tabular-nums', fontSize: '11px', flexShrink: 0,
+              cursor: 'pointer', borderBottom: '1px dashed rgba(255,167,38,0.5)',
+              whiteSpace: 'nowrap',
+            },
+            onClick: (e) => {
+              e.stopPropagation();
+              setEditStartTimeValue(standbyStatus.startTimeHHMM || '');
+              setEditingStartTime(true);
+            },
+            title: 'タップして開始時刻を変更',
+          }, (standbyStatus.startTimeHHMM || '') + '〜'),
+      // 経過時間
+      React.createElement('span', {
+        style: { fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: '12px', flexShrink: 0 },
+      }, standbyStatus.durationMin + ':' + String(standbyStatus.durationSec).padStart(2, '0'))
     ),
 
     // ナビゲーション（PC用）

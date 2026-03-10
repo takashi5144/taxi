@@ -119,6 +119,15 @@ window.MapProvider = ({ children }) => {
     };
   }, []);
 
+  // 待機開始時刻を手動変更
+  const updateStandbyStartTime = useCallback((hhmm) => {
+    if (window.GpsLogService && GpsLogService.setStandbyStartTime(hhmm)) {
+      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      return true;
+    }
+    return false;
+  }, []);
+
   // useMemoでvalueを安定化（不要な再レンダリング防止）
   const value = useMemo(() => ({
     currentPosition,
@@ -138,7 +147,8 @@ window.MapProvider = ({ children }) => {
     updatePosition,
     startTracking,
     stopTracking,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking]);
+    updateStandbyStartTime,
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking, updateStandbyStartTime]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };
