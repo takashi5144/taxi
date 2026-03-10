@@ -1,11 +1,45 @@
 (function() {
 // Header.jsx - ヘッダーナビゲーション
 window.Header = () => {
-  const { useState } = React;
+  const { useState, useRef, useEffect } = React;
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
-  const { standbyStatus, updateStandbyStartTime } = useMapContext();
+  const { standbyStatus, updateStandbyStartTime, updateStandbyLocationName } = useMapContext();
   const [editingStartTime, setEditingStartTime] = useState(false);
   const [editStartTimeValue, setEditStartTimeValue] = useState('');
+  const [editingLocation, setEditingLocation] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // 待機場所の選択肢を取得
+  const locationOptions = (() => {
+    const spots = [];
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    if (locs && locs.waitingSpots) {
+      locs.waitingSpots.forEach(s => spots.push(s.name));
+    }
+    // KNOWN_PLACESからも追加（重複除外）
+    if (APP_CONSTANTS.KNOWN_PLACES) {
+      APP_CONSTANTS.KNOWN_PLACES.forEach(p => {
+        if (!spots.includes(p.name)) spots.push(p.name);
+      });
+    }
+    return spots;
+  })();
+
+  // ドロップダウン外クリックで閉じる
+  useEffect(() => {
+    if (!editingLocation) return;
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setEditingLocation(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [editingLocation]);
 
   return React.createElement('header', { className: 'header' },
     // メニュートグル（モバイル）
@@ -38,23 +72,77 @@ window.Header = () => {
         fontSize: '12px',
         color: '#ffa726',
         fontWeight: 500,
-        overflow: 'hidden',
+        overflow: 'visible',
         maxWidth: '400px',
         flexShrink: 0,
         animation: 'standbyPulse 2s ease-in-out infinite',
+        position: 'relative',
       },
     },
       React.createElement('span', {
         className: 'material-icons-round',
         style: { fontSize: '16px', color: '#ffa726', flexShrink: 0 },
       }, 'hourglass_top'),
-      // 場所名
-      React.createElement('span', {
-        style: {
-          fontWeight: 600, fontSize: '12px', flexShrink: 0,
-          maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      // 場所名（クリックでプルダウン表示）
+      React.createElement('div', {
+        ref: dropdownRef,
+        style: { position: 'relative', flexShrink: 0 },
+      },
+        React.createElement('span', {
+          style: {
+            fontWeight: 600, fontSize: '12px',
+            maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            cursor: 'pointer', borderBottom: '1px dashed rgba(255,167,38,0.5)',
+            display: 'inline-block',
+          },
+          onClick: (e) => {
+            e.stopPropagation();
+            setEditingLocation(!editingLocation);
+          },
+          title: 'タップして待機場所を変更',
+        }, standbyStatus.locationName || '待機中'),
+        // プルダウンメニュー
+        editingLocation && React.createElement('div', {
+          style: {
+            position: 'absolute',
+            top: '100%',
+            left: '0',
+            marginTop: '4px',
+            background: '#1e1e2e',
+            border: '1px solid rgba(255,167,38,0.4)',
+            borderRadius: '8px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            zIndex: 9999,
+            minWidth: '180px',
+            maxHeight: '250px',
+            overflowY: 'auto',
+            padding: '4px 0',
+          },
+          onClick: (e) => e.stopPropagation(),
         },
-      }, standbyStatus.locationName || '待機中'),
+          ...locationOptions.map(name =>
+            React.createElement('div', {
+              key: name,
+              style: {
+                padding: '8px 12px',
+                fontSize: '13px',
+                color: (standbyStatus.locationName === name) ? '#ffa726' : 'var(--text-primary)',
+                cursor: 'pointer',
+                background: (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent',
+                borderLeft: (standbyStatus.locationName === name) ? '3px solid #ffa726' : '3px solid transparent',
+                whiteSpace: 'nowrap',
+                transition: 'background 0.15s',
+              },
+              onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,167,38,0.1)'; },
+              onMouseLeave: (e) => { e.currentTarget.style.background = (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent'; },
+              onClick: () => {
+                updateStandbyLocationName(name);
+                setEditingLocation(false);
+              },
+            }, name)
+          )
+        )
+      ),
       // 時刻表示（開始時刻タップで編集可能）
       editingStartTime
         ? React.createElement('div', {

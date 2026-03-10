@@ -128,6 +128,15 @@ window.MapProvider = ({ children }) => {
     return false;
   }, []);
 
+  // 待機場所名を手動変更
+  const updateStandbyLocationName = useCallback((name) => {
+    if (window.GpsLogService && GpsLogService.setStandbyLocationName(name)) {
+      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      return true;
+    }
+    return false;
+  }, []);
+
   // useMemoでvalueを安定化（不要な再レンダリング防止）
   const value = useMemo(() => ({
     currentPosition,
@@ -148,7 +157,8 @@ window.MapProvider = ({ children }) => {
     startTracking,
     stopTracking,
     updateStandbyStartTime,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking, updateStandbyStartTime]);
+    updateStandbyLocationName,
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking, updateStandbyStartTime, updateStandbyLocationName]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };

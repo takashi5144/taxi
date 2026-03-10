@@ -281,8 +281,13 @@ window.GpsLogService = (() => {
           endTime: _rtAnchor.lastTime,
           durationMin: Math.round(duration / 60000 * 10) / 10,
           movedAt: now,
+          manualLocationName: _rtAnchor.manualLocationName || null,
           ...catInfo,
         };
+        // 手動設定の場所名を優先
+        if (_rtAnchor.manualLocationName) {
+          _rtPendingStandby.nearbyName = _rtAnchor.manualLocationName;
+        }
         // 現在の売上記録数を記憶
         try { _rtLastEntryCount = DataService.getEntries().length; } catch { _rtLastEntryCount = 0; }
       }
@@ -367,7 +372,7 @@ window.GpsLogService = (() => {
       durationMs: duration,
       durationMin: Math.floor(duration / 60000),
       durationSec: Math.floor((duration % 60000) / 1000),
-      locationName: catInfo.nearbyName || catInfo.categoryLabel || null,
+      locationName: _rtAnchor.manualLocationName || catInfo.nearbyName || catInfo.categoryLabel || null,
       category: catInfo.category,
     };
   }
@@ -385,7 +390,7 @@ window.GpsLogService = (() => {
         endTimeHHMM: _tsToHHMM(_rtPendingStandby.endTime),
         durationMin: Math.floor(duration / 60000),
         durationSec: Math.floor((duration % 60000) / 1000),
-        locationName: _rtPendingStandby.nearbyName || _rtPendingStandby.categoryLabel || null,
+        locationName: _rtPendingStandby.manualLocationName || _rtPendingStandby.nearbyName || _rtPendingStandby.categoryLabel || null,
         category: _rtPendingStandby.category,
       };
     }
@@ -404,6 +409,14 @@ window.GpsLogService = (() => {
     d.setHours(h, m, 0, 0);
     _rtAnchor.startTime = d.getTime();
     if (window.AppLogger) AppLogger.info(`待機開始時刻を手動変更: ${hhmm}`);
+    return true;
+  }
+
+  /** 待機場所名を手動で変更 */
+  function setStandbyLocationName(name) {
+    if (!_rtAnchor) return false;
+    _rtAnchor.manualLocationName = name || null;
+    if (window.AppLogger) AppLogger.info(`待機場所を手動変更: ${name}`);
     return true;
   }
 
@@ -1509,6 +1522,7 @@ window.GpsLogService = (() => {
     getRealtimeStandbyStatus,
     getLastCompletedStandby,
     setStandbyStartTime,
+    setStandbyLocationName,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
