@@ -888,7 +888,9 @@ window.RevenuePage = () => {
   // todayUncollected にクーポン未収の金額も含まれる
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
-  const allTotal = entries.reduce((sum, e) => sum + e.amount, 0);
+  const currentMonth = today.slice(0, 7); // 'YYYY-MM'
+  const monthEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth));
+  const monthTotal = monthEntries.reduce((sum, e) => sum + e.amount, 0);
 
   // GPS取得ボタンのスタイル
   const gpsButtonStyle = (loading) => ({
@@ -1104,7 +1106,7 @@ window.RevenuePage = () => {
           `Uber: ${todayUberEntries.length}件`
         ),
         React.createElement('span', { style: { color: 'var(--text-muted)' } },
-          `全${entries.length}件 累計¥${allTotal.toLocaleString()}`
+          `当月${monthEntries.length}件 ¥${monthTotal.toLocaleString()}`
         )
       )
     ),
