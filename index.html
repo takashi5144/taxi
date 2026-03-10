@@ -1240,7 +1240,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.19.1',
+  VERSION: '3.19.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -24838,6 +24838,8 @@ window.DataManagePage = () => {
   const [saved, setSaved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [search, setSearch] = useState('');
+  const [filterSource, setFilterSource] = useState('');   // 配車方法フィルター
+  const [filterPurpose, setFilterPurpose] = useState(''); // 用途フィルター
   const [showAddForm, setShowAddForm] = useState(false);
   const todayDefault = getLocalDateString();
   const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discounts: {} });
@@ -25388,16 +25390,25 @@ window.DataManagePage = () => {
     setRefreshKey(k => k + 1);
   }, [standbyAddForm]);
 
-  // 検索フィルター
+  // 検索・フィルター
   const filteredRevenue = useMemo(() => {
-    if (!search) return revenueEntries;
-    const q = search.toLowerCase();
-    return revenueEntries.filter(e =>
-      (e.pickup || '').toLowerCase().includes(q) || (e.dropoff || '').toLowerCase().includes(q) ||
-      (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q) ||
-      String(e.amount).includes(q)
-    );
-  }, [revenueEntries, search]);
+    let result = revenueEntries;
+    if (filterSource) {
+      result = result.filter(e => (e.source || '') === filterSource);
+    }
+    if (filterPurpose) {
+      result = result.filter(e => (e.purpose || '') === filterPurpose);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(e =>
+        (e.pickup || '').toLowerCase().includes(q) || (e.dropoff || '').toLowerCase().includes(q) ||
+        (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q) ||
+        String(e.amount).includes(q)
+      );
+    }
+    return result;
+  }, [revenueEntries, search, filterSource, filterPurpose]);
 
   const filteredVacant = useMemo(() => {
     if (!search) return vacantEntries;
@@ -25831,6 +25842,55 @@ window.DataManagePage = () => {
       )
     ),
 
+    // フィルター（売上タブのみ）
+    tab === 'revenue' && React.createElement('div', {
+      style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: 'var(--text-muted)' } }, 'filter_list'),
+      // 配車方法フィルター
+      React.createElement('select', {
+        value: filterSource,
+        onChange: e => setFilterSource(e.target.value),
+        style: {
+          padding: '5px 8px', borderRadius: '6px', fontSize: '12px',
+          border: filterSource ? '1px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+          background: filterSource ? 'rgba(100,181,246,0.15)' : 'var(--bg-secondary)',
+          color: filterSource ? 'var(--color-primary)' : 'var(--text-primary)',
+          cursor: 'pointer', outline: 'none',
+        },
+      },
+        React.createElement('option', { value: '' }, '配車方法: すべて'),
+        ...['Go', 'Uber', 'DIDI', '電話', '流し', '待機'].map(s =>
+          React.createElement('option', { key: s, value: s }, s)
+        )
+      ),
+      // 用途フィルター
+      React.createElement('select', {
+        value: filterPurpose,
+        onChange: e => setFilterPurpose(e.target.value),
+        style: {
+          padding: '5px 8px', borderRadius: '6px', fontSize: '12px',
+          border: filterPurpose ? '1px solid #a78bfa' : '1px solid rgba(255,255,255,0.15)',
+          background: filterPurpose ? 'rgba(167,139,250,0.15)' : 'var(--bg-secondary)',
+          color: filterPurpose ? '#a78bfa' : 'var(--text-primary)',
+          cursor: 'pointer', outline: 'none',
+        },
+      },
+        React.createElement('option', { value: '' }, '用途: すべて'),
+        ...['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '駅移動'].map(p =>
+          React.createElement('option', { key: p, value: p }, p)
+        )
+      ),
+      // フィルタークリア
+      (filterSource || filterPurpose) && React.createElement('button', {
+        onClick: () => { setFilterSource(''); setFilterPurpose(''); },
+        style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'close'),
+        'クリア'
+      )
+    ),
+
     // 保存成功バナー
     saved && React.createElement('div', {
       style: { background: 'rgba(0,200,83,0.15)', border: '1px solid rgba(0,200,83,0.3)', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--color-accent)' },
@@ -26081,7 +26141,7 @@ window.DataManagePage = () => {
 
       React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
         React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
-          `${filteredRevenue.length}件${search ? ` (全${revenueEntries.length}件中)` : ''}`
+          `${filteredRevenue.length}件${(search || filterSource || filterPurpose) ? ` (全${revenueEntries.length}件中)` : ''}`
         ),
         React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
           React.createElement(Button, {
