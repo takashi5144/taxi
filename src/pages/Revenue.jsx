@@ -599,6 +599,9 @@ window.RevenuePage = () => {
       dropoffCoords: entry.dropoffCoords || null,
       pickupLandmark: entry.pickupLandmark || null,
       dropoffLandmark: entry.dropoffLandmark || null,
+      standbyLocation: (entry.standbyInfo && entry.standbyInfo.locationName) || '',
+      standbyDurationMin: (entry.standbyInfo && entry.standbyInfo.durationMin) || '',
+      standbyDurationSec: (entry.standbyInfo && entry.standbyInfo.durationSec) || '',
     });
     setEditingId(entry.id);
     setEditErrors([]);
@@ -700,6 +703,11 @@ window.RevenuePage = () => {
       dropoffCoords: editForm.dropoffCoords || null,
       pickupLandmark: editForm.pickupLandmark || null,
       dropoffLandmark: editForm.dropoffLandmark || null,
+      standbyInfo: (editForm.standbyLocation || editForm.standbyDurationMin) ? {
+        locationName: editForm.standbyLocation || '',
+        durationMin: parseInt(editForm.standbyDurationMin) || 0,
+        durationSec: parseInt(editForm.standbyDurationSec) || 0,
+      } : null,
     };
     delete updates.discounts; // 一旦削除してからセット
     updates.discounts = discounts;
@@ -1836,6 +1844,36 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '降車時間'),
               React.createElement('input', { type: 'time', value: editForm.dropoffTime || '', onChange: (e) => setEditForm({ ...editForm, dropoffTime: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
+            ),
+            // 待機場所
+            React.createElement('div', { style: { marginBottom: '8px' } },
+              React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機場所'),
+              React.createElement('input', {
+                type: 'text', value: editForm.standbyLocation || '',
+                onChange: (e) => setEditForm({ ...editForm, standbyLocation: e.target.value }),
+                style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
+                placeholder: '例: 旭川駅',
+              })
+            ),
+            // 待機時間
+            React.createElement('div', { style: { marginBottom: '8px' } },
+              React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機時間'),
+              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+                React.createElement('input', {
+                  type: 'number', min: '0', value: editForm.standbyDurationMin || '',
+                  onChange: (e) => setEditForm({ ...editForm, standbyDurationMin: e.target.value }),
+                  style: { width: '60px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', textAlign: 'center' },
+                  placeholder: '0',
+                }),
+                React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '分'),
+                React.createElement('input', {
+                  type: 'number', min: '0', max: '59', value: editForm.standbyDurationSec || '',
+                  onChange: (e) => setEditForm({ ...editForm, standbyDurationSec: e.target.value }),
+                  style: { width: '60px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', textAlign: 'center' },
+                  placeholder: '0',
+                }),
+                React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '秒')
+              )
             ),
             // 天候（ボタン選択 — 新規フォームと同じ）
             React.createElement('div', { style: { marginBottom: '8px' } },
