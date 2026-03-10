@@ -88,6 +88,27 @@ window.DevToolsPage = () => {
       }, 'すべてのログを表示')
     ),
 
+    // ML用データエクスポート
+    React.createElement(Card, {
+      title: 'ML分析データ',
+      style: { marginTop: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '12px' } },
+        'LightGBM学習用に売上・空車・シフト・GPSデータをJSON形式でエクスポートします。'
+      ),
+      React.createElement(Button, {
+        icon: 'download',
+        onClick: async () => {
+          try {
+            await DataService.exportMLData();
+          } catch (e) {
+            alert('エクスポートに失敗しました: ' + e.message);
+          }
+        },
+        style: { width: '100%' },
+      }, 'ML用データをエクスポート')
+    ),
+
     // クイック情報
     React.createElement(Card, {
       title: 'プロジェクト情報',

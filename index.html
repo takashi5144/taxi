@@ -1240,7 +1240,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.20.0',
+  VERSION: '3.21.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -4976,6 +4976,211 @@ window.DataService = (() => {
     };
   }
 
+  // ============================================================
+  // ML用データエクスポート（LightGBM学習用）
+  // ============================================================
+  async function exportMLData() {
+    const entries = getEntries();
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+
+    // エリア定義（cruisingAreas + 追加エリア）
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const cruisingAreas = locs && locs.cruisingAreas ? locs.cruisingAreas : [];
+    const extraAreas = [
+      { id: 'station', name: '旭川駅前', lat: 43.7631, lng: 142.3581, radius: 300 },
+      { id: 'airport', name: '旭川空港', lat: 43.6708, lng: 142.4475, radius: 1000 },
+      { id: 'zoo', name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
+    ];
+    const allAreas = [...extraAreas, ...cruisingAreas.map(a => ({ ...a, radius: 800 }))];
+
+    function coordToArea(lat, lng) {
+      if (!lat || !lng) return { id: 'unknown', name: '不明' };
+      let bestArea = null, bestDist = Infinity;
+      for (const area of allAreas) {
+        const dLat = (lat - area.lat) * 111320;
+        const dLng = (lng - area.lng) * 111320 * Math.cos(area.lat * Math.PI / 180);
+        const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+        const r = area.radius || 800;
+        if (dist < r && dist < bestDist) {
+          bestArea = area;
+          bestDist = dist;
+        }
+      }
+      return bestArea ? { id: bestArea.id, name: bestArea.name || bestArea.shortName } : { id: 'other', name: 'その他郊外' };
+    }
+
+    // 売上エントリ → trips テーブル
+    const revenueEntries = entries.filter(e => !e.noPassenger && e.amount > 0);
+    const trips = revenueEntries.map((e, idx) => {
+      const entryDate = e.date || toDateStr(e.timestamp);
+      const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
+      const pMin = _timeToMinutes(e.pickupTime);
+      const dMin = _timeToMinutes(e.dropoffTime);
+      const durationMin = (pMin !== null && dMin !== null && dMin > pMin) ? dMin - pMin : null;
+      const pickupArea = (e.pickupCoords && e.pickupCoords.lat) ? coordToArea(e.pickupCoords.lat, e.pickupCoords.lng) : { id: 'unknown', name: '不明' };
+      const dropoffArea = (e.dropoffCoords && e.dropoffCoords.lat) ? coordToArea(e.dropoffCoords.lat, e.dropoffCoords.lng) : { id: 'unknown', name: '不明' };
+      const hour = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : null;
+      const [y, m, d] = entryDate.split('-').map(Number);
+      const jsDate = new Date(y, m - 1, d);
+      const weekday = jsDate.getDay(); // 0=Sun
+      const isPay = d >= 23 && d <= 27;
+
+      return {
+        trip_id: idx + 1,
+        date: entryDate,
+        pickup_time: e.pickupTime || '',
+        dropoff_time: e.dropoffTime || '',
+        pickup_lat: e.pickupCoords ? e.pickupCoords.lat : null,
+        pickup_lon: e.pickupCoords ? e.pickupCoords.lng : null,
+        dropoff_lat: e.dropoffCoords ? e.dropoffCoords.lat : null,
+        dropoff_lon: e.dropoffCoords ? e.dropoffCoords.lng : null,
+        pickup_area_id: pickupArea.id,
+        pickup_area: pickupArea.name,
+        dropoff_area_id: dropoffArea.id,
+        dropoff_area: dropoffArea.name,
+        revenue: e.amount,
+        duration_min: durationMin,
+        hour: hour,
+        weekday: weekday,
+        day_of_week: dateInfo.dayOfWeek,
+        is_holiday: dateInfo.isHoliday ? 1 : 0,
+        is_payday_period: isPay ? 1 : 0,
+        month: m,
+        weather: e.weather || '',
+        temperature: e.temperature != null ? e.temperature : null,
+        passengers: parseInt(e.passengers) || 1,
+        gender: e.gender || '',
+        purpose: e.purpose || '',
+        dispatch_type: e.source || '',
+        payment_method: e.paymentMethod || 'cash',
+      };
+    });
+
+    // 空車区間テーブル（連続する乗車間の空車時間）
+    const sortedTrips = [...trips].filter(t => t.pickup_time && t.dropoff_time).sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.pickup_time.localeCompare(b.pickup_time);
+    });
+
+    const vacantPeriods = [];
+    for (let i = 0; i < sortedTrips.length - 1; i++) {
+      const curr = sortedTrips[i];
+      const next = sortedTrips[i + 1];
+      if (curr.date !== next.date) continue;
+      const currEnd = _timeToMinutes(curr.dropoff_time);
+      const nextStart = _timeToMinutes(next.pickup_time);
+      if (currEnd === null || nextStart === null || nextStart <= currEnd) continue;
+      const vacantMin = nextStart - currEnd;
+      if (vacantMin > 180) continue; // 3時間超は除外
+
+      // 空車開始地点（前の降車地点）からエリア判定
+      const waitArea = curr.dropoff_area_id !== 'unknown' ? { id: curr.dropoff_area_id, name: curr.dropoff_area } : { id: 'unknown', name: '不明' };
+      // 配車種別を推定
+      const waitingType = next.dispatch_type === '待機' ? '付け待ち' : next.dispatch_type === '流し' ? '流し' : next.dispatch_type || '不明';
+
+      vacantPeriods.push({
+        date: curr.date,
+        vacant_start_time: curr.dropoff_time,
+        vacant_end_time: next.pickup_time,
+        vacant_duration_min: vacantMin,
+        waiting_area_id: waitArea.id,
+        waiting_area: waitArea.name,
+        waiting_type: waitingType,
+        hour: parseInt(curr.dropoff_time.split(':')[0], 10),
+        weekday: curr.weekday,
+        is_holiday: curr.is_holiday,
+        weather: curr.weather,
+        temperature: curr.temperature,
+        month: curr.month,
+        next_revenue: next.revenue,
+        next_pickup_area: next.pickup_area,
+      });
+    }
+
+    // 時間あたり売上（メイン目的変数）の計算
+    const tripsEnriched = sortedTrips.map((trip, i) => {
+      // この乗車に対応する空車時間を見つける
+      const matchingVacant = vacantPeriods.find(v =>
+        v.date === trip.date && v.vacant_end_time === trip.pickup_time
+      );
+      const vacantMin = matchingVacant ? matchingVacant.vacant_duration_min : 0;
+      const totalMin = (trip.duration_min || 0) + vacantMin;
+      const revenuePerHour = totalMin > 0 ? Math.round((trip.revenue / totalMin) * 60) : null;
+      return {
+        ...trip,
+        vacant_duration_min: vacantMin,
+        total_cycle_min: totalMin,
+        revenue_per_hour: revenuePerHour,
+      };
+    });
+
+    // シフトデータ
+    const shiftsData = shifts.filter(s => s.startTime).map(s => ({
+      date: toDateStr(s.startTime),
+      start_time: new Date(s.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      end_time: s.endTime ? new Date(s.endTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : null,
+      duration_min: s.endTime ? Math.round((new Date(s.endTime) - new Date(s.startTime)) / 60000) : null,
+    }));
+
+    // GPSログから日別サマリー取得（非同期）
+    let gpsSummaries = [];
+    if (window.GpsLogService) {
+      try {
+        const dates = await GpsLogService.getLogDates();
+        for (const d of dates) {
+          const summary = await GpsLogService.getDaySummary(d);
+          if (summary) {
+            gpsSummaries.push({
+              date: d,
+              total_min: summary.total,
+              occupied_min: summary.occupied,
+              vacant_min: summary.vacant,
+              occupancy_rate: summary.rate,
+              gps_points: summary.points,
+              first_time: summary.firstTime,
+              last_time: summary.lastTime,
+            });
+          }
+        }
+      } catch (e) { /* skip GPS data if unavailable */ }
+    }
+
+    // エリアマスタ
+    const areaMaster = allAreas.map(a => ({
+      area_id: a.id,
+      area_name: a.name || a.shortName || a.id,
+      lat: a.lat,
+      lng: a.lng,
+      radius: a.radius || 800,
+    }));
+
+    const exportData = {
+      version: APP_CONSTANTS.VERSION,
+      exported_at: new Date().toISOString(),
+      trips: tripsEnriched,
+      vacant_periods: vacantPeriods,
+      shifts: shiftsData,
+      gps_summaries: gpsSummaries,
+      area_master: areaMaster,
+      stats: {
+        total_trips: tripsEnriched.length,
+        total_vacant_periods: vacantPeriods.length,
+        total_shifts: shiftsData.length,
+        total_gps_days: gpsSummaries.length,
+        date_range: tripsEnriched.length > 0
+          ? { from: tripsEnriched[0].date, to: tripsEnriched[tripsEnriched.length - 1].date }
+          : null,
+      },
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const dateStr = getLocalDateString();
+    _downloadFile(`taxi_ml_data_${dateStr}.json`, blob, `ML用データエクスポート完了: ${tripsEnriched.length}件の乗車記録`);
+    return exportData;
+  }
+
   // 時間帯別の実車/非実車を集計（mode: 'month' | 'all'）
   function getHourlyOccupancy(mode) {
     const entries = getEntries();
@@ -8252,6 +8457,9 @@ window.DataService = (() => {
 
     // 時間帯別実車グラフ
     getHourlyOccupancy,
+
+    // ML用データエクスポート
+    exportMLData,
 
     // 日種別
     getTodayDayType,
@@ -27432,6 +27640,27 @@ window.DevToolsPage = () => {
         onClick: () => navigate('dev-logs'),
         style: { marginTop: 'var(--space-md)' },
       }, 'すべてのログを表示')
+    ),
+
+    // ML用データエクスポート
+    React.createElement(Card, {
+      title: 'ML分析データ',
+      style: { marginTop: 'var(--space-lg)' },
+    },
+      React.createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '12px' } },
+        'LightGBM学習用に売上・空車・シフト・GPSデータをJSON形式でエクスポートします。'
+      ),
+      React.createElement(Button, {
+        icon: 'download',
+        onClick: async () => {
+          try {
+            await DataService.exportMLData();
+          } catch (e) {
+            alert('エクスポートに失敗しました: ' + e.message);
+          }
+        },
+        style: { width: '100%' },
+      }, 'ML用データをエクスポート')
     ),
 
     // クイック情報
