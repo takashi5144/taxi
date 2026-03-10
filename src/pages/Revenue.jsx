@@ -726,6 +726,35 @@ window.RevenuePage = () => {
       GpsLogService.updateEvent(dateStr, entry.id, 'dropoff', entry.dropoffCoords, entry.dropoffTime);
     }
 
+    // 待機記録との双方向同期: standbyInfoが変更されたら対応する待機記録も更新
+    if (updates.standbyInfo && updates.standbyInfo.locationName && result.entry) {
+      const entry = result.entry;
+      const standbyEntries = DataService.getStandbyEntries();
+      // 同じ日付で時刻が重なる待機記録を検索
+      const matchingStandby = standbyEntries.find(s => {
+        if (s.date !== entry.date) return false;
+        const si = s.standbyInfo || {};
+        const sStart = si.startTime || s.pickupTime || '';
+        const sEnd = si.endTime || s.dropoffTime || '';
+        const eStart = updates.standbyInfo.startTime || '';
+        const eEnd = updates.standbyInfo.endTime || '';
+        // 元のstandbyInfoと一致、または時刻が近い待機を探す
+        const origSi = entry.standbyInfo || {};
+        if (origSi.startTime && origSi.startTime === sStart) return true;
+        if (sStart && eStart && Math.abs(sStart.replace(':','') - eStart.replace(':','')) <= 5) return true;
+        return false;
+      });
+      if (matchingStandby) {
+        DataService.updateEntry(matchingStandby.id, {
+          pickup: updates.standbyInfo.locationName,
+          dropoff: updates.standbyInfo.locationName,
+          pickupTime: updates.standbyInfo.startTime,
+          dropoffTime: updates.standbyInfo.endTime,
+          standbyInfo: updates.standbyInfo,
+        });
+      }
+    }
+
     setEditingId(null);
     setEditForm({});
     setEditErrors([]);
@@ -1855,7 +1884,12 @@ window.RevenuePage = () => {
             // 乗車時間
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '乗車時間'),
-              React.createElement('input', { type: 'time', value: editForm.pickupTime || '', onChange: (e) => setEditForm({ ...editForm, pickupTime: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
+              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+                React.createElement('input', { type: 'time', value: editForm.pickupTime || '', onChange: (e) => setEditForm({ ...editForm, pickupTime: e.target.value }), style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' } }),
+                React.createElement('button', { type: 'button', onClick: () => setEditForm({ ...editForm, pickupTime: getNowTime() }),
+                  style: { display: 'flex', alignItems: 'center', gap: '3px', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: '#fff', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,200,83,0.2)', whiteSpace: 'nowrap' },
+                }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'), '現在')
+              )
             ),
             // 降車地（GPS付き）
             React.createElement('div', { style: { marginBottom: '8px' } },
@@ -1877,7 +1911,12 @@ window.RevenuePage = () => {
             // 降車時間
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '降車時間'),
-              React.createElement('input', { type: 'time', value: editForm.dropoffTime || '', onChange: (e) => setEditForm({ ...editForm, dropoffTime: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
+              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+                React.createElement('input', { type: 'time', value: editForm.dropoffTime || '', onChange: (e) => setEditForm({ ...editForm, dropoffTime: e.target.value }), style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' } }),
+                React.createElement('button', { type: 'button', onClick: () => setEditForm({ ...editForm, dropoffTime: getNowTime() }),
+                  style: { display: 'flex', alignItems: 'center', gap: '3px', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: '#fff', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,200,83,0.2)', whiteSpace: 'nowrap' },
+                }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'), '現在')
+              )
             ),
             // 待機場所
             React.createElement('div', { style: { marginBottom: '8px' } },
@@ -2098,32 +2137,37 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'お客様性別'),
               React.createElement('div', { style: { display: 'flex', gap: '4px' } },
-                ...['男性', '女性', '混合'].map(g => React.createElement('button', {
-                  key: g, type: 'button',
-                  onClick: () => setEditForm({ ...editForm, gender: editForm.gender === g ? '' : g }),
+                ...[{ v: '男性', e: '\uD83D\uDC68' }, { v: '女性', e: '\uD83D\uDC69' }, { v: '混合', e: '\uD83D\uDC65' }].map(g => React.createElement('button', {
+                  key: g.v, type: 'button',
+                  onClick: () => setEditForm({ ...editForm, gender: editForm.gender === g.v ? '' : g.v }),
                   style: {
-                    padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: editForm.gender === g ? 700 : 400,
-                    cursor: 'pointer', border: editForm.gender === g ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: editForm.gender === g ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: editForm.gender === g ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: editForm.gender === g.v ? 700 : 400,
+                    cursor: 'pointer', border: editForm.gender === g.v ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: editForm.gender === g.v ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
+                    color: editForm.gender === g.v ? 'var(--color-primary-light)' : 'var(--text-secondary)',
                   },
-                }, g))
+                }, g.e + ' ' + g.v))
               )
             ),
-            // 用途（パチンコ追加）
+            // 用途
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '用途'),
               React.createElement('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-                ...['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '駅移動'].map(p => React.createElement('button', {
-                  key: p, type: 'button',
-                  onClick: () => setEditForm({ ...editForm, purpose: editForm.purpose === p ? '' : p }),
+                ...[
+                  { v: '通勤', e: '\uD83D\uDCBC' }, { v: '通院', e: '\uD83C\uDFE5' }, { v: '買物', e: '\uD83D\uDED2' },
+                  { v: '観光', e: '\uD83D\uDDFC' }, { v: '出張', e: '\u2708\uFE0F' }, { v: '送迎', e: '\uD83D\uDE97' },
+                  { v: '空港', e: '\uD83D\uDEEB' }, { v: '飲食', e: '\uD83C\uDF7B' }, { v: 'パチンコ', e: '\uD83C\uDFB0' },
+                  { v: '駅移動', e: '\uD83D\uDE89' },
+                ].map(p => React.createElement('button', {
+                  key: p.v, type: 'button',
+                  onClick: () => setEditForm({ ...editForm, purpose: editForm.purpose === p.v ? '' : p.v }),
                   style: {
-                    padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: editForm.purpose === p ? 700 : 400,
-                    cursor: 'pointer', border: editForm.purpose === p ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: editForm.purpose === p ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: editForm.purpose === p ? 'var(--color-primary-light)' : 'var(--text-secondary)',
+                    padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: editForm.purpose === p.v ? 700 : 400,
+                    cursor: 'pointer', border: editForm.purpose === p.v ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
+                    background: editForm.purpose === p.v ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
+                    color: editForm.purpose === p.v ? 'var(--color-primary-light)' : 'var(--text-secondary)',
                   },
-                }, p))
+                }, p.e + ' ' + p.v))
               )
             ),
             // メモ

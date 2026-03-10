@@ -2520,6 +2520,22 @@ window.DataManagePage = () => {
                       };
                       const result = DataService.updateEntry(editingId, updates);
                       if (!result || !result.success) { setErrors((result && result.errors) || ['保存に失敗しました']); return; }
+                      // 待機記録→売上記録の双方向同期
+                      if (result.entry && updates.standbyInfo && updates.standbyInfo.locationName) {
+                        const sEntry = result.entry;
+                        const revEntries = DataService.getEntries();
+                        const matchingRev = revEntries.find(r => {
+                          if (r.date !== sEntry.date) return false;
+                          const rsi = r.standbyInfo || {};
+                          if (!rsi.locationName) return false;
+                          const origSi = sEntry.standbyInfo || {};
+                          if (rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) return true;
+                          return false;
+                        });
+                        if (matchingRev) {
+                          DataService.updateEntry(matchingRev.id, { standbyInfo: updates.standbyInfo });
+                        }
+                      }
                       setEditingId(null); setEditForm({}); setSaved(true); setTimeout(() => setSaved(false), 2000); setRefreshKey(k => k + 1);
                     },
                     style: { padding: '6px 16px', borderRadius: '6px', border: 'none', background: 'rgba(255,167,38,0.2)', color: '#ffa726', cursor: 'pointer', fontSize: '12px', fontWeight: 600 },
