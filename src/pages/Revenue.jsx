@@ -780,6 +780,7 @@ window.RevenuePage = () => {
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
   // 未収合計 = 未収 + DIDI決済 + Uber + 障害者割引(絶対値)
   const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count;
   // クーポン未収はクーポン分が別エントリ（paymentMethod='uncollected'）として記録されるため、
   // todayUncollected にクーポン未収の金額も含まれる
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
@@ -930,7 +931,8 @@ window.RevenuePage = () => {
             style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#ce93d8', fontWeight: 600 },
           },
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'account_balance'),
-            '未収合計'
+            '未収合計',
+            React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayUncollectedTotalCount}件`)
           ),
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ce93d8' } },
             `¥${todayUncollectedTotal.toLocaleString()}`
@@ -939,10 +941,10 @@ window.RevenuePage = () => {
         React.createElement('div', {
           style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
         },
-          React.createElement('span', null, `未収: ¥${todayUncollected.toLocaleString()}`),
-          React.createElement('span', null, `DIDI: ¥${todayDidi.toLocaleString()}`),
-          React.createElement('span', null, `Uber: ¥${todayUber.toLocaleString()}`),
-          React.createElement('span', null, `障害者割引: ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`)
+          React.createElement('span', null, `未収: ${todayUncollectedEntries.length}件 ¥${todayUncollected.toLocaleString()}`),
+          React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
+          React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
+          React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`)
         )
       ),
 
