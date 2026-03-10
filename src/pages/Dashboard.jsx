@@ -742,6 +742,7 @@ window.DashboardPage = () => {
     // 時間帯別 実車/非実車グラフ
     // ============================================================
     (() => {
+      if (!hourlyOccupancy || !hourlyOccupancy.hours) return null;
       const { hours, days } = hourlyOccupancy;
       const maxMin = Math.max(...hours.map(h => h.work), 1);
       const hasData = hours.some(h => h.work > 0);

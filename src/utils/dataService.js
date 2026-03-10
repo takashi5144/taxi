@@ -2687,7 +2687,7 @@ window.DataService = (() => {
       if (currEnd === null || nextStart === null || nextStart <= currEnd) continue;
       const gap = nextStart - currEnd;
       if (gap > 120) continue;
-      const areaName = curr.dropoffCoords ? coordToAreaName(curr.dropoffCoords.lat, curr.dropoffCoords.lng) : null;
+      const areaName = (curr.dropoffCoords && curr.dropoffCoords.lat && curr.dropoffCoords.lng) ? coordToAreaName(curr.dropoffCoords.lat, curr.dropoffCoords.lng) : null;
       vacantGaps.push({
         startTime: curr.dropoffTime,
         endTime: next.pickupTime,
@@ -3079,9 +3079,9 @@ window.DataService = (() => {
     let gpsSummaries = [];
     if (window.GpsLogService) {
       try {
-        const dates = await GpsLogService.getLogDates();
+        const dates = await window.GpsLogService.getLogDates();
         for (const d of dates) {
-          const summary = await GpsLogService.getDaySummary(d);
+          const summary = await window.GpsLogService.getDaySummary(d);
           if (summary) {
             gpsSummaries.push({
               date: d,
@@ -3171,7 +3171,6 @@ window.DataService = (() => {
         if (hEnd > end) hEnd.setTime(end.getTime());
         if (hEnd <= hStart) continue;
         // 同じ時間帯の分
-        const sDate = toDateStr(s.startTime);
         const hStartDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, 0, 0);
         const hEndDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h + 1, 0, 0);
         const actualStart = Math.max(start.getTime(), hStartDay.getTime());
