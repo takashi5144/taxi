@@ -1239,7 +1239,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.15.3',
+  VERSION: '3.16.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2546,11 +2546,21 @@ window.DataService = (() => {
     }
   }
 
-  // 空車記録のみ取得
+  // 空車記録のみ取得（待機を除く）
   function getVacantEntries() {
     try {
       const entries = _getRawEntries();
-      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger), 'date', 'dropoffTime');
+      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger && e.purpose !== '待機'), 'date', 'dropoffTime');
+    } catch {
+      return [];
+    }
+  }
+
+  // 待機記録のみ取得
+  function getStandbyEntries() {
+    try {
+      const entries = _getRawEntries();
+      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger && e.purpose === '待機'), 'date', 'dropoffTime');
     } catch {
       return [];
     }
@@ -7984,6 +7994,7 @@ window.DataService = (() => {
     // データ取得
     getEntries,
     getVacantEntries,
+    getStandbyEntries,
     saveEntries,
 
     // サマリー
@@ -9359,9 +9370,14 @@ window.GpsLogService = (() => {
       gender: '',
       purpose: '待機',
       source: '',
-      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}${standby.zooSeason ? '・' + standby.zooSeason : ''}）自動記録`,
+      memo: `待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}${standby.zooSeason ? '・' + standby.zooSeason : ''}）自動記録`,
       noPassenger: true,
       paymentMethod: 'cash',
+      standbyInfo: {
+        locationName: placeName,
+        startTime: pickupTime,
+        endTime: dropoffTime,
+      },
     };
 
     try {
@@ -24355,6 +24371,7 @@ window.DataManagePage = () => {
   const tabs = [
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'vacant', label: '空車記録', icon: 'person_off' },
+    { id: 'standby', label: '待機記録', icon: 'hourglass_top' },
     { id: 'rival', label: '他社記録', icon: 'local_taxi' },
     { id: 'transit', label: '交通情報', icon: 'directions_transit' },
     { id: 'gps', label: 'GPS記録', icon: 'location_on' },
@@ -24365,6 +24382,7 @@ window.DataManagePage = () => {
   // データ読み込み
   const revenueEntries = useMemo(() => DataService.getEntries(), [refreshKey]);
   const vacantEntries = useMemo(() => DataService.getVacantEntries(), [refreshKey]);
+  const standbyEntries = useMemo(() => DataService.getStandbyEntries(), [refreshKey]);
   const rivalEntries = useMemo(() => DataService.getRivalEntries(), [refreshKey]);
   const transitData = useMemo(() => {
     try {
@@ -24506,6 +24524,9 @@ window.DataManagePage = () => {
     } else if (tab === 'vacant') {
       const vacantUpdates = { ...editForm, noPassenger: true, amount: 0 };
       result = DataService.updateEntry(editingId, vacantUpdates);
+    } else if (tab === 'standby') {
+      const standbyUpdates = { ...editForm, noPassenger: true, amount: 0, purpose: '待機' };
+      result = DataService.updateEntry(editingId, standbyUpdates);
     } else if (tab === 'rival') {
       result = DataService.updateRivalEntry(editingId, editForm);
     } else {
@@ -24524,7 +24545,7 @@ window.DataManagePage = () => {
   // 削除確認→実行（ゴミ箱に移動）
   const handleDelete = useCallback((id) => {
     if (confirmDelete === id) {
-      if (tab === 'revenue' || tab === 'vacant') DataService.moveToTrash(id);
+      if (tab === 'revenue' || tab === 'vacant' || tab === 'standby') DataService.moveToTrash(id);
       else if (tab === 'rival') DataService.moveRivalToTrash(id);
       setConfirmDelete(null);
       setRefreshKey(k => k + 1);
@@ -24767,6 +24788,16 @@ window.DataManagePage = () => {
       (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q)
     );
   }, [vacantEntries, search]);
+
+  const filteredStandby = useMemo(() => {
+    if (!search) return standbyEntries;
+    const q = search.toLowerCase();
+    return standbyEntries.filter(e =>
+      (e.pickup || '').toLowerCase().includes(q) || (e.dropoff || '').toLowerCase().includes(q) ||
+      (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q) ||
+      (e.standbyInfo && e.standbyInfo.locationName || '').toLowerCase().includes(q)
+    );
+  }, [standbyEntries, search]);
 
   const filteredRival = useMemo(() => {
     if (!search) return rivalEntries;
@@ -25027,7 +25058,7 @@ window.DataManagePage = () => {
     ),
 
     // 検索バー（売上・空車・他社タブ）
-    (tab === 'revenue' || tab === 'vacant' || tab === 'rival') && React.createElement('div', { style: { marginBottom: '12px' } },
+    (tab === 'revenue' || tab === 'vacant' || tab === 'standby' || tab === 'rival') && React.createElement('div', { style: { marginBottom: '12px' } },
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px 12px' } },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-muted)' } }, 'search'),
         React.createElement('input', {
@@ -25440,6 +25471,162 @@ window.DataManagePage = () => {
               )
             );
           }))
+    ),
+
+    // === 待機記録タブ ===
+    tab === 'standby' && React.createElement(React.Fragment, null,
+      React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
+        React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
+          `${filteredStandby.length}件${search ? ` (全${standbyEntries.length}件中)` : ''}`
+        )
+      ),
+      filteredStandby.length === 0
+        ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '13px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '40px', display: 'block', marginBottom: '8px', opacity: 0.4 } }, 'hourglass_empty'),
+            '待機記録がありません'
+          )
+        : React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+          ...filteredStandby.map(e => {
+            const isConfirm = confirmDelete === e.id;
+            const si = e.standbyInfo || {};
+            const locationName = si.locationName || e.pickup || '';
+            const startTime = si.startTime || e.pickupTime || '';
+            const endTime = si.endTime || e.dropoffTime || '';
+            return React.createElement('div', {
+              key: e.id,
+              style: {
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '10px 12px', borderRadius: '8px',
+                background: editingId === e.id ? 'rgba(255,167,38,0.08)' : 'var(--bg-card)',
+                border: editingId === e.id ? '1px solid rgba(255,167,38,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                fontSize: '13px',
+              },
+            },
+              // 時刻バッジ
+              React.createElement('div', {
+                style: {
+                  minWidth: '90px', textAlign: 'center', padding: '4px 8px',
+                  borderRadius: '6px', background: 'rgba(255,167,38,0.12)',
+                  fontSize: '12px', fontWeight: 600, color: '#ffa726',
+                  fontVariantNumeric: 'tabular-nums',
+                },
+              }, startTime && endTime ? startTime + '〜' + endTime : (e.pickupTime || '--:--')),
+              // 場所・日付
+              React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                React.createElement('div', { style: { fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                  locationName || '不明'
+                ),
+                React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                  React.createElement('span', null, e.date || ''),
+                  e.weather && React.createElement('span', null, e.weather),
+                  e.memo && React.createElement('span', { style: { color: 'var(--text-secondary)' } }, e.memo)
+                )
+              ),
+              // ラベル
+              React.createElement('div', { style: { marginRight: '8px', whiteSpace: 'nowrap', textAlign: 'right' } },
+                React.createElement('div', { style: { fontWeight: 700, color: '#ffa726', fontSize: '12px' } }, '待機'),
+                e.memo && e.memo.includes('自動記録') && React.createElement('div', { style: { fontSize: '9px', color: '#ff9800', marginTop: '1px' } }, 'GPS自動検出')
+              ),
+              // 編集・削除ボタン
+              React.createElement('button', {
+                onClick: () => {
+                  setEditingId(e.id);
+                  setEditForm({
+                    date: e.date || '', weather: e.weather || '', pickup: e.pickup || '',
+                    pickupTime: e.pickupTime || '', dropoffTime: e.dropoffTime || '',
+                    memo: e.memo || '',
+                    standbyLocation: si.locationName || e.pickup || '',
+                    standbyStartTime: si.startTime || e.pickupTime || '',
+                    standbyEndTime: si.endTime || e.dropoffTime || '',
+                  });
+                  setErrors([]);
+                },
+                style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary-light)', padding: '4px' },
+                title: '編集',
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'edit')),
+              React.createElement('button', {
+                onClick: () => handleDelete(e.id),
+                style: { background: 'none', border: 'none', cursor: 'pointer', color: isConfirm ? 'var(--color-danger)' : 'var(--text-muted)', padding: '4px' },
+                title: isConfirm ? 'もう一度押して削除' : '削除',
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, isConfirm ? 'delete_forever' : 'delete_outline'))
+            );
+          }),
+          // 編集フォーム（インライン）
+          editingId && (() => {
+            const editEntry = standbyEntries.find(e => e.id === editingId);
+            if (!editEntry) return null;
+            return React.createElement('div', {
+              style: {
+                padding: '12px', borderRadius: '8px', marginTop: '4px',
+                background: 'rgba(255,167,38,0.05)',
+                border: '1px solid rgba(255,167,38,0.25)',
+              },
+            },
+              errors.length > 0 && React.createElement('div', { style: { color: 'var(--color-danger)', fontSize: '12px', marginBottom: '8px' } }, errors.join(', ')),
+              // 待機場所
+              React.createElement('div', { style: { marginBottom: '8px' } },
+                React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機場所'),
+                React.createElement('input', {
+                  type: 'text', value: editForm.standbyLocation || '',
+                  onChange: (e) => setEditForm({ ...editForm, standbyLocation: e.target.value, pickup: e.target.value, dropoff: e.target.value }),
+                  style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
+                  placeholder: '例: 旭川駅',
+                })
+              ),
+              // 待機時間（開始〜終了）
+              React.createElement('div', { style: { marginBottom: '8px' } },
+                React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機時間'),
+                React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+                  React.createElement('input', {
+                    type: 'time', value: editForm.standbyStartTime || '',
+                    onChange: (e) => setEditForm({ ...editForm, standbyStartTime: e.target.value, pickupTime: e.target.value }),
+                    style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' },
+                  }),
+                  React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '〜'),
+                  React.createElement('input', {
+                    type: 'time', value: editForm.standbyEndTime || '',
+                    onChange: (e) => setEditForm({ ...editForm, standbyEndTime: e.target.value, dropoffTime: e.target.value }),
+                    style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' },
+                  })
+                )
+              ),
+              // 日付
+              React.createElement('div', { style: { marginBottom: '8px' } },
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '日付'),
+                React.createElement('input', { type: 'date', value: editForm.date || '', onChange: (e) => setEditForm({ ...editForm, date: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' } })
+              ),
+              // メモ
+              React.createElement('div', { style: { marginBottom: '8px' } },
+                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
+                React.createElement('input', { type: 'text', value: editForm.memo || '', onChange: (e) => setEditForm({ ...editForm, memo: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: 'メモ' })
+              ),
+              // 保存・キャンセル
+              React.createElement('div', { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end' } },
+                React.createElement('button', {
+                  onClick: () => { setEditingId(null); setEditForm({}); setErrors([]); },
+                  style: { padding: '6px 16px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '12px' },
+                }, 'キャンセル'),
+                React.createElement('button', {
+                  onClick: () => {
+                    const updates = {
+                      ...editForm,
+                      noPassenger: true, amount: 0, purpose: '待機',
+                      standbyInfo: {
+                        locationName: editForm.standbyLocation || '',
+                        startTime: editForm.standbyStartTime || '',
+                        endTime: editForm.standbyEndTime || '',
+                      },
+                    };
+                    const result = DataService.updateEntry(editingId, updates);
+                    if (!result || !result.success) { setErrors((result && result.errors) || ['保存に失敗しました']); return; }
+                    setEditingId(null); setEditForm({}); setSaved(true); setTimeout(() => setSaved(false), 2000); setRefreshKey(k => k + 1);
+                  },
+                  style: { padding: '6px 16px', borderRadius: '6px', border: 'none', background: 'rgba(255,167,38,0.2)', color: '#ffa726', cursor: 'pointer', fontSize: '12px', fontWeight: 600 },
+                }, '保存')
+              )
+            );
+          })()
+        )
     ),
 
     // === 他社記録タブ ===

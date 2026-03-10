@@ -417,9 +417,14 @@ window.GpsLogService = (() => {
       gender: '',
       purpose: '待機',
       source: '',
-      memo: `空車待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}${standby.zooSeason ? '・' + standby.zooSeason : ''}）自動記録`,
+      memo: `待機${standby.durationMin}分（${standby.nearbyName || standby.categoryLabel}${standby.zooSeason ? '・' + standby.zooSeason : ''}）自動記録`,
       noPassenger: true,
       paymentMethod: 'cash',
+      standbyInfo: {
+        locationName: placeName,
+        startTime: pickupTime,
+        endTime: dropoffTime,
+      },
     };
 
     try {

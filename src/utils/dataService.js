@@ -180,11 +180,21 @@ window.DataService = (() => {
     }
   }
 
-  // 空車記録のみ取得
+  // 空車記録のみ取得（待機を除く）
   function getVacantEntries() {
     try {
       const entries = _getRawEntries();
-      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger), 'date', 'dropoffTime');
+      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger && e.purpose !== '待機'), 'date', 'dropoffTime');
+    } catch {
+      return [];
+    }
+  }
+
+  // 待機記録のみ取得
+  function getStandbyEntries() {
+    try {
+      const entries = _getRawEntries();
+      return _sortByDateTimeDesc(entries.filter(e => e.noPassenger && e.purpose === '待機'), 'date', 'dropoffTime');
     } catch {
       return [];
     }
@@ -5618,6 +5628,7 @@ window.DataService = (() => {
     // データ取得
     getEntries,
     getVacantEntries,
+    getStandbyEntries,
     saveEntries,
 
     // サマリー
