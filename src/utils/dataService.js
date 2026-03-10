@@ -2609,6 +2609,184 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 日次レポート（改善ポイント分析）
+  // ============================================================
+  function getDailyReport() {
+    const entries = getEntries();
+    const today = toDateStr(new Date().toISOString());
+    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today && !e.noPassenger && e.amount > 0);
+    if (todayEntries.length < 2) return null;
+
+    // 過去データ（直近30日、今日以外）
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const pastEntries = entries.filter(e => {
+      const d = e.date || toDateStr(e.timestamp);
+      return d !== today && d >= toDateStr(thirtyDaysAgo.toISOString()) && !e.noPassenger && e.amount > 0;
+    });
+
+    // エリア定義
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const cruisingAreas = locs && locs.cruisingAreas ? locs.cruisingAreas : [];
+    const extraAreas = [
+      { id: 'station', name: '旭川駅前', shortName: '駅前', lat: 43.7631, lng: 142.3581, radius: 300 },
+      { id: 'airport', name: '旭川空港', shortName: '空港', lat: 43.6708, lng: 142.4475, radius: 1000 },
+      { id: 'zoo', name: '旭山動物園', shortName: '動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
+    ];
+    const allAreas = [...extraAreas, ...cruisingAreas.map(a => ({ ...a, radius: 800 }))];
+    function coordToAreaName(lat, lng) {
+      if (!lat || !lng) return null;
+      let bestArea = null, bestDist = Infinity;
+      for (const area of allAreas) {
+        const dLat = (lat - area.lat) * 111320;
+        const dLng = (lng - area.lng) * 111320 * Math.cos(area.lat * Math.PI / 180);
+        const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+        if (dist < (area.radius || 800) && dist < bestDist) { bestArea = area; bestDist = dist; }
+      }
+      return bestArea ? (bestArea.shortName || bestArea.name) : null;
+    }
+
+    // 本日実績
+    const totalRevenue = todayEntries.reduce((s, e) => s + e.amount, 0);
+    const rideCount = todayEntries.length;
+    const avgFare = Math.round(totalRevenue / rideCount);
+
+    // 実車率計算
+    const sorted = todayEntries
+      .filter(e => e.pickupTime && e.dropoffTime)
+      .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+    let occupiedMin = 0, vacantMin = 0;
+    sorted.forEach((e, i) => {
+      const p = _timeToMinutes(e.pickupTime);
+      const d = _timeToMinutes(e.dropoffTime);
+      if (p !== null && d !== null && d > p) occupiedMin += d - p;
+      if (i < sorted.length - 1) {
+        const nextP = _timeToMinutes(sorted[i + 1].pickupTime);
+        if (d !== null && nextP !== null && nextP > d) vacantMin += nextP - d;
+      }
+    });
+    const totalMin = occupiedMin + vacantMin;
+    const occupancyRate = totalMin > 0 ? Math.round((occupiedMin / totalMin) * 100) : 0;
+    const rph = totalMin > 0 ? Math.round((totalRevenue / totalMin) * 60) : 0;
+
+    // 過去平均値
+    const pastDays = new Set(pastEntries.map(e => e.date || toDateStr(e.timestamp)));
+    const pastDayCount = pastDays.size || 1;
+    const pastAvgRevenue = Math.round(pastEntries.reduce((s, e) => s + e.amount, 0) / pastDayCount);
+    const pastAvgRides = Math.round(pastEntries.length / pastDayCount);
+    const pastAvgFare = pastEntries.length > 0 ? Math.round(pastEntries.reduce((s, e) => s + e.amount, 0) / pastEntries.length) : 0;
+
+    // 時間帯別の空車分析（改善ポイント特定）
+    const insights = [];
+    const vacantGaps = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const curr = sorted[i];
+      const next = sorted[i + 1];
+      const currEnd = _timeToMinutes(curr.dropoffTime);
+      const nextStart = _timeToMinutes(next.pickupTime);
+      if (currEnd === null || nextStart === null || nextStart <= currEnd) continue;
+      const gap = nextStart - currEnd;
+      if (gap > 120) continue;
+      const areaName = curr.dropoffCoords ? coordToAreaName(curr.dropoffCoords.lat, curr.dropoffCoords.lng) : null;
+      vacantGaps.push({
+        startTime: curr.dropoffTime,
+        endTime: next.pickupTime,
+        duration: gap,
+        area: areaName || curr.dropoff || '不明',
+        hour: Math.floor(currEnd / 60),
+      });
+    }
+
+    // 長い空車時間の特定
+    const longVacants = vacantGaps.filter(v => v.duration >= 20).sort((a, b) => b.duration - a.duration);
+    longVacants.forEach(v => {
+      // 同時間帯・同エリアの過去平均を取得
+      const pastSameHour = pastEntries.filter(e => {
+        const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : -1;
+        return Math.abs(hr - v.hour) <= 1;
+      });
+      const pastAvgWait = pastSameHour.length >= 3 ? 15 : null; // 簡易推定
+
+      insights.push({
+        type: 'long_vacant',
+        icon: 'hourglass_top',
+        color: '#f59e0b',
+        text: `${v.startTime}〜${v.endTime} ${v.area}で${v.duration}分空車`,
+        suggestion: pastAvgWait ? `同条件の平均待機は約${pastAvgWait}分（${v.duration - pastAvgWait}分超過）` : null,
+      });
+    });
+
+    // 高単価乗車の特定
+    const highFare = sorted.filter(e => e.amount >= avgFare * 1.8);
+    highFare.forEach(e => {
+      const area = e.pickupCoords ? coordToAreaName(e.pickupCoords.lat, e.pickupCoords.lng) : null;
+      insights.push({
+        type: 'high_fare',
+        icon: 'trending_up',
+        color: '#10b981',
+        text: `${e.pickupTime} ${area || e.pickup || ''}発 ¥${e.amount.toLocaleString()}（平均の${Math.round(e.amount / avgFare * 100)}%）`,
+        suggestion: `${e.source || ''}${e.purpose ? '（' + e.purpose + '）' : ''} この時間帯のこのエリアは高単価`,
+      });
+    });
+
+    // 低単価連続の特定
+    const lowStreak = [];
+    let streak = 0;
+    sorted.forEach(e => {
+      if (e.amount < avgFare * 0.6) { streak++; }
+      else { if (streak >= 3) lowStreak.push({ count: streak, lastTime: e.pickupTime }); streak = 0; }
+    });
+    if (streak >= 3) lowStreak.push({ count: streak, lastTime: sorted[sorted.length - 1].dropoffTime });
+    lowStreak.forEach(s => {
+      insights.push({
+        type: 'low_streak',
+        icon: 'trending_down',
+        color: '#ef4444',
+        text: `低単価が${s.count}件連続（〜${s.lastTime}）`,
+        suggestion: 'エリア変更を検討',
+      });
+    });
+
+    // 配車方法別の効率分析
+    const sourceStats = {};
+    sorted.forEach(e => {
+      const src = e.source || '不明';
+      if (!sourceStats[src]) sourceStats[src] = { count: 0, total: 0, trips: [] };
+      sourceStats[src].count++;
+      sourceStats[src].total += e.amount;
+    });
+    const sourceRanking = Object.entries(sourceStats)
+      .map(([src, s]) => ({ source: src, count: s.count, avg: Math.round(s.total / s.count) }))
+      .sort((a, b) => b.avg - a.avg);
+
+    // 比較データ
+    const comparison = {
+      revenueVsPast: pastAvgRevenue > 0 ? Math.round((totalRevenue / pastAvgRevenue - 1) * 100) : null,
+      ridesVsPast: pastAvgRides > 0 ? Math.round((rideCount / pastAvgRides - 1) * 100) : null,
+      fareVsPast: pastAvgFare > 0 ? Math.round((avgFare / pastAvgFare - 1) * 100) : null,
+    };
+
+    return {
+      date: today,
+      totalRevenue,
+      rideCount,
+      avgFare,
+      occupancyRate,
+      occupiedMin,
+      vacantMin,
+      revenuePerHour: rph,
+      pastAvgRevenue,
+      pastAvgRides,
+      pastAvgFare,
+      pastDayCount,
+      comparison,
+      insights: insights.slice(0, 5),
+      sourceRanking,
+      vacantGaps,
+    };
+  }
+
+  // ============================================================
   // エリア別レコメンド（統計ベース）
   // ============================================================
   function getAreaRecommendation() {
@@ -6237,6 +6415,9 @@ window.DataService = (() => {
 
     // エリア別レコメンド
     getAreaRecommendation,
+
+    // 日次レポート
+    getDailyReport,
 
     // 日種別
     getTodayDayType,

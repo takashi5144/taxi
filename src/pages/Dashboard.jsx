@@ -147,6 +147,9 @@ window.DashboardPage = () => {
   // エリア別レコメンド
   const areaRecommendation = useMemo(() => DataService.getAreaRecommendation(), [refreshKey]);
 
+  // 日次レポート
+  const dailyReport = useMemo(() => DataService.getDailyReport(), [refreshKey]);
+
   // 待機場所分析のロード（リクエストIDで競合防止）
   const standbyFetchIdRef = useRef(0);
   useEffect(() => {
@@ -852,6 +855,178 @@ window.DashboardPage = () => {
         })()
       );
     })(),
+
+    // ============================================================
+    // 日次レポート（本日の振り返り・改善ポイント）
+    // ============================================================
+    dailyReport && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.10), rgba(168,85,247,0.06))',
+        border: '1px solid rgba(99,102,241,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#818cf8' } }, 'assessment'),
+        React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, '本日のレポート')
+      ),
+      // メイン指標
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '14px' } },
+        ...[
+          { label: '時給', value: `¥${dailyReport.revenuePerHour.toLocaleString()}`, color: '#818cf8' },
+          { label: '実車率', value: `${dailyReport.occupancyRate}%`, color: dailyReport.occupancyRate >= 50 ? '#10b981' : '#f59e0b' },
+          { label: '平均単価', value: `¥${dailyReport.avgFare.toLocaleString()}`, color: '#fff' },
+        ].map((item, i) =>
+          React.createElement('div', { key: i, style: { textAlign: 'center', padding: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '8px' } },
+            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: item.color } }, item.value),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, item.label)
+          )
+        )
+      ),
+      // 過去比較
+      dailyReport.comparison.revenueVsPast !== null && React.createElement('div', {
+        style: { display: 'flex', gap: '12px', marginBottom: '12px', fontSize: '11px', flexWrap: 'wrap' },
+      },
+        ...[
+          { label: '売上', diff: dailyReport.comparison.revenueVsPast },
+          { label: '件数', diff: dailyReport.comparison.ridesVsPast },
+          { label: '単価', diff: dailyReport.comparison.fareVsPast },
+        ].map((c, i) => {
+          const up = c.diff >= 0;
+          return React.createElement('div', {
+            key: i,
+            style: { display: 'flex', alignItems: 'center', gap: '3px', color: up ? '#10b981' : '#ef4444' },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } },
+              up ? 'arrow_upward' : 'arrow_downward'
+            ),
+            React.createElement('span', null, `${c.label} ${up ? '+' : ''}${c.diff}%`),
+            React.createElement('span', { style: { color: 'var(--text-muted)' } }, `(${dailyReport.pastDayCount}日平均比)`)
+          );
+        })
+      ),
+      // 配車方法別
+      dailyReport.sourceRanking.length >= 2 && React.createElement('div', {
+        style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+      },
+        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' } }, '配車方法別'),
+        React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+          ...dailyReport.sourceRanking.map((s, i) =>
+            React.createElement('div', {
+              key: i,
+              style: {
+                padding: '4px 8px', borderRadius: '6px', fontSize: '11px',
+                background: i === 0 ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)',
+                border: i === 0 ? '1px solid rgba(16,185,129,0.2)' : '1px solid rgba(255,255,255,0.08)',
+              },
+            },
+              React.createElement('span', { style: { fontWeight: 600 } }, s.source),
+              React.createElement('span', { style: { color: 'var(--text-muted)', marginLeft: '4px' } },
+                `${s.count}件 平均¥${s.avg.toLocaleString()}`
+              )
+            )
+          )
+        )
+      ),
+      // 改善ポイント
+      dailyReport.insights.length > 0 && React.createElement('div', null,
+        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'lightbulb'),
+          '改善ポイント'
+        ),
+        ...dailyReport.insights.map((insight, i) =>
+          React.createElement('div', {
+            key: i,
+            style: {
+              display: 'flex', gap: '8px', padding: '6px 8px', marginBottom: '4px',
+              borderRadius: '6px', background: 'rgba(0,0,0,0.12)',
+              borderLeft: `3px solid ${insight.color}`,
+              fontSize: '12px',
+            },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', color: insight.color, flexShrink: 0, marginTop: '1px' } }, insight.icon),
+            React.createElement('div', null,
+              React.createElement('div', null, insight.text),
+              insight.suggestion && React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' } },
+                `→ ${insight.suggestion}`
+              )
+            )
+          )
+        )
+      ),
+      // 空車タイムライン（コンパクト版）
+      dailyReport.vacantGaps.length > 0 && React.createElement('div', {
+        style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' },
+      },
+        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' } }, '空車タイムライン'),
+        React.createElement('div', { style: { display: 'flex', gap: '2px', height: '20px', borderRadius: '4px', overflow: 'hidden' } },
+          ...(() => {
+            // 乗車区間と空車区間をタイムライン表示
+            const _t2m = (t) => { if (!t || !t.includes(':')) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+            const segments = [];
+            const todaySorted = (todaySummary.entries || [])
+              .filter(e => e.pickupTime && e.dropoffTime && !e.noPassenger)
+              .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+            // 全体の時間幅
+            const times = [];
+            todaySorted.forEach(e => {
+              times.push(_t2m(e.pickupTime));
+              times.push(_t2m(e.dropoffTime));
+            });
+            const minT = Math.min(...times.filter(t => t !== null));
+            const maxT = Math.max(...times.filter(t => t !== null));
+            const span = maxT - minT || 1;
+
+            todaySorted.forEach((e, i) => {
+              const p = _t2m(e.pickupTime);
+              const d = _t2m(e.dropoffTime);
+              if (p === null || d === null) return;
+              // 空車区間（前のから今の乗車まで）
+              if (i > 0) {
+                const prevD = _t2m(todaySorted[i - 1].dropoffTime);
+                if (prevD !== null && p > prevD) {
+                  const vacW = ((p - prevD) / span) * 100;
+                  segments.push(React.createElement('div', {
+                    key: `v${i}`,
+                    title: `空車 ${p - prevD}分`,
+                    style: { width: `${vacW}%`, background: 'rgba(239,68,68,0.3)', minWidth: '2px' },
+                  }));
+                }
+              }
+              // 実車区間
+              const occW = ((d - p) / span) * 100;
+              segments.push(React.createElement('div', {
+                key: `o${i}`,
+                title: `実車 ${d - p}分 ¥${e.amount.toLocaleString()}`,
+                style: { width: `${occW}%`, background: '#10b981', minWidth: '2px' },
+              }));
+            });
+            return segments;
+          })()
+        ),
+        React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' } },
+          React.createElement('span', null, (() => {
+            const t = (todaySummary.entries || []).filter(e => e.pickupTime).sort((a, b) => a.pickupTime.localeCompare(b.pickupTime));
+            return t.length > 0 ? t[0].pickupTime : '';
+          })()),
+          React.createElement('span', { style: { display: 'flex', gap: '8px' } },
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { style: { width: '8px', height: '8px', background: '#10b981', borderRadius: '2px', display: 'inline-block' } }),
+              '実車'
+            ),
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { style: { width: '8px', height: '8px', background: 'rgba(239,68,68,0.3)', borderRadius: '2px', display: 'inline-block' } }),
+              '空車'
+            )
+          ),
+          React.createElement('span', null, (() => {
+            const t = (todaySummary.entries || []).filter(e => e.dropoffTime).sort((a, b) => b.dropoffTime.localeCompare(a.dropoffTime));
+            return t.length > 0 ? t[0].dropoffTime : '';
+          })())
+        )
+      )
+    ),
 
     // ============================================================
     // 待機 vs 流し 効率比較カード
