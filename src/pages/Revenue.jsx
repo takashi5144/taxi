@@ -778,6 +778,8 @@ window.RevenuePage = () => {
   const todayDiscountDisability = getDiscountByType(todayEntries, 'disability');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
+  // 未収合計 = 未収 + DIDI決済 + Uber + 障害者割引(絶対値)
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
   // クーポン未収はクーポン分が別エントリ（paymentMethod='uncollected'）として記録されるため、
   // todayUncollected にクーポン未収の金額も含まれる
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
@@ -911,6 +913,36 @@ window.RevenuePage = () => {
           React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
             `消費税: ¥${(todayUber - Math.floor(todayUber / 1.1)).toLocaleString()}`
           )
+        )
+      ),
+
+      // 未収合計（未収 + DIDI + Uber + 障害者割引）
+      React.createElement('div', {
+        style: {
+          padding: '12px', borderRadius: 'var(--border-radius)', marginBottom: 'var(--space-sm)',
+          background: 'rgba(156,39,176,0.08)', border: '1px solid rgba(156,39,176,0.25)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#ce93d8', fontWeight: 600 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'account_balance'),
+            '未収合計'
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ce93d8' } },
+            `¥${todayUncollectedTotal.toLocaleString()}`
+          )
+        ),
+        React.createElement('div', {
+          style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
+        },
+          React.createElement('span', null, `未収: ¥${todayUncollected.toLocaleString()}`),
+          React.createElement('span', null, `DIDI: ¥${todayDidi.toLocaleString()}`),
+          React.createElement('span', null, `Uber: ¥${todayUber.toLocaleString()}`),
+          React.createElement('span', null, `障害者割引: ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`)
         )
       ),
 
