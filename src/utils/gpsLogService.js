@@ -887,6 +887,7 @@ window.GpsLogService = (() => {
         const radius = s.id === 'asahiyama_zoo' ? 500 : 300; // 動物園は敷地が広い
         const d = _haversine(lat, lng, s.lat, s.lng);
         if (d <= radius && d < bestDist) { bestSpot = s; bestDist = d; }
+      }
       if (bestSpot) {
         const result = { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
         // 動物園の場合は季節情報を付与
