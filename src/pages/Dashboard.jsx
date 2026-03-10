@@ -144,6 +144,9 @@ window.DashboardPage = () => {
   const [hourlyMode, setHourlyMode] = useState('month'); // 'month' | 'all'
   const hourlyOccupancy = useMemo(() => DataService.getHourlyOccupancy(hourlyMode), [refreshKey, hourlyMode]);
 
+  // エリア別レコメンド
+  const areaRecommendation = useMemo(() => DataService.getAreaRecommendation(), [refreshKey]);
+
   // 待機場所分析のロード（リクエストIDで競合防止）
   const standbyFetchIdRef = useRef(0);
   useEffect(() => {
@@ -620,6 +623,76 @@ window.DashboardPage = () => {
       goalProgress.monthDays > 0 && React.createElement('div', { style: { marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
         `今月: ¥${goalProgress.monthAmount.toLocaleString()} / ¥${goalProgress.monthlyGoal.toLocaleString()} (${goalProgress.monthlyRate}%) — ${goalProgress.monthDays}日稼働`
       )
+    ),
+
+    // ============================================================
+    // エリアレコメンド（今どこに行くべきか）
+    // ============================================================
+    areaRecommendation && areaRecommendation.ranking.length >= 2 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(59,130,246,0.08))',
+        border: '1px solid rgba(16,185,129,0.25)',
+      },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#10b981' } }, 'recommend'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, 'おすすめエリア')
+        ),
+        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'schedule'),
+          `${areaRecommendation.hour}時台 / ${areaRecommendation.isWeekend ? '休日' : '平日'}`
+        )
+      ),
+      React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' } },
+        `過去の実績(${areaRecommendation.totalEntries}件)から現在時間帯の効率を分析`
+      ),
+      // ランキング
+      ...areaRecommendation.ranking.slice(0, 5).map((area, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+        const barColor = i === 0 ? '#10b981' : i === 1 ? '#3b82f6' : i === 2 ? '#f59e0b' : 'rgba(255,255,255,0.2)';
+        const maxRph = areaRecommendation.ranking[0].revenuePerHour || 1;
+        const pct = Math.round((area.revenuePerHour / maxRph) * 100);
+        return React.createElement('div', {
+          key: area.areaId,
+          style: {
+            padding: '8px 10px', marginBottom: i < 4 ? '6px' : 0,
+            borderRadius: '8px',
+            background: i === 0 ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.03)',
+            border: i === 0 ? '1px solid rgba(16,185,129,0.2)' : '1px solid transparent',
+          },
+        },
+          // 上段: エリア名 + 時間あたり売上
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' } },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              medal && React.createElement('span', { style: { fontSize: '16px' } }, medal),
+              !medal && React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-muted)', width: '20px', textAlign: 'center' } }, `${i + 1}`),
+              React.createElement('span', { style: { fontWeight: 600, fontSize: '13px' } }, area.areaName)
+            ),
+            React.createElement('span', {
+              style: { fontWeight: 700, fontSize: i === 0 ? '16px' : '13px', color: i === 0 ? '#10b981' : i < 3 ? '#fff' : 'var(--text-secondary)' },
+            }, `¥${area.revenuePerHour.toLocaleString()}/h`)
+          ),
+          // プログレスバー
+          React.createElement('div', { style: { background: 'rgba(255,255,255,0.06)', borderRadius: '3px', height: '4px', overflow: 'hidden', marginBottom: '4px' } },
+            React.createElement('div', { style: { width: `${pct}%`, height: '100%', background: barColor, borderRadius: '3px', transition: 'width 0.3s' } })
+          ),
+          // 下段: 詳細
+          React.createElement('div', { style: { display: 'flex', gap: '10px', fontSize: '11px', color: 'var(--text-muted)', flexWrap: 'wrap' } },
+            React.createElement('span', null, `待機 ${area.avgWaitMin}分`),
+            React.createElement('span', null, `平均 ¥${area.avgRevenue.toLocaleString()}`),
+            React.createElement('span', null, `${area.count}件`),
+            ...area.reasons.map((r, ri) =>
+              React.createElement('span', {
+                key: ri,
+                style: { color: '#10b981', fontSize: '10px', background: 'rgba(16,185,129,0.1)', padding: '1px 5px', borderRadius: '3px' },
+              }, r)
+            )
+          )
+        );
+      })
     ),
 
     // 実車率トラッキング
