@@ -850,10 +850,10 @@ window.RevenuePage = () => {
   const today = getLocalDateString();
   const todayEntries = entries.filter(e => (e.date || e.timestamp.split('T')[0]) === today);
   const todayTotal = todayEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash');
+  const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
   const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
   const todayDidiEntries = todayEntries.filter(e => e.paymentMethod === 'didi');
-  const todayUberEntries = todayEntries.filter(e => e.source === 'Uber');
+  const todayUberEntries = todayEntries.filter(e => e.paymentMethod === 'uber' || e.source === 'Uber');
   const todayCash = todayCashEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayDidi = todayDidiEntries.reduce((sum, e) => sum + e.amount, 0);
@@ -986,7 +986,8 @@ window.RevenuePage = () => {
             style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)', fontWeight: 600, marginBottom: 6 },
           },
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'smartphone'),
-            'DIDI決済'
+            'DIDI決済',
+            React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayDidiEntries.length}件`)
           ),
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-warning)' } },
             `¥${todayDidi.toLocaleString()}`
@@ -1006,7 +1007,8 @@ window.RevenuePage = () => {
             style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#fff', fontWeight: 600, marginBottom: 6 },
           },
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'hail'),
-            'Uber'
+            'Uber',
+            React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayUberEntries.length}件`)
           ),
           React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#fff' } },
             `¥${todayUber.toLocaleString()}`
@@ -1652,12 +1654,12 @@ window.RevenuePage = () => {
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '支払い方法'),
             React.createElement('div', { style: { display: 'flex', gap: '8px' } },
-              ...['cash', 'uncollected', 'didi'].map(method => {
+              ...['cash', 'uncollected', 'didi', 'uber'].map(method => {
                 const selected = form.paymentMethod === method;
-                const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : '未収';
-                const icon = method === 'cash' ? 'payments' : method === 'didi' ? 'smartphone' : 'pending';
-                const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : 'var(--color-error)';
-                const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : 'rgba(229,57,53,0.15)';
+                const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : method === 'uber' ? 'Uber' : '未収';
+                const icon = method === 'cash' ? 'payments' : method === 'didi' ? 'smartphone' : method === 'uber' ? 'hail' : 'pending';
+                const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : method === 'uber' ? '#fff' : 'var(--color-error)';
+                const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : method === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(229,57,53,0.15)';
                 return React.createElement('button', {
                   key: method,
                   type: 'button',
@@ -1775,7 +1777,7 @@ window.RevenuePage = () => {
               const totalDeduction = discountOnly + couponAmt + ticketAmt;
               const remaining = amt - totalDeduction;
               if (totalDeduction > 0 && amt > 0) {
-                const payLabel = form.paymentMethod === 'cash' ? '現金' : form.paymentMethod === 'didi' ? 'DIDI決済' : '未収';
+                const payLabel = form.paymentMethod === 'cash' ? '現金' : form.paymentMethod === 'didi' ? 'DIDI決済' : form.paymentMethod === 'uber' ? 'Uber' : '未収';
                 return React.createElement('div', {
                   style: {
                     marginTop: '6px', padding: '8px 10px', borderRadius: '6px',
@@ -2165,11 +2167,11 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '支払い方法'),
               React.createElement('div', { style: { display: 'flex', gap: '6px' } },
-                ...['cash', 'uncollected', 'didi'].map(method => {
+                ...['cash', 'uncollected', 'didi', 'uber'].map(method => {
                   const selected = editForm.paymentMethod === method;
-                  const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : '未収';
-                  const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : 'var(--color-error)';
-                  const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : 'rgba(229,57,53,0.15)';
+                  const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : method === 'uber' ? 'Uber' : '未収';
+                  const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : method === 'uber' ? '#fff' : 'var(--color-error)';
+                  const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : method === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(229,57,53,0.15)';
                   return React.createElement('button', {
                     key: method, type: 'button',
                     onClick: () => setEditForm({ ...editForm, paymentMethod: method }),
@@ -2417,6 +2419,9 @@ window.RevenuePage = () => {
             entry.paymentMethod === 'didi' && React.createElement('div', {
               style: { fontSize: '10px', color: 'var(--color-warning)', fontWeight: 600, marginTop: '2px' }
             }, 'DIDI決済'),
+            entry.paymentMethod === 'uber' && React.createElement('div', {
+              style: { fontSize: '10px', color: '#fff', fontWeight: 600, marginTop: '2px', background: 'rgba(0,0,0,0.3)', padding: '1px 6px', borderRadius: '3px', display: 'inline-block' }
+            }, 'Uber'),
             (entry.discountAmount > 0 || entry.couponAmount > 0 || (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.some(d => d.type === 'ticket' || d.type === 'coupon'))) && React.createElement('div', {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
