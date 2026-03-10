@@ -380,7 +380,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.17.0',
+  VERSION: '3.17.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -486,6 +486,7 @@ window.APP_CONSTANTS = {
   KNOWN_PLACES: [
     { name: '旭川駅前北口', lat: 43.763314, lng: 142.359065, radius: 50 },
     { name: 'イオン旭川駅前店待機場', lat: 43.76455, lng: 142.35875, radius: 50 },
+    { name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
   ],
 
   // 旭川市の主要ロケーション（駅・病院）
