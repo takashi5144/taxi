@@ -489,6 +489,56 @@ window.RevenuePage = () => {
       }
     }
 
+    // 新規保存後: 配車方法が「待機」の場合、待機記録と同期
+    if (result.entry && result.entry.source === '待機' && formWithCoords.standbyInfo && formWithCoords.standbyInfo.locationName) {
+      const entry = result.entry;
+      const standbyEntries = DataService.getStandbyEntries();
+      const si = formWithCoords.standbyInfo;
+      // 同じ日付・時刻が一致する待機記録を検索
+      const matchingStandby = standbyEntries.find(s => {
+        if (s.date !== entry.date) return false;
+        const sSi = s.standbyInfo || {};
+        const sStart = sSi.startTime || s.pickupTime || '';
+        if (si.startTime && sStart && si.startTime === sStart) return true;
+        // 時刻が近い（5分以内）
+        if (sStart && si.startTime) {
+          const sMin = parseInt(sStart.replace(':',''));
+          const eMin = parseInt(si.startTime.replace(':',''));
+          if (Math.abs(sMin - eMin) <= 5) return true;
+        }
+        return false;
+      });
+      if (matchingStandby) {
+        // 既存の待機記録を更新
+        DataService.updateEntry(matchingStandby.id, {
+          pickup: si.locationName,
+          dropoff: si.locationName,
+          pickupTime: si.startTime,
+          dropoffTime: si.endTime,
+          standbyInfo: si,
+        });
+      } else {
+        // 対応する待機記録がなければ新規作成
+        DataService.addEntry({
+          amount: '0',
+          date: entry.date,
+          weather: entry.weather || '',
+          pickup: si.locationName,
+          dropoff: si.locationName,
+          pickupTime: si.startTime,
+          dropoffTime: si.endTime || si.startTime,
+          passengers: '0',
+          gender: '',
+          purpose: '待機',
+          source: '',
+          memo: `待機（${si.locationName}）売上記録連動`,
+          noPassenger: true,
+          paymentMethod: 'cash',
+          standbyInfo: si,
+        });
+      }
+    }
+
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
@@ -726,31 +776,55 @@ window.RevenuePage = () => {
       GpsLogService.updateEvent(dateStr, entry.id, 'dropoff', entry.dropoffCoords, entry.dropoffTime);
     }
 
-    // 待機記録との双方向同期: standbyInfoが変更されたら対応する待機記録も更新
-    if (updates.standbyInfo && updates.standbyInfo.locationName && result.entry) {
+    // 待機記録との双方向同期: 配車方法が「待機」またはstandbyInfoがある場合、待機記録も更新
+    if (result.entry && (updates.source === '待機' || (updates.standbyInfo && updates.standbyInfo.locationName))) {
       const entry = result.entry;
+      const si = updates.standbyInfo || {};
       const standbyEntries = DataService.getStandbyEntries();
-      // 同じ日付で時刻が重なる待機記録を検索
+      // 同じ日付で時刻が一致/近い待機記録を検索（元のstandbyInfoも考慮）
+      const origSi = entry.standbyInfo || {};
       const matchingStandby = standbyEntries.find(s => {
         if (s.date !== entry.date) return false;
-        const si = s.standbyInfo || {};
-        const sStart = si.startTime || s.pickupTime || '';
-        const sEnd = si.endTime || s.dropoffTime || '';
-        const eStart = updates.standbyInfo.startTime || '';
-        const eEnd = updates.standbyInfo.endTime || '';
-        // 元のstandbyInfoと一致、または時刻が近い待機を探す
-        const origSi = entry.standbyInfo || {};
+        const sSi = s.standbyInfo || {};
+        const sStart = sSi.startTime || s.pickupTime || '';
+        // 元の開始時刻と一致
         if (origSi.startTime && origSi.startTime === sStart) return true;
-        if (sStart && eStart && Math.abs(sStart.replace(':','') - eStart.replace(':','')) <= 5) return true;
+        // 新しい開始時刻と一致
+        if (si.startTime && si.startTime === sStart) return true;
+        // 時刻が近い（5分以内）
+        if (sStart && si.startTime) {
+          const sMin = parseInt(sStart.replace(':',''));
+          const eMin = parseInt(si.startTime.replace(':',''));
+          if (!isNaN(sMin) && !isNaN(eMin) && Math.abs(sMin - eMin) <= 5) return true;
+        }
         return false;
       });
-      if (matchingStandby) {
+      if (matchingStandby && si.locationName) {
         DataService.updateEntry(matchingStandby.id, {
-          pickup: updates.standbyInfo.locationName,
-          dropoff: updates.standbyInfo.locationName,
-          pickupTime: updates.standbyInfo.startTime,
-          dropoffTime: updates.standbyInfo.endTime,
-          standbyInfo: updates.standbyInfo,
+          pickup: si.locationName,
+          dropoff: si.locationName,
+          pickupTime: si.startTime,
+          dropoffTime: si.endTime,
+          standbyInfo: si,
+        });
+      } else if (!matchingStandby && si.locationName && si.startTime) {
+        // 対応する待機記録がなければ新規作成
+        DataService.addEntry({
+          amount: '0',
+          date: entry.date,
+          weather: entry.weather || '',
+          pickup: si.locationName,
+          dropoff: si.locationName,
+          pickupTime: si.startTime,
+          dropoffTime: si.endTime || si.startTime,
+          passengers: '0',
+          gender: '',
+          purpose: '待機',
+          source: '',
+          memo: `待機（${si.locationName}）売上記録連動`,
+          noPassenger: true,
+          paymentMethod: 'cash',
+          standbyInfo: si,
         });
       }
     }

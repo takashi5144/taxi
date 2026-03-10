@@ -1583,6 +1583,26 @@ window.DataManagePage = () => {
     };
     const result = DataService.addEntry(form);
     if (!result.success) { setStandbyAddErrors(result.errors); return; }
+    // 待機記録追加→売上記録の双方向同期（配車方法「待機」の売上と連動）
+    if (result.entry && form.standbyInfo && form.standbyInfo.locationName) {
+      const revEntries = DataService.getEntries();
+      const matchingRev = revEntries.find(r => {
+        if (r.noPassenger) return false;
+        if (r.date !== form.date) return false;
+        if (r.source !== '待機') return false;
+        const rsi = r.standbyInfo || {};
+        if (rsi.startTime && form.standbyInfo.startTime && rsi.startTime === form.standbyInfo.startTime) return true;
+        if (rsi.startTime && form.standbyInfo.startTime) {
+          const rMin = parseInt(rsi.startTime.replace(':',''));
+          const sMin = parseInt(form.standbyInfo.startTime.replace(':',''));
+          if (!isNaN(rMin) && !isNaN(sMin) && Math.abs(rMin - sMin) <= 5) return true;
+        }
+        return false;
+      });
+      if (matchingRev) {
+        DataService.updateEntry(matchingRev.id, { standbyInfo: form.standbyInfo });
+      }
+    }
     setStandbyAddForm({ date: getLocalDateString(), weather: standbyAddForm.weather, location: '', startTime: '', endTime: '', memo: '' });
     setShowStandbyAddForm(false);
     setSaved(true);
@@ -2523,13 +2543,27 @@ window.DataManagePage = () => {
                       // 待機記録→売上記録の双方向同期
                       if (result.entry && updates.standbyInfo && updates.standbyInfo.locationName) {
                         const sEntry = result.entry;
+                        const origSi = sEntry.standbyInfo || {};
                         const revEntries = DataService.getEntries();
+                        // 配車方法が「待機」またはstandbyInfoが一致する売上記録を検索
                         const matchingRev = revEntries.find(r => {
+                          if (r.noPassenger) return false; // 空車/待機記録は除外
                           if (r.date !== sEntry.date) return false;
+                          // 配車方法が「待機」でstandbyInfoが一致
+                          if (r.source === '待機') {
+                            const rsi = r.standbyInfo || {};
+                            if (rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) return true;
+                            if (rsi.startTime && updates.standbyInfo.startTime && rsi.startTime === updates.standbyInfo.startTime) return true;
+                            // 時刻が近い（5分以内）
+                            if (rsi.startTime && origSi.startTime) {
+                              const rMin = parseInt(rsi.startTime.replace(':',''));
+                              const sMin = parseInt(origSi.startTime.replace(':',''));
+                              if (!isNaN(rMin) && !isNaN(sMin) && Math.abs(rMin - sMin) <= 5) return true;
+                            }
+                          }
+                          // standbyInfoのstartTimeが一致
                           const rsi = r.standbyInfo || {};
-                          if (!rsi.locationName) return false;
-                          const origSi = sEntry.standbyInfo || {};
-                          if (rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) return true;
+                          if (rsi.locationName && rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) return true;
                           return false;
                         });
                         if (matchingRev) {
