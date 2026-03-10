@@ -3,7 +3,7 @@
 window.Header = () => {
   const { useState, useRef, useEffect } = React;
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
-  const { standbyStatus, updateStandbyStartTime, updateStandbyLocationName } = useMapContext();
+  const { standbyStatus, updateStandbyStartTime, updateStandbyLocationName, currentLocationName, isTracking } = useMapContext();
   const [editingStartTime, setEditingStartTime] = useState(false);
   const [editStartTimeValue, setEditStartTimeValue] = useState('');
   const [editingLocation, setEditingLocation] = useState(false);
@@ -16,7 +16,6 @@ window.Header = () => {
     if (locs && locs.waitingSpots) {
       locs.waitingSpots.forEach(s => spots.push(s.name));
     }
-    // KNOWN_PLACESからも追加（重複除外）
     if (APP_CONSTANTS.KNOWN_PLACES) {
       APP_CONSTANTS.KNOWN_PLACES.forEach(p => {
         if (!spots.includes(p.name)) spots.push(p.name);
@@ -56,6 +55,36 @@ window.Header = () => {
       onClick: () => navigate('dashboard'),
     },
       React.createElement('span', { className: 'material-icons-round' }, 'local_taxi')
+    ),
+
+    // 現在地表示（GPS追跡中は常時表示）
+    isTracking && !standbyStatus && currentLocationName && React.createElement('div', {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '4px 10px',
+        borderRadius: '20px',
+        background: 'rgba(100, 181, 246, 0.12)',
+        border: '1px solid rgba(100, 181, 246, 0.25)',
+        fontSize: '12px',
+        color: '#64b5f6',
+        fontWeight: 500,
+        maxWidth: '280px',
+        flexShrink: 1,
+        overflow: 'hidden',
+      },
+    },
+      React.createElement('span', {
+        className: 'material-icons-round',
+        style: { fontSize: '14px', flexShrink: 0 },
+      }, 'location_on'),
+      React.createElement('span', {
+        style: {
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontSize: '11px',
+        },
+      }, currentLocationName)
     ),
 
     // 待機中インジケーター（GPS待機検出時に表示）

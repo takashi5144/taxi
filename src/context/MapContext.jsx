@@ -30,9 +30,11 @@ window.MapProvider = ({ children }) => {
   const [speed, setSpeed] = useState(null);
   const [heading, setHeading] = useState(null);
   const [standbyStatus, setStandbyStatus] = useState(null);
+  const [currentLocationName, setCurrentLocationName] = useState(null);
 
   const watchIdRef = useRef(null);
   const standbyTimerRef = useRef(null);
+  const locationLookupRef = useRef(null); // 重複防止用
 
   const updatePosition = useCallback((position) => {
     const pos = {
@@ -48,6 +50,27 @@ window.MapProvider = ({ children }) => {
       GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
       // 待機状態を更新
       setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+    }
+    // 現在地名を更新（既知スポット→ランドマーク→住所の優先順位）
+    const lookupId = Date.now();
+    locationLookupRef.current = lookupId;
+    // まず既知スポットを同期チェック
+    const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng);
+    if (knownPlace) {
+      setCurrentLocationName(knownPlace);
+    } else if (window.TaxiApp && TaxiApp.utils.findNearbyLandmark) {
+      // 非同期でランドマーク/住所を取得
+      TaxiApp.utils.findNearbyLandmark(pos.lat, pos.lng).then(name => {
+        if (locationLookupRef.current !== lookupId) return; // 古い結果は無視
+        if (name) {
+          setCurrentLocationName(name);
+        } else if (window.TaxiApp && TaxiApp.utils.reverseGeocode) {
+          TaxiApp.utils.reverseGeocode(pos.lat, pos.lng).then(addr => {
+            if (locationLookupRef.current !== lookupId) return;
+            setCurrentLocationName(addr || null);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
     }
   }, []);
 
@@ -153,12 +176,13 @@ window.MapProvider = ({ children }) => {
     speed,
     heading,
     standbyStatus,
+    currentLocationName,
     updatePosition,
     startTracking,
     stopTracking,
     updateStandbyStartTime,
     updateStandbyLocationName,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking, updateStandbyStartTime, updateStandbyLocationName]);
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, currentLocationName, updatePosition, startTracking, stopTracking, updateStandbyStartTime, updateStandbyLocationName]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };
