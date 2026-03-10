@@ -1239,7 +1239,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.15.0',
+  VERSION: '3.15.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -9306,6 +9306,23 @@ window.GpsLogService = (() => {
     };
   }
 
+  /** 直前に完了した待機情報を取得（売上記録UI用） */
+  function getLastCompletedStandby() {
+    if (_rtPendingStandby) {
+      return {
+        lat: _rtPendingStandby.lat,
+        lng: _rtPendingStandby.lng,
+        startTime: _rtPendingStandby.startTime,
+        endTime: _rtPendingStandby.endTime,
+        durationMin: Math.floor((_rtPendingStandby.endTime - _rtPendingStandby.startTime) / 60000),
+        durationSec: Math.floor(((_rtPendingStandby.endTime - _rtPendingStandby.startTime) % 60000) / 1000),
+        locationName: _rtPendingStandby.nearbyName || _rtPendingStandby.categoryLabel || null,
+        category: _rtPendingStandby.category,
+      };
+    }
+    return null;
+  }
+
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
@@ -10401,6 +10418,7 @@ window.GpsLogService = (() => {
     getCruisingAreaPerformance,
     flushRealtimeStandby,
     getRealtimeStandbyStatus,
+    getLastCompletedStandby,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
@@ -15742,10 +15760,20 @@ window.RevenuePage = () => {
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
 
-  // フォーム表示時にリアルタイム待機状態をキャプチャ（移動後も保持）
+  // フォーム表示時に待機情報をキャプチャ（リアルタイム or 直前完了した待機）
   useEffect(() => {
-    if (mapCtx.standbyStatus && !capturedStandby) {
+    if (capturedStandby) return; // 既にキャプチャ済み
+    // 1. リアルタイム待機中ならそれを使う
+    if (mapCtx.standbyStatus) {
       setCapturedStandby({ ...mapCtx.standbyStatus });
+      return;
+    }
+    // 2. 直前に完了した待機があればそれを使う
+    if (window.GpsLogService) {
+      const last = GpsLogService.getLastCompletedStandby();
+      if (last && last.locationName) {
+        setCapturedStandby(last);
+      }
     }
   }, [mapCtx.standbyStatus]);
   const { isLoaded: mapsLoaded } = useGoogleMaps();

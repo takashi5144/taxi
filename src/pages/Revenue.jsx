@@ -36,10 +36,20 @@ window.RevenuePage = () => {
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
 
-  // フォーム表示時にリアルタイム待機状態をキャプチャ（移動後も保持）
+  // フォーム表示時に待機情報をキャプチャ（リアルタイム or 直前完了した待機）
   useEffect(() => {
-    if (mapCtx.standbyStatus && !capturedStandby) {
+    if (capturedStandby) return; // 既にキャプチャ済み
+    // 1. リアルタイム待機中ならそれを使う
+    if (mapCtx.standbyStatus) {
       setCapturedStandby({ ...mapCtx.standbyStatus });
+      return;
+    }
+    // 2. 直前に完了した待機があればそれを使う
+    if (window.GpsLogService) {
+      const last = GpsLogService.getLastCompletedStandby();
+      if (last && last.locationName) {
+        setCapturedStandby(last);
+      }
     }
   }, [mapCtx.standbyStatus]);
   const { isLoaded: mapsLoaded } = useGoogleMaps();

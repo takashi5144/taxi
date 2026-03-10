@@ -364,6 +364,23 @@ window.GpsLogService = (() => {
     };
   }
 
+  /** 直前に完了した待機情報を取得（売上記録UI用） */
+  function getLastCompletedStandby() {
+    if (_rtPendingStandby) {
+      return {
+        lat: _rtPendingStandby.lat,
+        lng: _rtPendingStandby.lng,
+        startTime: _rtPendingStandby.startTime,
+        endTime: _rtPendingStandby.endTime,
+        durationMin: Math.floor((_rtPendingStandby.endTime - _rtPendingStandby.startTime) / 60000),
+        durationSec: Math.floor(((_rtPendingStandby.endTime - _rtPendingStandby.startTime) % 60000) / 1000),
+        locationName: _rtPendingStandby.nearbyName || _rtPendingStandby.categoryLabel || null,
+        category: _rtPendingStandby.category,
+      };
+    }
+    return null;
+  }
+
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
@@ -1459,6 +1476,7 @@ window.GpsLogService = (() => {
     getCruisingAreaPerformance,
     flushRealtimeStandby,
     getRealtimeStandbyStatus,
+    getLastCompletedStandby,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
