@@ -14,10 +14,16 @@ window.AppLogger = (() => {
     }
   }
 
+  let _saveTimer = null;
   function saveLogs() {
-    try {
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.LOGS, JSON.stringify(logs.slice(-MAX_LOGS)));
-    } catch (e) { /* ignore */ }
+    // デバウンス: 頻繁なlocalStorage書き込みを防止
+    if (_saveTimer) return;
+    _saveTimer = setTimeout(() => {
+      _saveTimer = null;
+      try {
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.LOGS, JSON.stringify(logs.slice(-MAX_LOGS)));
+      } catch (e) { /* ignore */ }
+    }, 500);
   }
 
   function notify() {

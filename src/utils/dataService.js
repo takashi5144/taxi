@@ -9,8 +9,14 @@ window.DataService = (() => {
   // 日種別判定（平日/休日/大型連休）— 全分析関数から共有
   // ============================================================
   const _dayTypeCache = {};
+  const _DAY_TYPE_CACHE_MAX = 400;
   function classifyDayType(dateStr) {
     if (_dayTypeCache[dateStr]) return _dayTypeCache[dateStr];
+    // キャッシュサイズ制限（無制限に蓄積されるのを防止）
+    const keys = Object.keys(_dayTypeCache);
+    if (keys.length >= _DAY_TYPE_CACHE_MAX) {
+      keys.slice(0, 100).forEach(k => delete _dayTypeCache[k]);
+    }
     const info = JapaneseHolidays.getDateInfo(dateStr);
     const dayIdx = new Date(dateStr + 'T00:00:00').getDay();
     const isOff = info.isHoliday || dayIdx === 0 || dayIdx === 6;
@@ -568,6 +574,41 @@ window.DataService = (() => {
 
   const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
 
+  // オフライン同期キュー: ネットワーク障害時に後で再試行
+  const _pendingSyncQueue = [];
+  let _pendingSyncProcessing = false;
+
+  function _enqueuePendingSync(type, entries) {
+    // 同じタイプのキューが既にあれば上書き（最新データを使う）
+    const idx = _pendingSyncQueue.findIndex(q => q.type === type);
+    if (idx >= 0) {
+      _pendingSyncQueue[idx].entries = entries;
+    } else {
+      _pendingSyncQueue.push({ type, entries });
+    }
+  }
+
+  // ネットワーク復帰時にキューを処理
+  function _processPendingSync() {
+    if (_pendingSyncProcessing || _pendingSyncQueue.length === 0) return;
+    _pendingSyncProcessing = true;
+    const item = _pendingSyncQueue.shift();
+    _syncToCloud(item.type, item.entries, 0).finally(() => {
+      _pendingSyncProcessing = false;
+      if (_pendingSyncQueue.length > 0) {
+        setTimeout(_processPendingSync, 1000);
+      }
+    });
+  }
+
+  // ネットワーク復帰時に自動処理
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      AppLogger.info('ネットワーク復帰: 保留中の同期を処理');
+      _processPendingSync();
+    });
+  }
+
   async function _syncToCloud(type, entries, _retryCount) {
     if (!ALLOWED_SYNC_TYPES.includes(type)) { AppLogger.warn('不正な同期タイプ: ' + type); return; }
     const retryCount = _retryCount || 0;
@@ -592,16 +633,20 @@ window.DataService = (() => {
         AppLogger.info(`クラウド同期完了: ${type} (${entries.length}件)`);
       } else if (res.status >= 500 && retryCount < MAX_RETRIES) {
         const delay = 1000 * Math.pow(2, retryCount);
-        setTimeout(() => _syncToCloud(type, entries, retryCount + 1), delay);
+        await new Promise(r => setTimeout(r, delay));
+        return _syncToCloud(type, entries, retryCount + 1);
       } else {
         AppLogger.warn(`クラウド同期失敗: ${res.status}`);
       }
     } catch (e) {
       if (retryCount < MAX_RETRIES) {
         const delay = 1000 * Math.pow(2, retryCount);
-        setTimeout(() => _syncToCloud(type, entries, retryCount + 1), delay);
+        await new Promise(r => setTimeout(r, delay));
+        return _syncToCloud(type, entries, retryCount + 1);
       } else {
-        AppLogger.warn('クラウド同期エラー: ' + e.message);
+        // 全リトライ失敗: オフラインキューに追加
+        AppLogger.warn('クラウド同期エラー（キューに追加）: ' + e.message);
+        _enqueuePendingSync(type, entries);
       }
     }
   }
@@ -643,7 +688,16 @@ window.DataService = (() => {
     return { merged, total: local.length };
   }
 
+  // 同期の競合防止フラグ
+  let _autoSyncRunning = false;
+
   async function autoSync() {
+    // 同期が既に実行中なら重複実行を防止
+    if (_autoSyncRunning) {
+      AppLogger.debug('自動同期: 前回の同期がまだ実行中のためスキップ');
+      return null;
+    }
+    _autoSyncRunning = true;
     try {
       const [r1, r2, r3, r4, r5, r6] = await Promise.all([
         syncFromCloud('revenue'),
@@ -663,6 +717,8 @@ window.DataService = (() => {
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
+    } finally {
+      _autoSyncRunning = false;
     }
   }
 

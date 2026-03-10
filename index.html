@@ -157,6 +157,11 @@ a:hover {
   cursor: pointer;
 }
 
+@keyframes standbyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .header__logo .material-icons-round {
   font-size: 28px;
 }
@@ -707,6 +712,12 @@ a:hover {
     font-size: 14px;
   }
 
+  .header__standby-indicator {
+    max-width: 180px !important;
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+
   .sidebar {
     width: 100%;
     transform: translateX(-100%);
@@ -1228,7 +1239,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.14.0',
+  VERSION: '3.15.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1738,10 +1749,16 @@ window.AppLogger = (() => {
     }
   }
 
+  let _saveTimer = null;
   function saveLogs() {
-    try {
-      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.LOGS, JSON.stringify(logs.slice(-MAX_LOGS)));
-    } catch (e) { /* ignore */ }
+    // デバウンス: 頻繁なlocalStorage書き込みを防止
+    if (_saveTimer) return;
+    _saveTimer = setTimeout(() => {
+      _saveTimer = null;
+      try {
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.LOGS, JSON.stringify(logs.slice(-MAX_LOGS)));
+      } catch (e) { /* ignore */ }
+    }, 500);
   }
 
   function notify() {
@@ -2358,8 +2375,14 @@ window.DataService = (() => {
   // 日種別判定（平日/休日/大型連休）— 全分析関数から共有
   // ============================================================
   const _dayTypeCache = {};
+  const _DAY_TYPE_CACHE_MAX = 400;
   function classifyDayType(dateStr) {
     if (_dayTypeCache[dateStr]) return _dayTypeCache[dateStr];
+    // キャッシュサイズ制限（無制限に蓄積されるのを防止）
+    const keys = Object.keys(_dayTypeCache);
+    if (keys.length >= _DAY_TYPE_CACHE_MAX) {
+      keys.slice(0, 100).forEach(k => delete _dayTypeCache[k]);
+    }
     const info = JapaneseHolidays.getDateInfo(dateStr);
     const dayIdx = new Date(dateStr + 'T00:00:00').getDay();
     const isOff = info.isHoliday || dayIdx === 0 || dayIdx === 6;
@@ -2917,6 +2940,41 @@ window.DataService = (() => {
 
   const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
 
+  // オフライン同期キュー: ネットワーク障害時に後で再試行
+  const _pendingSyncQueue = [];
+  let _pendingSyncProcessing = false;
+
+  function _enqueuePendingSync(type, entries) {
+    // 同じタイプのキューが既にあれば上書き（最新データを使う）
+    const idx = _pendingSyncQueue.findIndex(q => q.type === type);
+    if (idx >= 0) {
+      _pendingSyncQueue[idx].entries = entries;
+    } else {
+      _pendingSyncQueue.push({ type, entries });
+    }
+  }
+
+  // ネットワーク復帰時にキューを処理
+  function _processPendingSync() {
+    if (_pendingSyncProcessing || _pendingSyncQueue.length === 0) return;
+    _pendingSyncProcessing = true;
+    const item = _pendingSyncQueue.shift();
+    _syncToCloud(item.type, item.entries, 0).finally(() => {
+      _pendingSyncProcessing = false;
+      if (_pendingSyncQueue.length > 0) {
+        setTimeout(_processPendingSync, 1000);
+      }
+    });
+  }
+
+  // ネットワーク復帰時に自動処理
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      AppLogger.info('ネットワーク復帰: 保留中の同期を処理');
+      _processPendingSync();
+    });
+  }
+
   async function _syncToCloud(type, entries, _retryCount) {
     if (!ALLOWED_SYNC_TYPES.includes(type)) { AppLogger.warn('不正な同期タイプ: ' + type); return; }
     const retryCount = _retryCount || 0;
@@ -2941,16 +2999,20 @@ window.DataService = (() => {
         AppLogger.info(`クラウド同期完了: ${type} (${entries.length}件)`);
       } else if (res.status >= 500 && retryCount < MAX_RETRIES) {
         const delay = 1000 * Math.pow(2, retryCount);
-        setTimeout(() => _syncToCloud(type, entries, retryCount + 1), delay);
+        await new Promise(r => setTimeout(r, delay));
+        return _syncToCloud(type, entries, retryCount + 1);
       } else {
         AppLogger.warn(`クラウド同期失敗: ${res.status}`);
       }
     } catch (e) {
       if (retryCount < MAX_RETRIES) {
         const delay = 1000 * Math.pow(2, retryCount);
-        setTimeout(() => _syncToCloud(type, entries, retryCount + 1), delay);
+        await new Promise(r => setTimeout(r, delay));
+        return _syncToCloud(type, entries, retryCount + 1);
       } else {
-        AppLogger.warn('クラウド同期エラー: ' + e.message);
+        // 全リトライ失敗: オフラインキューに追加
+        AppLogger.warn('クラウド同期エラー（キューに追加）: ' + e.message);
+        _enqueuePendingSync(type, entries);
       }
     }
   }
@@ -2992,7 +3054,16 @@ window.DataService = (() => {
     return { merged, total: local.length };
   }
 
+  // 同期の競合防止フラグ
+  let _autoSyncRunning = false;
+
   async function autoSync() {
+    // 同期が既に実行中なら重複実行を防止
+    if (_autoSyncRunning) {
+      AppLogger.debug('自動同期: 前回の同期がまだ実行中のためスキップ');
+      return null;
+    }
+    _autoSyncRunning = true;
     try {
       const [r1, r2, r3, r4, r5, r6] = await Promise.all([
         syncFromCloud('revenue'),
@@ -3012,6 +3083,8 @@ window.DataService = (() => {
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
+    } finally {
+      _autoSyncRunning = false;
     }
   }
 
@@ -8208,6 +8281,19 @@ window.DemandNotificationService = (() => {
 window.GeminiService = (() => {
   const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
+  // レート制限: 最小リクエスト間隔（ミリ秒）
+  const MIN_REQUEST_INTERVAL = 2000;
+  let _lastRequestTime = 0;
+
+  function _checkRateLimit() {
+    const now = Date.now();
+    if (now - _lastRequestTime < MIN_REQUEST_INTERVAL) {
+      return false;
+    }
+    _lastRequestTime = now;
+    return true;
+  }
+
   // API応答のバリデーション共通処理
   const MAX_RESPONSE_SIZE = 100000;
   function _parseGeminiResponse(raw) {
@@ -8229,6 +8315,9 @@ window.GeminiService = (() => {
   async function callGemini(apiKey, prompt) {
     if (!apiKey) {
       return { success: false, error: 'Gemini APIキーが設定されていません' };
+    }
+    if (!_checkRateLimit()) {
+      return { success: false, error: '連続リクエスト制限中です。少し待ってから再試行してください。' };
     }
 
     try {
@@ -8315,6 +8404,9 @@ ${areaStr}
   async function callGeminiLarge(apiKey, prompt) {
     if (!apiKey) {
       return { success: false, error: 'Gemini APIキーが設定されていません' };
+    }
+    if (!_checkRateLimit()) {
+      return { success: false, error: '連続リクエスト制限中です。少し待ってから再試行してください。' };
     }
 
     try {
@@ -8757,7 +8849,9 @@ JSONのみを返し、他のテキストは不要です。
 
   // レシート画像から金額を読み取る（Vision API）
   async function analyzeReceiptImage(apiKey, base64Image, mimeType) {
-    const url = `${API_URL}?key=${apiKey}`;
+    if (!_checkRateLimit()) {
+      throw new Error('連続リクエスト制限中です。少し待ってから再試行してください。');
+    }
     const body = {
       contents: [{
         parts: [
@@ -8766,9 +8860,12 @@ JSONのみを返し、他のテキストは不要です。
         ]
       }]
     };
-    const res = await fetch(url, {
+    const res = await fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -9188,6 +9285,25 @@ window.GpsLogService = (() => {
       }
       _rtPendingStandby = null;
     }
+  }
+
+  /** リアルタイム待機状態を取得（UI表示用） */
+  function getRealtimeStandbyStatus() {
+    if (!_rtAnchor) return null;
+    const now = Date.now();
+    const duration = now - _rtAnchor.startTime;
+    if (duration < RT_STANDBY_MIN_MS) return null; // 3分未満は待機とみなさない
+    const catInfo = _classifyStandbyCategory(_rtAnchor.lat, _rtAnchor.lng);
+    return {
+      lat: _rtAnchor.lat,
+      lng: _rtAnchor.lng,
+      startTime: _rtAnchor.startTime,
+      durationMs: duration,
+      durationMin: Math.floor(duration / 60000),
+      durationSec: Math.floor((duration % 60000) / 1000),
+      locationName: catInfo.nearbyName || catInfo.categoryLabel || null,
+      category: catInfo.category,
+    };
   }
 
   /** 空車待機を売上データに自動記録（noPassenger: true） */
@@ -10284,6 +10400,7 @@ window.GpsLogService = (() => {
     getStandbyLocationAnalysis,
     getCruisingAreaPerformance,
     flushRealtimeStandby,
+    getRealtimeStandbyStatus,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,
@@ -10361,8 +10478,10 @@ window.MapProvider = ({ children }) => {
   const [accuracy, setAccuracy] = useState(null);
   const [speed, setSpeed] = useState(null);
   const [heading, setHeading] = useState(null);
+  const [standbyStatus, setStandbyStatus] = useState(null);
 
   const watchIdRef = useRef(null);
+  const standbyTimerRef = useRef(null);
 
   const updatePosition = useCallback((position) => {
     const pos = {
@@ -10376,6 +10495,8 @@ window.MapProvider = ({ children }) => {
     setGpsError(null);
     if (window.GpsLogService) {
       GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+      // 待機状態を更新
+      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
     }
   }, []);
 
@@ -10415,6 +10536,19 @@ window.MapProvider = ({ children }) => {
     AppLogger.info('GPS追跡を停止');
   }, []);
 
+  // 待機中の経過時間をリアルタイム更新（10秒間隔）
+  useEffect(() => {
+    if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
+    if (isTracking && window.GpsLogService) {
+      standbyTimerRef.current = setInterval(() => {
+        setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      }, 10000);
+    }
+    return () => {
+      if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
+    };
+  }, [isTracking]);
+
   // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
   useEffect(() => {
     let shifts = [];
@@ -10449,10 +10583,11 @@ window.MapProvider = ({ children }) => {
     accuracy,
     speed,
     heading,
+    standbyStatus,
     updatePosition,
     startTracking,
     stopTracking,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, updatePosition, startTracking, stopTracking]);
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };
@@ -10527,16 +10662,23 @@ window.AppProvider = ({ children }) => {
     // A. アプリ起動時に自動同期
     DataService.autoSync();
 
-    // B. ページ復帰時（タブ切替から戻った時）に自動同期
+    // B. ページ復帰時（タブ切替から戻った時）に自動同期（最低30秒の間隔を空ける）
+    let lastSyncTime = Date.now();
+    const MIN_SYNC_INTERVAL = 30 * 1000;
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        DataService.autoSync();
+        const now = Date.now();
+        if (now - lastSyncTime >= MIN_SYNC_INTERVAL) {
+          lastSyncTime = now;
+          DataService.autoSync();
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     // C. 5分間隔の定期同期
     const intervalId = setInterval(() => {
+      lastSyncTime = Date.now();
       DataService.autoSync();
     }, 5 * 60 * 1000);
 
@@ -12858,6 +13000,7 @@ window.TrafficLegend = ({ visible }) => {
 // Header.jsx - ヘッダーナビゲーション
 window.Header = () => {
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
+  const { standbyStatus } = useMapContext();
 
   return React.createElement('header', { className: 'header' },
     // メニュートグル（モバイル）
@@ -12874,6 +13017,44 @@ window.Header = () => {
       onClick: () => navigate('dashboard'),
     },
       React.createElement('span', { className: 'material-icons-round' }, 'local_taxi')
+    ),
+
+    // 待機中インジケーター（GPS待機検出時に表示）
+    standbyStatus && React.createElement('div', {
+      className: 'header__standby-indicator',
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 12px',
+        borderRadius: '20px',
+        background: 'rgba(255, 167, 38, 0.15)',
+        border: '1px solid rgba(255, 167, 38, 0.3)',
+        fontSize: '12px',
+        color: '#ffa726',
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        maxWidth: '280px',
+        flexShrink: 0,
+        animation: 'standbyPulse 2s ease-in-out infinite',
+      },
+    },
+      React.createElement('span', {
+        className: 'material-icons-round',
+        style: { fontSize: '16px', color: '#ffa726' },
+      }, 'hourglass_top'),
+      React.createElement('span', {
+        style: { fontVariantNumeric: 'tabular-nums', fontWeight: 600 },
+      }, standbyStatus.durationMin + ':' + String(standbyStatus.durationSec).padStart(2, '0')),
+      standbyStatus.locationName && React.createElement('span', {
+        style: {
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          color: 'rgba(255, 167, 38, 0.85)',
+          fontSize: '11px',
+        },
+      }, standbyStatus.locationName)
     ),
 
     // ナビゲーション（PC用）
@@ -13173,12 +13354,15 @@ window.DashboardPage = () => {
   // 日勤集客強化: 病院・天気・タイムライン・アクション提案
   const hospitalData = useMemo(() => DataService.getHospitalScheduleData(), [refreshKey]);
   const [weatherImpact, setWeatherImpact] = useState(null);
+  const weatherFetchIdRef = useRef(0);
   useEffect(() => {
-    let cancelled = false;
+    const fetchId = ++weatherFetchIdRef.current;
     GpsLogService.fetchHourlyForecast().then(forecast => {
-      if (!cancelled) setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
-    });
-    return () => { cancelled = true; };
+      if (fetchId === weatherFetchIdRef.current) {
+        setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
+      }
+    }).catch(() => {});
+    return () => { weatherFetchIdRef.current++; };
   }, [refreshKey]);
   const dayShiftScore = useMemo(() => DataService.getDayShiftDemandScore(weatherImpact), [refreshKey, weatherImpact]);
   const timeline = useMemo(() => DataService.getDayShiftTimeline(weatherImpact), [refreshKey, weatherImpact]);
@@ -13195,26 +13379,36 @@ window.DashboardPage = () => {
   const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
   const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
 
-  // 待機場所分析のロード（グローバルキャッシュも更新）
+  // 待機場所分析のロード（リクエストIDで競合防止）
+  const standbyFetchIdRef = useRef(0);
   useEffect(() => {
     if (!window.GpsLogService) return;
+    const fetchId = ++standbyFetchIdRef.current;
     setStandbyAnalysisLoading(true);
     GpsLogService.getStandbyLocationAnalysis().then(data => {
-      setStandbyAnalysis(data);
-      window._cachedStandbyAnalysis = data;
-      setStandbyAnalysisLoading(false);
-    }).catch(() => setStandbyAnalysisLoading(false));
+      if (fetchId === standbyFetchIdRef.current) {
+        setStandbyAnalysis(data);
+        setStandbyAnalysisLoading(false);
+      }
+    }).catch(() => {
+      if (fetchId === standbyFetchIdRef.current) setStandbyAnalysisLoading(false);
+    });
   }, [refreshKey]);
 
-  // 流しエリア分析のロード（グローバルキャッシュも更新）
+  // 流しエリア分析のロード（リクエストIDで競合防止）
+  const cruisingFetchIdRef = useRef(0);
   useEffect(() => {
     if (!window.GpsLogService || !GpsLogService.getCruisingAreaPerformance) return;
+    const fetchId = ++cruisingFetchIdRef.current;
     setCruisingPerfLoading(true);
     GpsLogService.getCruisingAreaPerformance().then(data => {
-      setCruisingPerf(data);
-      window._cachedCruisingPerf = data;
-      setCruisingPerfLoading(false);
-    }).catch(() => setCruisingPerfLoading(false));
+      if (fetchId === cruisingFetchIdRef.current) {
+        setCruisingPerf(data);
+        setCruisingPerfLoading(false);
+      }
+    }).catch(() => {
+      if (fetchId === cruisingFetchIdRef.current) setCruisingPerfLoading(false);
+    });
   }, [refreshKey]);
 
   // 始業/終業シフト管理
@@ -15543,9 +15737,17 @@ window.RevenuePage = () => {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const [capturedStandby, setCapturedStandby] = useState(null);
 
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
+
+  // フォーム表示時にリアルタイム待機状態をキャプチャ（移動後も保持）
+  useEffect(() => {
+    if (mapCtx.standbyStatus && !capturedStandby) {
+      setCapturedStandby({ ...mapCtx.standbyStatus });
+    }
+  }, [mapCtx.standbyStatus]);
   const { isLoaded: mapsLoaded } = useGoogleMaps();
 
   // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
@@ -15640,7 +15842,14 @@ window.RevenuePage = () => {
     }).catch(() => {});
   }, []);
 
+  // 逆ジオコーディングリクエストIDで競合防止（フィールドごと）
+  const geocodeReqIdRef = useRef({ pickup: 0, dropoff: 0 });
+
   const _reverseGeocodeAndSetForm = useCallback((lat, lng, acc, field) => {
+    // リクエストIDをインクリメント（同じフィールドの古いリクエストを無視）
+    const reqId = ++geocodeReqIdRef.current[field];
+    const isStale = () => geocodeReqIdRef.current[field] !== reqId;
+
     setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
 
     // 最優先: 座標ベースの既知場所マッチング
@@ -15657,6 +15866,7 @@ window.RevenuePage = () => {
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (isStale()) return; // 古いリクエストは無視
         setGpsLoading(prev => ({ ...prev, [field]: false }));
         if (status === 'OK' && results && results.length > 0) {
           // クエリ座標に近い最適な結果を選択（距離検証付き）
@@ -15675,6 +15885,7 @@ window.RevenuePage = () => {
           fetch(nomUrl2)
             .then(res2 => res2.json())
             .then(data2 => {
+              if (isStale()) return; // 古いリクエストは無視
               if (data2 && data2.address) {
                 const a2 = data2.address;
                 const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
@@ -15702,6 +15913,7 @@ window.RevenuePage = () => {
       fetch(nomUrl)
         .then(res => res.json())
         .then(data => {
+          if (isStale()) return; // 古いリクエストは無視
           setGpsLoading(prev => ({ ...prev, [field]: false }));
           if (data && data.address) {
             const a = data.address;
@@ -15942,6 +16154,17 @@ window.RevenuePage = () => {
     if (gpsInfo.dropoff && gpsInfo.dropoff.landmark) {
       formWithCoords.dropoffLandmark = gpsInfo.dropoff.landmark;
     }
+    // 待機情報を保存
+    if (capturedStandby) {
+      formWithCoords.standbyInfo = {
+        locationName: capturedStandby.locationName,
+        durationMin: capturedStandby.durationMin,
+        durationSec: capturedStandby.durationSec,
+        category: capturedStandby.category,
+        lat: capturedStandby.lat,
+        lng: capturedStandby.lng,
+      };
+    }
 
     // DataServiceのaddEntryに完全委譲（バリデーション含む）
     const result = DataService.addEntry(formWithCoords);
@@ -15964,6 +16187,7 @@ window.RevenuePage = () => {
 
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
+    setCapturedStandby(null);
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -16684,6 +16908,31 @@ window.RevenuePage = () => {
               },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
                 '現在'
+              )
+            )
+          ),
+
+          // 待機情報表示（既存スポットで待機していた場合）
+          capturedStandby && capturedStandby.locationName && React.createElement('div', {
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '8px 12px', borderRadius: '8px',
+              background: 'rgba(255, 167, 38, 0.1)',
+              border: '1px solid rgba(255, 167, 38, 0.25)',
+              fontSize: '12px', color: '#ffa726',
+              marginBottom: 'var(--space-md)',
+            },
+          },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '18px', color: '#ffa726' },
+            }, 'hourglass_top'),
+            React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+              React.createElement('span', { style: { fontWeight: 600 } },
+                '待機場所: ' + capturedStandby.locationName
+              ),
+              React.createElement('span', { style: { fontSize: '11px', color: 'rgba(255, 167, 38, 0.85)' } },
+                '待機時間: ' + capturedStandby.durationMin + '分' + String(capturedStandby.durationSec).padStart(2, '0') + '秒'
               )
             )
           ),
@@ -18477,6 +18726,8 @@ window.TransitInfoPage = () => {
   // 需要予測プラン関連（data/setData宣言後に配置）
   const [demandLoading, setDemandLoading] = useState(false);
   const demandLoadingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const demandSchedule = useMemo(() => DataService.getDailyDemandSchedule(), [data]);
 
   const handleFetchDemandPlan = useCallback(async () => {
@@ -18484,6 +18735,7 @@ window.TransitInfoPage = () => {
     demandLoadingRef.current = true;
     setDemandLoading(true);
     const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, region);
+    if (!mountedRef.current) { demandLoadingRef.current = false; return; }
     if (result.success && result.data) {
       const today = new Date().toISOString().slice(0, 10);
       AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
@@ -18508,7 +18760,7 @@ window.TransitInfoPage = () => {
     window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'transit' } }));
   }, [STORAGE_KEY]);
 
-  // カテゴリ別取得
+  // カテゴリ別取得（アンマウント後のsetState防止）
   const handleFetch = useCallback(async (categoryKey) => {
     if (categoryKey === 'demand') { handleFetchDemandPlan(); return; }
     const cat = categories.find(c => c.key === categoryKey);
@@ -18517,6 +18769,7 @@ window.TransitInfoPage = () => {
     setData(prev => ({ ...prev, [categoryKey]: { ...prev[categoryKey], loading: true, error: null } }));
 
     const result = await cat.fetchFn(geminiApiKey, region);
+    if (!mountedRef.current) return; // アンマウント後は無視
     const now = new Date().toISOString();
 
     setData(prev => {
@@ -19157,33 +19410,47 @@ window.CalendarPage = () => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
     if (!secret) return;
 
-    // カレンダーページ表示時にクラウドから最新を取得
-    const syncAll = () => {
-      DataService.syncWorkStatusFromCloud().then(result => {
+    // カレンダーページ表示時にクラウドから最新を取得（順序を制御して競合防止）
+    let isCancelled = false;
+    const syncAll = async () => {
+      try {
+        // 1. まず勤務状態を同期
+        const result = await DataService.syncWorkStatusFromCloud();
+        if (isCancelled) return;
         if (result && result.merged && result.data) {
           setWorkStatus(result.data);
         }
-      });
-      // シフト・休憩もクラウドから同期
-      Promise.all([
-        DataService.syncShiftsFromCloud(),
-        DataService.syncBreaksFromCloud(),
-      ]).then(([sr, br]) => {
+        // 2. その後シフト・休憩を同期
+        const [sr, br] = await Promise.all([
+          DataService.syncShiftsFromCloud(),
+          DataService.syncBreaksFromCloud(),
+        ]);
+        if (isCancelled) return;
         if ((sr && sr.merged > 0) || (br && br.merged > 0)) {
           setRefreshKey(k => k + 1);
         }
-      });
+      } catch (e) {
+        if (window.AppLogger) AppLogger.warn('カレンダー同期エラー: ' + e.message);
+      }
     };
     syncAll();
 
-    // タブ復帰時にも再同期
+    // タブ復帰時にも再同期（最低30秒の間隔）
+    let lastSyncTime = Date.now();
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        syncAll();
+        const now = Date.now();
+        if (now - lastSyncTime >= 30000) {
+          lastSyncTime = now;
+          syncAll();
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    return () => {
+      isCancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // 勤務状態をlocalStorageに保存し、クラウドに自動同期
@@ -22870,6 +23137,7 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
   const [loading, setLoading] = useState(true);
   const [gpsConfirmClear, setGpsConfirmClear] = useState(false);
   const [gpsConfirmDelete, setGpsConfirmDelete] = useState(false);
+  const [gpsLogPage, setGpsLogPage] = useState(0);
 
   // 日付一覧の非同期取得
   useEffect(() => {
@@ -22887,6 +23155,7 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
     if (!gpsDate || !window.GpsLogService) { setClassified([]); setSummary(null); return; }
     let cancelled = false;
     setLoading(true);
+    setGpsLogPage(0); // 日付変更時にページリセット
     Promise.all([
       GpsLogService.classifyEntries(gpsDate),
       GpsLogService.getDaySummary(gpsDate),
@@ -22991,40 +23260,65 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
       )
     ),
 
-    // ログ一覧テーブル
-    React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' } }, classified.length + '件のGPSポイント'),
-    React.createElement('div', { style: { overflowX: 'auto', maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' } },
-      React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } },
-        React.createElement('thead', null,
-          React.createElement('tr', { style: { background: 'var(--bg-secondary)', position: 'sticky', top: 0 } },
-            ...['時刻', '緯度', '経度', '精度', '速度', '状態'].map((h, i) =>
-              React.createElement('th', { key: i, style: { padding: '6px 8px', textAlign: 'left', fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap' } }, h)
-            )
+    // ログ一覧テーブル（ページネーション付き — 大量データでのパフォーマンス低下を防止）
+    (() => {
+      const GPS_PAGE_SIZE = 200;
+      const totalPoints = classified.length;
+      const totalPages = Math.max(1, Math.ceil(totalPoints / GPS_PAGE_SIZE));
+      const currentPage = Math.min(gpsLogPage || 0, totalPages - 1);
+      const startIdx = currentPage * GPS_PAGE_SIZE;
+      const pageData = classified.slice(startIdx, startIdx + GPS_PAGE_SIZE);
+
+      return React.createElement('div', null,
+        React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+          React.createElement('span', null, totalPoints + '件のGPSポイント' + (totalPages > 1 ? `（${currentPage + 1}/${totalPages}ページ）` : '')),
+          totalPages > 1 && React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+            React.createElement('button', {
+              onClick: () => setGpsLogPage(Math.max(0, currentPage - 1)),
+              disabled: currentPage === 0,
+              style: { padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.4 : 1, fontSize: '11px' }
+            }, '前'),
+            React.createElement('button', {
+              onClick: () => setGpsLogPage(Math.min(totalPages - 1, currentPage + 1)),
+              disabled: currentPage >= totalPages - 1,
+              style: { padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: currentPage >= totalPages - 1 ? 'default' : 'pointer', opacity: currentPage >= totalPages - 1 ? 0.4 : 1, fontSize: '11px' }
+            }, '次')
           )
         ),
-        React.createElement('tbody', null,
-          ...classified.map((p, i) => {
-            const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const spdKmh = p.spd != null ? (p.spd * 3.6).toFixed(1) + ' km/h' : '-';
-            const isOccupied = p.status === 'occupied';
-            return React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
-              React.createElement('td', { style: { padding: '4px 8px', whiteSpace: 'nowrap' } }, time),
-              React.createElement('td', { style: { padding: '4px 8px' } }, p.lat.toFixed(6)),
-              React.createElement('td', { style: { padding: '4px 8px' } }, p.lng.toFixed(6)),
-              React.createElement('td', { style: { padding: '4px 8px' } }, p.acc != null ? p.acc + 'm' : '-'),
-              React.createElement('td', { style: { padding: '4px 8px' } }, spdKmh),
-              React.createElement('td', { style: { padding: '4px 8px' } },
-                React.createElement('span', { style: {
-                  display: 'inline-block', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
-                  background: isOccupied ? 'rgba(0,200,83,0.15)' : 'rgba(255,255,255,0.08)',
-                  color: isOccupied ? 'var(--color-accent)' : 'var(--text-secondary)'
-                } }, isOccupied ? '実車' : '空車')
+        React.createElement('div', { style: { overflowX: 'auto', maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' } },
+          React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } },
+            React.createElement('thead', null,
+              React.createElement('tr', { style: { background: 'var(--bg-secondary)', position: 'sticky', top: 0 } },
+                ...['時刻', '緯度', '経度', '精度', '速度', '状態'].map((h, i) =>
+                  React.createElement('th', { key: i, style: { padding: '6px 8px', textAlign: 'left', fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap' } }, h)
+                )
               )
-            );
-          })
+            ),
+            React.createElement('tbody', null,
+              ...pageData.map((p, i) => {
+                const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const spdKmh = p.spd != null ? (p.spd * 3.6).toFixed(1) + ' km/h' : '-';
+                const isOccupied = p.status === 'occupied';
+                return React.createElement('tr', { key: startIdx + i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                  React.createElement('td', { style: { padding: '4px 8px', whiteSpace: 'nowrap' } }, time),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, p.lat.toFixed(6)),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, p.lng.toFixed(6)),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, p.acc != null ? p.acc + 'm' : '-'),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, spdKmh),
+                  React.createElement('td', { style: { padding: '4px 8px' } },
+                    React.createElement('span', { style: {
+                      display: 'inline-block', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
+                      background: isOccupied ? 'rgba(0,200,83,0.15)' : 'rgba(255,255,255,0.08)',
+                      color: isOccupied ? 'var(--color-accent)' : 'var(--text-secondary)'
+                    } }, isOccupied ? '実車' : '空車')
+                  )
+                );
+              })
+            )
+          )
         )
-      )
-    )
+      );
+    })()
   );
 };
 
@@ -26813,26 +27107,29 @@ window.App = () => {
   }, [navigate]);
 
   // ページルーティング（useMemoで不要な再生成を防止）
+  // 各ページをErrorBoundaryで包み、1ページのエラーがアプリ全体に影響しないようにする
   const page = React.useMemo(() => {
+    let pageComponent;
     switch (currentPage) {
-      case 'dashboard': return React.createElement(DashboardPage);
-      case 'map': return React.createElement(MapViewPage);
-      case 'revenue': return React.createElement(RevenuePage);
-      case 'rival-ride': return React.createElement(RivalRidePage);
-      case 'transit-info': return React.createElement(TransitInfoPage);
-      case 'events': return React.createElement(EventsPage);
-      case 'analytics': return React.createElement(AnalyticsPage);
-      case 'gathering-memo': return React.createElement(GatheringMemoPage);
-      case 'calendar': return React.createElement(CalendarPage);
-      case 'info': return React.createElement(InfoPage);
-      case 'data-manage': return React.createElement(DataManagePage);
-      case 'settings': return React.createElement(SettingsPage);
-      case 'dev': return React.createElement(DevToolsPage);
-      case 'dev-logs': return React.createElement(LogsPage);
-      case 'dev-structure': return React.createElement(StructurePage);
-      case 'dev-api': return React.createElement(ApiStatusPage);
-      default: return React.createElement(DashboardPage);
+      case 'dashboard': pageComponent = React.createElement(DashboardPage); break;
+      case 'map': pageComponent = React.createElement(MapViewPage); break;
+      case 'revenue': pageComponent = React.createElement(RevenuePage); break;
+      case 'rival-ride': pageComponent = React.createElement(RivalRidePage); break;
+      case 'transit-info': pageComponent = React.createElement(TransitInfoPage); break;
+      case 'events': pageComponent = React.createElement(EventsPage); break;
+      case 'analytics': pageComponent = React.createElement(AnalyticsPage); break;
+      case 'gathering-memo': pageComponent = React.createElement(GatheringMemoPage); break;
+      case 'calendar': pageComponent = React.createElement(CalendarPage); break;
+      case 'info': pageComponent = React.createElement(InfoPage); break;
+      case 'data-manage': pageComponent = React.createElement(DataManagePage); break;
+      case 'settings': pageComponent = React.createElement(SettingsPage); break;
+      case 'dev': pageComponent = React.createElement(DevToolsPage); break;
+      case 'dev-logs': pageComponent = React.createElement(LogsPage); break;
+      case 'dev-structure': pageComponent = React.createElement(StructurePage); break;
+      case 'dev-api': pageComponent = React.createElement(ApiStatusPage); break;
+      default: pageComponent = React.createElement(DashboardPage); break;
     }
+    return React.createElement(ErrorBoundary, { key: currentPage }, pageComponent);
   }, [currentPage]);
 
   return React.createElement(Layout, null, page);

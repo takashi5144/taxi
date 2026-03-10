@@ -10,20 +10,31 @@ function safeCompare(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+// リクエストボディの基本バリデーション
+function validateRequestBody(body) {
+  if (!body || typeof body !== 'object') return 'リクエストボディが不正です';
+  if (Array.isArray(body)) return 'リクエストボディはオブジェクトである必要があります';
+  // entries がある場合は配列であること
+  if ('entries' in body && !Array.isArray(body.entries)) return 'entries は配列である必要があります';
+  return null;
+}
+
 export default async function handler(req, res) {
   // キャッシュ防止
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  // CORS - 自ドメインのみ許可
-  const allowedOrigins = [
-    'https://taxi1-inky.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-  ];
+
+  // CORS - 本番ドメインのみ許可（開発時は環境変数で追加可能）
+  const allowedOrigins = ['https://taxi1-inky.vercel.app'];
+  // 開発環境用の追加オリジン（環境変数で指定）
+  const devOrigins = (process.env.DEV_CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const allOrigins = [...allowedOrigins, ...devOrigins];
+
   const reqOrigin = req.headers.origin || '';
-  const corsOrigin = allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0];
+  const corsOrigin = allOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0];
   res.setHeader('Access-Control-Allow-Origin', corsOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Vary', 'Origin');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   // Blob Storeトークン取得（明示的に渡す）
@@ -70,7 +81,18 @@ export default async function handler(req, res) {
 
     switch (req.method) {
       case 'POST': {
-        const body = JSON.stringify(req.body);
+        // リクエストボディのバリデーション
+        const validationError = validateRequestBody(req.body);
+        if (validationError) {
+          return res.status(400).json({ error: validationError });
+        }
+
+        let body;
+        try {
+          body = JSON.stringify(req.body);
+        } catch (e) {
+          return res.status(400).json({ error: 'リクエストボディのシリアライズに失敗しました' });
+        }
         if (body.length > 10 * 1024 * 1024) {
           return res.status(413).json({ error: 'データサイズが大きすぎます' });
         }
@@ -123,6 +145,7 @@ export default async function handler(req, res) {
     }
   } catch (err) {
     console.error('[API ERROR]', err.message, err.stack);
-    return res.status(500).json({ error: 'サーバーエラー', detail: err.message });
+    // 本番環境ではスタックトレースを返さない
+    return res.status(500).json({ error: 'サーバーエラー' });
   }
 }

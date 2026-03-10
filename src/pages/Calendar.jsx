@@ -24,33 +24,47 @@ window.CalendarPage = () => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
     if (!secret) return;
 
-    // カレンダーページ表示時にクラウドから最新を取得
-    const syncAll = () => {
-      DataService.syncWorkStatusFromCloud().then(result => {
+    // カレンダーページ表示時にクラウドから最新を取得（順序を制御して競合防止）
+    let isCancelled = false;
+    const syncAll = async () => {
+      try {
+        // 1. まず勤務状態を同期
+        const result = await DataService.syncWorkStatusFromCloud();
+        if (isCancelled) return;
         if (result && result.merged && result.data) {
           setWorkStatus(result.data);
         }
-      });
-      // シフト・休憩もクラウドから同期
-      Promise.all([
-        DataService.syncShiftsFromCloud(),
-        DataService.syncBreaksFromCloud(),
-      ]).then(([sr, br]) => {
+        // 2. その後シフト・休憩を同期
+        const [sr, br] = await Promise.all([
+          DataService.syncShiftsFromCloud(),
+          DataService.syncBreaksFromCloud(),
+        ]);
+        if (isCancelled) return;
         if ((sr && sr.merged > 0) || (br && br.merged > 0)) {
           setRefreshKey(k => k + 1);
         }
-      });
+      } catch (e) {
+        if (window.AppLogger) AppLogger.warn('カレンダー同期エラー: ' + e.message);
+      }
     };
     syncAll();
 
-    // タブ復帰時にも再同期
+    // タブ復帰時にも再同期（最低30秒の間隔）
+    let lastSyncTime = Date.now();
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        syncAll();
+        const now = Date.now();
+        if (now - lastSyncTime >= 30000) {
+          lastSyncTime = now;
+          syncAll();
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    return () => {
+      isCancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   // 勤務状態をlocalStorageに保存し、クラウドに自動同期

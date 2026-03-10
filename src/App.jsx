@@ -11,26 +11,29 @@ window.App = () => {
   }, [navigate]);
 
   // ページルーティング（useMemoで不要な再生成を防止）
+  // 各ページをErrorBoundaryで包み、1ページのエラーがアプリ全体に影響しないようにする
   const page = React.useMemo(() => {
+    let pageComponent;
     switch (currentPage) {
-      case 'dashboard': return React.createElement(DashboardPage);
-      case 'map': return React.createElement(MapViewPage);
-      case 'revenue': return React.createElement(RevenuePage);
-      case 'rival-ride': return React.createElement(RivalRidePage);
-      case 'transit-info': return React.createElement(TransitInfoPage);
-      case 'events': return React.createElement(EventsPage);
-      case 'analytics': return React.createElement(AnalyticsPage);
-      case 'gathering-memo': return React.createElement(GatheringMemoPage);
-      case 'calendar': return React.createElement(CalendarPage);
-      case 'info': return React.createElement(InfoPage);
-      case 'data-manage': return React.createElement(DataManagePage);
-      case 'settings': return React.createElement(SettingsPage);
-      case 'dev': return React.createElement(DevToolsPage);
-      case 'dev-logs': return React.createElement(LogsPage);
-      case 'dev-structure': return React.createElement(StructurePage);
-      case 'dev-api': return React.createElement(ApiStatusPage);
-      default: return React.createElement(DashboardPage);
+      case 'dashboard': pageComponent = React.createElement(DashboardPage); break;
+      case 'map': pageComponent = React.createElement(MapViewPage); break;
+      case 'revenue': pageComponent = React.createElement(RevenuePage); break;
+      case 'rival-ride': pageComponent = React.createElement(RivalRidePage); break;
+      case 'transit-info': pageComponent = React.createElement(TransitInfoPage); break;
+      case 'events': pageComponent = React.createElement(EventsPage); break;
+      case 'analytics': pageComponent = React.createElement(AnalyticsPage); break;
+      case 'gathering-memo': pageComponent = React.createElement(GatheringMemoPage); break;
+      case 'calendar': pageComponent = React.createElement(CalendarPage); break;
+      case 'info': pageComponent = React.createElement(InfoPage); break;
+      case 'data-manage': pageComponent = React.createElement(DataManagePage); break;
+      case 'settings': pageComponent = React.createElement(SettingsPage); break;
+      case 'dev': pageComponent = React.createElement(DevToolsPage); break;
+      case 'dev-logs': pageComponent = React.createElement(LogsPage); break;
+      case 'dev-structure': pageComponent = React.createElement(StructurePage); break;
+      case 'dev-api': pageComponent = React.createElement(ApiStatusPage); break;
+      default: pageComponent = React.createElement(DashboardPage); break;
     }
+    return React.createElement(ErrorBoundary, { key: currentPage }, pageComponent);
   }, [currentPage]);
 
   return React.createElement(Layout, null, page);

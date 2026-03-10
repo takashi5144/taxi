@@ -345,6 +345,25 @@ window.GpsLogService = (() => {
     }
   }
 
+  /** リアルタイム待機状態を取得（UI表示用） */
+  function getRealtimeStandbyStatus() {
+    if (!_rtAnchor) return null;
+    const now = Date.now();
+    const duration = now - _rtAnchor.startTime;
+    if (duration < RT_STANDBY_MIN_MS) return null; // 3分未満は待機とみなさない
+    const catInfo = _classifyStandbyCategory(_rtAnchor.lat, _rtAnchor.lng);
+    return {
+      lat: _rtAnchor.lat,
+      lng: _rtAnchor.lng,
+      startTime: _rtAnchor.startTime,
+      durationMs: duration,
+      durationMin: Math.floor(duration / 60000),
+      durationSec: Math.floor((duration % 60000) / 1000),
+      locationName: catInfo.nearbyName || catInfo.categoryLabel || null,
+      category: catInfo.category,
+    };
+  }
+
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
@@ -1439,6 +1458,7 @@ window.GpsLogService = (() => {
     getStandbyLocationAnalysis,
     getCruisingAreaPerformance,
     flushRealtimeStandby,
+    getRealtimeStandbyStatus,
     // 座標検索API
     findNearestEntry,
     findNearestByLocation,

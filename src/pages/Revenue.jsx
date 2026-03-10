@@ -31,9 +31,17 @@ window.RevenuePage = () => {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const [capturedStandby, setCapturedStandby] = useState(null);
 
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
+
+  // フォーム表示時にリアルタイム待機状態をキャプチャ（移動後も保持）
+  useEffect(() => {
+    if (mapCtx.standbyStatus && !capturedStandby) {
+      setCapturedStandby({ ...mapCtx.standbyStatus });
+    }
+  }, [mapCtx.standbyStatus]);
   const { isLoaded: mapsLoaded } = useGoogleMaps();
 
   // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
@@ -128,7 +136,14 @@ window.RevenuePage = () => {
     }).catch(() => {});
   }, []);
 
+  // 逆ジオコーディングリクエストIDで競合防止（フィールドごと）
+  const geocodeReqIdRef = useRef({ pickup: 0, dropoff: 0 });
+
   const _reverseGeocodeAndSetForm = useCallback((lat, lng, acc, field) => {
+    // リクエストIDをインクリメント（同じフィールドの古いリクエストを無視）
+    const reqId = ++geocodeReqIdRef.current[field];
+    const isStale = () => geocodeReqIdRef.current[field] !== reqId;
+
     setGpsInfo(prev => ({ ...prev, [field]: { ...((prev && prev[field]) || {}), lat, lng, accuracy: acc } }));
 
     // 最優先: 座標ベースの既知場所マッチング
@@ -145,6 +160,7 @@ window.RevenuePage = () => {
     if (apiKey && window.google && window.google.maps) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (isStale()) return; // 古いリクエストは無視
         setGpsLoading(prev => ({ ...prev, [field]: false }));
         if (status === 'OK' && results && results.length > 0) {
           // クエリ座標に近い最適な結果を選択（距離検証付き）
@@ -163,6 +179,7 @@ window.RevenuePage = () => {
           fetch(nomUrl2)
             .then(res2 => res2.json())
             .then(data2 => {
+              if (isStale()) return; // 古いリクエストは無視
               if (data2 && data2.address) {
                 const a2 = data2.address;
                 const parts2 = [a2.city || a2.town || a2.village || a2.county || '', a2.suburb || a2.neighbourhood || a2.quarter || '', a2.road || ''].filter(Boolean);
@@ -190,6 +207,7 @@ window.RevenuePage = () => {
       fetch(nomUrl)
         .then(res => res.json())
         .then(data => {
+          if (isStale()) return; // 古いリクエストは無視
           setGpsLoading(prev => ({ ...prev, [field]: false }));
           if (data && data.address) {
             const a = data.address;
@@ -430,6 +448,17 @@ window.RevenuePage = () => {
     if (gpsInfo.dropoff && gpsInfo.dropoff.landmark) {
       formWithCoords.dropoffLandmark = gpsInfo.dropoff.landmark;
     }
+    // 待機情報を保存
+    if (capturedStandby) {
+      formWithCoords.standbyInfo = {
+        locationName: capturedStandby.locationName,
+        durationMin: capturedStandby.durationMin,
+        durationSec: capturedStandby.durationSec,
+        category: capturedStandby.category,
+        lat: capturedStandby.lat,
+        lng: capturedStandby.lng,
+      };
+    }
 
     // DataServiceのaddEntryに完全委譲（バリデーション含む）
     const result = DataService.addEntry(formWithCoords);
@@ -452,6 +481,7 @@ window.RevenuePage = () => {
 
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
     setGpsInfo({ pickup: null, dropoff: null });
+    setCapturedStandby(null);
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -1172,6 +1202,31 @@ window.RevenuePage = () => {
               },
                 React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
                 '現在'
+              )
+            )
+          ),
+
+          // 待機情報表示（既存スポットで待機していた場合）
+          capturedStandby && capturedStandby.locationName && React.createElement('div', {
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '8px 12px', borderRadius: '8px',
+              background: 'rgba(255, 167, 38, 0.1)',
+              border: '1px solid rgba(255, 167, 38, 0.25)',
+              fontSize: '12px', color: '#ffa726',
+              marginBottom: 'var(--space-md)',
+            },
+          },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '18px', color: '#ffa726' },
+            }, 'hourglass_top'),
+            React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
+              React.createElement('span', { style: { fontWeight: 600 } },
+                '待機場所: ' + capturedStandby.locationName
+              ),
+              React.createElement('span', { style: { fontSize: '11px', color: 'rgba(255, 167, 38, 0.85)' } },
+                '待機時間: ' + capturedStandby.durationMin + '分' + String(capturedStandby.durationSec).padStart(2, '0') + '秒'
               )
             )
           ),

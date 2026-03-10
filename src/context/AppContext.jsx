@@ -61,16 +61,23 @@ window.AppProvider = ({ children }) => {
     // A. アプリ起動時に自動同期
     DataService.autoSync();
 
-    // B. ページ復帰時（タブ切替から戻った時）に自動同期
+    // B. ページ復帰時（タブ切替から戻った時）に自動同期（最低30秒の間隔を空ける）
+    let lastSyncTime = Date.now();
+    const MIN_SYNC_INTERVAL = 30 * 1000;
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        DataService.autoSync();
+        const now = Date.now();
+        if (now - lastSyncTime >= MIN_SYNC_INTERVAL) {
+          lastSyncTime = now;
+          DataService.autoSync();
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     // C. 5分間隔の定期同期
     const intervalId = setInterval(() => {
+      lastSyncTime = Date.now();
       DataService.autoSync();
     }, 5 * 60 * 1000);
 

@@ -115,12 +115,15 @@ window.DashboardPage = () => {
   // 日勤集客強化: 病院・天気・タイムライン・アクション提案
   const hospitalData = useMemo(() => DataService.getHospitalScheduleData(), [refreshKey]);
   const [weatherImpact, setWeatherImpact] = useState(null);
+  const weatherFetchIdRef = useRef(0);
   useEffect(() => {
-    let cancelled = false;
+    const fetchId = ++weatherFetchIdRef.current;
     GpsLogService.fetchHourlyForecast().then(forecast => {
-      if (!cancelled) setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
-    });
-    return () => { cancelled = true; };
+      if (fetchId === weatherFetchIdRef.current) {
+        setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
+      }
+    }).catch(() => {});
+    return () => { weatherFetchIdRef.current++; };
   }, [refreshKey]);
   const dayShiftScore = useMemo(() => DataService.getDayShiftDemandScore(weatherImpact), [refreshKey, weatherImpact]);
   const timeline = useMemo(() => DataService.getDayShiftTimeline(weatherImpact), [refreshKey, weatherImpact]);
@@ -137,26 +140,36 @@ window.DashboardPage = () => {
   const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
   const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
 
-  // 待機場所分析のロード（グローバルキャッシュも更新）
+  // 待機場所分析のロード（リクエストIDで競合防止）
+  const standbyFetchIdRef = useRef(0);
   useEffect(() => {
     if (!window.GpsLogService) return;
+    const fetchId = ++standbyFetchIdRef.current;
     setStandbyAnalysisLoading(true);
     GpsLogService.getStandbyLocationAnalysis().then(data => {
-      setStandbyAnalysis(data);
-      window._cachedStandbyAnalysis = data;
-      setStandbyAnalysisLoading(false);
-    }).catch(() => setStandbyAnalysisLoading(false));
+      if (fetchId === standbyFetchIdRef.current) {
+        setStandbyAnalysis(data);
+        setStandbyAnalysisLoading(false);
+      }
+    }).catch(() => {
+      if (fetchId === standbyFetchIdRef.current) setStandbyAnalysisLoading(false);
+    });
   }, [refreshKey]);
 
-  // 流しエリア分析のロード（グローバルキャッシュも更新）
+  // 流しエリア分析のロード（リクエストIDで競合防止）
+  const cruisingFetchIdRef = useRef(0);
   useEffect(() => {
     if (!window.GpsLogService || !GpsLogService.getCruisingAreaPerformance) return;
+    const fetchId = ++cruisingFetchIdRef.current;
     setCruisingPerfLoading(true);
     GpsLogService.getCruisingAreaPerformance().then(data => {
-      setCruisingPerf(data);
-      window._cachedCruisingPerf = data;
-      setCruisingPerfLoading(false);
-    }).catch(() => setCruisingPerfLoading(false));
+      if (fetchId === cruisingFetchIdRef.current) {
+        setCruisingPerf(data);
+        setCruisingPerfLoading(false);
+      }
+    }).catch(() => {
+      if (fetchId === cruisingFetchIdRef.current) setCruisingPerfLoading(false);
+    });
   }, [refreshKey]);
 
   // 始業/終業シフト管理

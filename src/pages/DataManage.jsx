@@ -11,6 +11,7 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
   const [loading, setLoading] = useState(true);
   const [gpsConfirmClear, setGpsConfirmClear] = useState(false);
   const [gpsConfirmDelete, setGpsConfirmDelete] = useState(false);
+  const [gpsLogPage, setGpsLogPage] = useState(0);
 
   // 日付一覧の非同期取得
   useEffect(() => {
@@ -28,6 +29,7 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
     if (!gpsDate || !window.GpsLogService) { setClassified([]); setSummary(null); return; }
     let cancelled = false;
     setLoading(true);
+    setGpsLogPage(0); // 日付変更時にページリセット
     Promise.all([
       GpsLogService.classifyEntries(gpsDate),
       GpsLogService.getDaySummary(gpsDate),
@@ -132,40 +134,65 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
       )
     ),
 
-    // ログ一覧テーブル
-    React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' } }, classified.length + '件のGPSポイント'),
-    React.createElement('div', { style: { overflowX: 'auto', maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' } },
-      React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } },
-        React.createElement('thead', null,
-          React.createElement('tr', { style: { background: 'var(--bg-secondary)', position: 'sticky', top: 0 } },
-            ...['時刻', '緯度', '経度', '精度', '速度', '状態'].map((h, i) =>
-              React.createElement('th', { key: i, style: { padding: '6px 8px', textAlign: 'left', fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap' } }, h)
-            )
+    // ログ一覧テーブル（ページネーション付き — 大量データでのパフォーマンス低下を防止）
+    (() => {
+      const GPS_PAGE_SIZE = 200;
+      const totalPoints = classified.length;
+      const totalPages = Math.max(1, Math.ceil(totalPoints / GPS_PAGE_SIZE));
+      const currentPage = Math.min(gpsLogPage || 0, totalPages - 1);
+      const startIdx = currentPage * GPS_PAGE_SIZE;
+      const pageData = classified.slice(startIdx, startIdx + GPS_PAGE_SIZE);
+
+      return React.createElement('div', null,
+        React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+          React.createElement('span', null, totalPoints + '件のGPSポイント' + (totalPages > 1 ? `（${currentPage + 1}/${totalPages}ページ）` : '')),
+          totalPages > 1 && React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+            React.createElement('button', {
+              onClick: () => setGpsLogPage(Math.max(0, currentPage - 1)),
+              disabled: currentPage === 0,
+              style: { padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: currentPage === 0 ? 'default' : 'pointer', opacity: currentPage === 0 ? 0.4 : 1, fontSize: '11px' }
+            }, '前'),
+            React.createElement('button', {
+              onClick: () => setGpsLogPage(Math.min(totalPages - 1, currentPage + 1)),
+              disabled: currentPage >= totalPages - 1,
+              style: { padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: currentPage >= totalPages - 1 ? 'default' : 'pointer', opacity: currentPage >= totalPages - 1 ? 0.4 : 1, fontSize: '11px' }
+            }, '次')
           )
         ),
-        React.createElement('tbody', null,
-          ...classified.map((p, i) => {
-            const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const spdKmh = p.spd != null ? (p.spd * 3.6).toFixed(1) + ' km/h' : '-';
-            const isOccupied = p.status === 'occupied';
-            return React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
-              React.createElement('td', { style: { padding: '4px 8px', whiteSpace: 'nowrap' } }, time),
-              React.createElement('td', { style: { padding: '4px 8px' } }, p.lat.toFixed(6)),
-              React.createElement('td', { style: { padding: '4px 8px' } }, p.lng.toFixed(6)),
-              React.createElement('td', { style: { padding: '4px 8px' } }, p.acc != null ? p.acc + 'm' : '-'),
-              React.createElement('td', { style: { padding: '4px 8px' } }, spdKmh),
-              React.createElement('td', { style: { padding: '4px 8px' } },
-                React.createElement('span', { style: {
-                  display: 'inline-block', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
-                  background: isOccupied ? 'rgba(0,200,83,0.15)' : 'rgba(255,255,255,0.08)',
-                  color: isOccupied ? 'var(--color-accent)' : 'var(--text-secondary)'
-                } }, isOccupied ? '実車' : '空車')
+        React.createElement('div', { style: { overflowX: 'auto', maxHeight: '400px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' } },
+          React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '12px' } },
+            React.createElement('thead', null,
+              React.createElement('tr', { style: { background: 'var(--bg-secondary)', position: 'sticky', top: 0 } },
+                ...['時刻', '緯度', '経度', '精度', '速度', '状態'].map((h, i) =>
+                  React.createElement('th', { key: i, style: { padding: '6px 8px', textAlign: 'left', fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap' } }, h)
+                )
               )
-            );
-          })
+            ),
+            React.createElement('tbody', null,
+              ...pageData.map((p, i) => {
+                const time = new Date(p.t).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const spdKmh = p.spd != null ? (p.spd * 3.6).toFixed(1) + ' km/h' : '-';
+                const isOccupied = p.status === 'occupied';
+                return React.createElement('tr', { key: startIdx + i, style: { borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                  React.createElement('td', { style: { padding: '4px 8px', whiteSpace: 'nowrap' } }, time),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, p.lat.toFixed(6)),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, p.lng.toFixed(6)),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, p.acc != null ? p.acc + 'm' : '-'),
+                  React.createElement('td', { style: { padding: '4px 8px' } }, spdKmh),
+                  React.createElement('td', { style: { padding: '4px 8px' } },
+                    React.createElement('span', { style: {
+                      display: 'inline-block', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 500,
+                      background: isOccupied ? 'rgba(0,200,83,0.15)' : 'rgba(255,255,255,0.08)',
+                      color: isOccupied ? 'var(--color-accent)' : 'var(--text-secondary)'
+                    } }, isOccupied ? '実車' : '空車')
+                  )
+                );
+              })
+            )
+          )
         )
-      )
-    )
+      );
+    })()
   );
 };
 

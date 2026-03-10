@@ -29,8 +29,10 @@ window.MapProvider = ({ children }) => {
   const [accuracy, setAccuracy] = useState(null);
   const [speed, setSpeed] = useState(null);
   const [heading, setHeading] = useState(null);
+  const [standbyStatus, setStandbyStatus] = useState(null);
 
   const watchIdRef = useRef(null);
+  const standbyTimerRef = useRef(null);
 
   const updatePosition = useCallback((position) => {
     const pos = {
@@ -44,6 +46,8 @@ window.MapProvider = ({ children }) => {
     setGpsError(null);
     if (window.GpsLogService) {
       GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+      // 待機状態を更新
+      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
     }
   }, []);
 
@@ -83,6 +87,19 @@ window.MapProvider = ({ children }) => {
     AppLogger.info('GPS追跡を停止');
   }, []);
 
+  // 待機中の経過時間をリアルタイム更新（10秒間隔）
+  useEffect(() => {
+    if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
+    if (isTracking && window.GpsLogService) {
+      standbyTimerRef.current = setInterval(() => {
+        setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      }, 10000);
+    }
+    return () => {
+      if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
+    };
+  }, [isTracking]);
+
   // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
   useEffect(() => {
     let shifts = [];
@@ -117,10 +134,11 @@ window.MapProvider = ({ children }) => {
     accuracy,
     speed,
     heading,
+    standbyStatus,
     updatePosition,
     startTracking,
     stopTracking,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, updatePosition, startTracking, stopTracking]);
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, updatePosition, startTracking, stopTracking]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };

@@ -34,6 +34,12 @@
     font-size: 14px;
   }
 
+  .header__standby-indicator {
+    max-width: 180px !important;
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+
   .sidebar {
     width: 100%;
     transform: translateX(-100%);

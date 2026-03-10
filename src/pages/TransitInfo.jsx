@@ -109,6 +109,8 @@ window.TransitInfoPage = () => {
   // 需要予測プラン関連（data/setData宣言後に配置）
   const [demandLoading, setDemandLoading] = useState(false);
   const demandLoadingRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const demandSchedule = useMemo(() => DataService.getDailyDemandSchedule(), [data]);
 
   const handleFetchDemandPlan = useCallback(async () => {
@@ -116,6 +118,7 @@ window.TransitInfoPage = () => {
     demandLoadingRef.current = true;
     setDemandLoading(true);
     const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, region);
+    if (!mountedRef.current) { demandLoadingRef.current = false; return; }
     if (result.success && result.data) {
       const today = new Date().toISOString().slice(0, 10);
       AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
@@ -140,7 +143,7 @@ window.TransitInfoPage = () => {
     window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'transit' } }));
   }, [STORAGE_KEY]);
 
-  // カテゴリ別取得
+  // カテゴリ別取得（アンマウント後のsetState防止）
   const handleFetch = useCallback(async (categoryKey) => {
     if (categoryKey === 'demand') { handleFetchDemandPlan(); return; }
     const cat = categories.find(c => c.key === categoryKey);
@@ -149,6 +152,7 @@ window.TransitInfoPage = () => {
     setData(prev => ({ ...prev, [categoryKey]: { ...prev[categoryKey], loading: true, error: null } }));
 
     const result = await cat.fetchFn(geminiApiKey, region);
+    if (!mountedRef.current) return; // アンマウント後は無視
     const now = new Date().toISOString();
 
     setData(prev => {

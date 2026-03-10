@@ -72,6 +72,11 @@ a:hover {
   cursor: pointer;
 }
 
+@keyframes standbyPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .header__logo .material-icons-round {
   font-size: 28px;
 }

@@ -7,6 +7,19 @@
 window.GeminiService = (() => {
   const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
+  // レート制限: 最小リクエスト間隔（ミリ秒）
+  const MIN_REQUEST_INTERVAL = 2000;
+  let _lastRequestTime = 0;
+
+  function _checkRateLimit() {
+    const now = Date.now();
+    if (now - _lastRequestTime < MIN_REQUEST_INTERVAL) {
+      return false;
+    }
+    _lastRequestTime = now;
+    return true;
+  }
+
   // API応答のバリデーション共通処理
   const MAX_RESPONSE_SIZE = 100000;
   function _parseGeminiResponse(raw) {
@@ -28,6 +41,9 @@ window.GeminiService = (() => {
   async function callGemini(apiKey, prompt) {
     if (!apiKey) {
       return { success: false, error: 'Gemini APIキーが設定されていません' };
+    }
+    if (!_checkRateLimit()) {
+      return { success: false, error: '連続リクエスト制限中です。少し待ってから再試行してください。' };
     }
 
     try {
@@ -114,6 +130,9 @@ ${areaStr}
   async function callGeminiLarge(apiKey, prompt) {
     if (!apiKey) {
       return { success: false, error: 'Gemini APIキーが設定されていません' };
+    }
+    if (!_checkRateLimit()) {
+      return { success: false, error: '連続リクエスト制限中です。少し待ってから再試行してください。' };
     }
 
     try {
@@ -556,7 +575,9 @@ JSONのみを返し、他のテキストは不要です。
 
   // レシート画像から金額を読み取る（Vision API）
   async function analyzeReceiptImage(apiKey, base64Image, mimeType) {
-    const url = `${API_URL}?key=${apiKey}`;
+    if (!_checkRateLimit()) {
+      throw new Error('連続リクエスト制限中です。少し待ってから再試行してください。');
+    }
     const body = {
       contents: [{
         parts: [
@@ -565,9 +586,12 @@ JSONのみを返し、他のテキストは不要です。
         ]
       }]
     };
-    const res = await fetch(url, {
+    const res = await fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
