@@ -2608,6 +2608,104 @@ window.DataService = (() => {
     };
   }
 
+  // 時間帯別の実車/非実車を集計（mode: 'month' | 'all'）
+  function getHourlyOccupancy(mode) {
+    const entries = getEntries();
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+    const now = new Date();
+    const currentMonth = toDateStr(now.toISOString()).slice(0, 7);
+
+    // フィルター
+    const targetEntries = mode === 'month'
+      ? entries.filter(e => (e.date || toDateStr(e.timestamp)).startsWith(currentMonth))
+      : entries;
+    const targetShifts = mode === 'month'
+      ? shifts.filter(s => s.startTime && toDateStr(s.startTime).startsWith(currentMonth))
+      : shifts.filter(s => s.startTime);
+    const targetBreaks = mode === 'month'
+      ? breaks.filter(b => b.startTime && toDateStr(b.startTime).startsWith(currentMonth))
+      : breaks.filter(b => b.startTime);
+
+    // 24時間分の配列（分単位）
+    const work = new Array(24).fill(0);     // 勤務時間（実車含む全体）
+    const occupied = new Array(24).fill(0); // 実車時間
+    const dayCount = new Set();
+
+    // シフト時間を1時間ごとに振り分け
+    targetShifts.forEach(s => {
+      if (!s.startTime) return;
+      const start = new Date(s.startTime);
+      const end = s.endTime ? new Date(s.endTime) : (toDateStr(s.startTime) === toDateStr(now.toISOString()) ? now : new Date(s.startTime));
+      const dateStr = toDateStr(s.startTime);
+      dayCount.add(dateStr);
+      for (let h = 0; h < 24; h++) {
+        const hStart = new Date(start); hStart.setHours(h, 0, 0, 0);
+        if (hStart < start) { const d = new Date(start); if (d.getDate() !== hStart.getDate()) continue; hStart.setTime(start.getTime()); }
+        const hEnd = new Date(start); hEnd.setHours(h + 1, 0, 0, 0);
+        if (hEnd > end) hEnd.setTime(end.getTime());
+        if (hEnd <= hStart) continue;
+        // 同じ時間帯の分
+        const sDate = toDateStr(s.startTime);
+        const hStartDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, 0, 0);
+        const hEndDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h + 1, 0, 0);
+        const actualStart = Math.max(start.getTime(), hStartDay.getTime());
+        const actualEnd = Math.min(end.getTime(), hEndDay.getTime());
+        if (actualEnd > actualStart) {
+          work[h] += Math.round((actualEnd - actualStart) / 60000);
+        }
+      }
+    });
+
+    // 休憩時間を差し引き
+    targetBreaks.forEach(b => {
+      if (!b.startTime) return;
+      const start = new Date(b.startTime);
+      const end = b.endTime ? new Date(b.endTime) : (toDateStr(b.startTime) === toDateStr(now.toISOString()) ? now : new Date(b.startTime));
+      for (let h = 0; h < 24; h++) {
+        const hStartDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, 0, 0);
+        const hEndDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h + 1, 0, 0);
+        const actualStart = Math.max(start.getTime(), hStartDay.getTime());
+        const actualEnd = Math.min(end.getTime(), hEndDay.getTime());
+        if (actualEnd > actualStart) {
+          work[h] = Math.max(0, work[h] - Math.round((actualEnd - actualStart) / 60000));
+        }
+      }
+    });
+
+    // 実車時間を1時間ごとに振り分け（pickupTime〜dropoffTime）
+    targetEntries.forEach(e => {
+      if (!e.pickupTime || !e.dropoffTime) return;
+      const pMin = _timeToMinutes(e.pickupTime);
+      const dMin = _timeToMinutes(e.dropoffTime);
+      if (pMin === null || dMin === null || dMin <= pMin) return;
+      for (let h = 0; h < 24; h++) {
+        const hStartMin = h * 60;
+        const hEndMin = (h + 1) * 60;
+        const overlapStart = Math.max(pMin, hStartMin);
+        const overlapEnd = Math.min(dMin, hEndMin);
+        if (overlapEnd > overlapStart) {
+          occupied[h] += overlapEnd - overlapStart;
+        }
+      }
+    });
+
+    const days = dayCount.size || 1;
+    const hours = [];
+    for (let h = 0; h < 24; h++) {
+      const avgWork = Math.round(work[h] / days);
+      const avgOccupied = Math.min(Math.round(occupied[h] / days), avgWork);
+      hours.push({
+        hour: h,
+        label: `${h}時`,
+        work: avgWork,
+        occupied: avgOccupied,
+        vacant: Math.max(0, avgWork - avgOccupied),
+      });
+    }
+    return { hours, days };
+  }
+
   function getTopPickupAreasForNow(dayType) {
     const entries = _filterByDayType(getEntries(), dayType);
     const now = new Date();
@@ -5783,6 +5881,9 @@ window.DataService = (() => {
     getHotelPriceHistory,
     saveHotelPrices,
     analyzeHotelPrices,
+
+    // 時間帯別実車グラフ
+    getHourlyOccupancy,
 
     // 日種別
     getTodayDayType,

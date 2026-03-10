@@ -140,6 +140,10 @@ window.DashboardPage = () => {
   const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
   const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
 
+  // 時間帯別実車グラフ
+  const [hourlyMode, setHourlyMode] = useState('month'); // 'month' | 'all'
+  const hourlyOccupancy = useMemo(() => DataService.getHourlyOccupancy(hourlyMode), [refreshKey, hourlyMode]);
+
   // 待機場所分析のロード（リクエストIDで競合防止）
   const standbyFetchIdRef = useRef(0);
   useEffect(() => {
@@ -657,6 +661,124 @@ window.DashboardPage = () => {
         )
       )
     ),
+
+    // ============================================================
+    // 時間帯別 実車/非実車グラフ
+    // ============================================================
+    (() => {
+      const { hours, days } = hourlyOccupancy;
+      const maxMin = Math.max(...hours.map(h => h.work), 1);
+      const hasData = hours.some(h => h.work > 0);
+      if (!hasData) return null;
+      return React.createElement(Card, {
+        style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
+      },
+        // ヘッダー
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: '#10b981' } }, 'schedule'),
+            React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '時間帯別 実車状況')
+          ),
+          // 切替ボタン
+          React.createElement('div', { style: { display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', padding: '2px' } },
+            ...['month', 'all'].map(m =>
+              React.createElement('button', {
+                key: m,
+                onClick: () => setHourlyMode(m),
+                style: {
+                  padding: '4px 10px', borderRadius: '5px', border: 'none', cursor: 'pointer',
+                  fontSize: '11px', fontWeight: 600,
+                  background: hourlyMode === m ? 'var(--color-primary)' : 'transparent',
+                  color: hourlyMode === m ? '#fff' : 'var(--text-secondary)',
+                  transition: 'all 0.15s',
+                },
+              }, m === 'month' ? '当月' : '累計')
+            )
+          )
+        ),
+        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' } },
+          `${hourlyMode === 'month' ? '当月' : '全期間'} ${days}日間の1日平均`
+        ),
+        // 凡例
+        React.createElement('div', { style: { display: 'flex', gap: '12px', marginBottom: '8px', fontSize: '11px' } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '2px', background: '#10b981' } }),
+            React.createElement('span', { style: { color: 'var(--text-secondary)' } }, '実車')
+          ),
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '2px', background: 'rgba(255,255,255,0.1)' } }),
+            React.createElement('span', { style: { color: 'var(--text-secondary)' } }, '非実車')
+          )
+        ),
+        // グラフ（積み上げバー）
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '140px', padding: '0 2px' },
+        },
+          ...hours.map((h, i) =>
+            React.createElement('div', {
+              key: i,
+              style: { flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative' },
+              title: `${h.label}: 実車${h.occupied}分 / 勤務${h.work}分`,
+            },
+              // 勤務時間バー（背景=非実車、前景=実車）
+              h.work > 0 && React.createElement('div', {
+                style: {
+                  width: '100%',
+                  height: `${Math.max((h.work / maxMin) * 100, 2)}%`,
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: '2px 2px 0 0',
+                  position: 'relative',
+                  overflow: 'hidden',
+                },
+              },
+                h.occupied > 0 && React.createElement('div', {
+                  style: {
+                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                    height: `${(h.occupied / h.work) * 100}%`,
+                    background: '#10b981',
+                    borderRadius: '2px 2px 0 0',
+                    transition: 'height 0.3s ease',
+                  },
+                })
+              )
+            )
+          )
+        ),
+        // 時間ラベル
+        React.createElement('div', {
+          style: { display: 'flex', gap: '1px', padding: '3px 2px 0', marginTop: '1px' },
+        },
+          ...hours.map((h, i) =>
+            React.createElement('div', {
+              key: i,
+              style: { flex: 1, textAlign: 'center', fontSize: '8px', color: 'var(--text-muted)' },
+            }, i % 3 === 0 ? `${h.hour}` : '')
+          )
+        ),
+        // サマリー行
+        (() => {
+          const totalWork = hours.reduce((s, h) => s + h.work, 0);
+          const totalOccupied = hours.reduce((s, h) => s + h.occupied, 0);
+          const rate = totalWork > 0 ? Math.round((totalOccupied / totalWork) * 100) : 0;
+          return React.createElement('div', {
+            style: { display: 'flex', justifyContent: 'space-around', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '12px' },
+          },
+            React.createElement('div', { style: { textAlign: 'center' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '10px' } }, '平均勤務'),
+              React.createElement('div', { style: { fontWeight: 600 } }, `${Math.floor(totalWork / 60)}h${totalWork % 60}m`)
+            ),
+            React.createElement('div', { style: { textAlign: 'center' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '10px' } }, '平均実車'),
+              React.createElement('div', { style: { fontWeight: 600, color: '#10b981' } }, `${Math.floor(totalOccupied / 60)}h${totalOccupied % 60}m`)
+            ),
+            React.createElement('div', { style: { textAlign: 'center' } },
+              React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '10px' } }, '実車率'),
+              React.createElement('div', { style: { fontWeight: 600, color: rate >= 50 ? '#10b981' : rate >= 30 ? '#f59e0b' : '#ef4444' } }, `${rate}%`)
+            )
+          );
+        })()
+      );
+    })(),
 
     // ============================================================
     // 待機 vs 流し 効率比較カード
