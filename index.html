@@ -910,6 +910,8 @@ window.TaxiApp.utils.formatAddress = (result) => {
 
 // 2点間の距離(m)を計算 (Haversine)
 window.TaxiApp.utils.haversineDistance = (lat1, lng1, lat2, lng2) => {
+  if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return Infinity;
+  if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) return Infinity;
   const R = 6371000;
   const toRad = d => d * Math.PI / 180;
   const dLat = toRad(lat2 - lat1);
@@ -923,13 +925,16 @@ window.TaxiApp.utils.pickBestGeocoderResult = (results, queryLat, queryLng) => {
   const dist = TaxiApp.utils.haversineDistance;
   const MAX_DIST = 300; // 300m以内の結果のみ対象
 
-  // 各結果に距離を付与
-  const withDist = results.map(r => {
-    const loc = r.geometry && r.geometry.location;
-    const rLat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
-    const rLng = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
-    return { result: r, distance: dist(queryLat, queryLng, rLat, rLng) };
-  });
+  // 各結果に距離を付与（locationがないものは除外）
+  const withDist = results
+    .filter(r => r.geometry && r.geometry.location)
+    .map(r => {
+      const loc = r.geometry.location;
+      const rLat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
+      const rLng = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
+      return { result: r, distance: dist(queryLat, queryLng, rLat, rLng) };
+    });
+  if (withDist.length === 0) return results[0]; // フォールバック
 
   // 近い結果のみ (300m以内)
   const nearby = withDist.filter(w => w.distance <= MAX_DIST);
@@ -989,6 +994,7 @@ window.TaxiApp.utils.applyPlaceAlias = (address) => {
 // 座標ベースの既知場所マッチング（最優先）
 // KNOWN_PLACESに登録された座標のradius以内なら即座にその名称を返す
 window.TaxiApp.utils.matchKnownPlace = (lat, lng) => {
+  if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
   const places = APP_CONSTANTS.KNOWN_PLACES;
   if (!places || places.length === 0) return null;
   const dist = TaxiApp.utils.haversineDistance;
@@ -1010,6 +1016,11 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   const CACHE_KEY = 'taxi_landmark_cache';
   const MAX_CACHE = 500;
   let diskCache = null;
+  // APIレート制限
+  let _lastPlacesCall = 0;
+  let _lastNominatimCall = 0;
+  const PLACES_MIN_INTERVAL = 2000;    // Places API: 2秒間隔
+  const NOMINATIM_MIN_INTERVAL = 1100; // Nominatim: 1.1秒間隔（利用規約準拠）
 
   function _loadDiskCache() {
     if (diskCache) return diskCache;
@@ -1056,6 +1067,13 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
         resolve(null);
         return;
       }
+      // レート制限チェック
+      const now = Date.now();
+      if (now - _lastPlacesCall < PLACES_MIN_INTERVAL) {
+        resolve(null);
+        return;
+      }
+      _lastPlacesCall = now;
       // PlacesServiceにはmap要素かdiv要素が必要
       let attrDiv = document.getElementById('places-attr');
       if (!attrDiv) {
@@ -1119,9 +1137,15 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   // Nominatimで近くのPOI名を取得（フォールバック）
   async function _searchNominatim(lat, lng) {
     try {
+      // レート制限チェック（Nominatim利用規約: 1秒あたり1リクエストまで）
+      const now = Date.now();
+      if (now - _lastNominatimCall < NOMINATIM_MIN_INTERVAL) {
+        return null;
+      }
+      _lastNominatimCall = now;
       const res = await fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1&namedetails=1&extratags=1&accept-language=ja`,
-        { headers: { 'User-Agent': 'TaxiSupportApp/1.0' } }
+        { headers: { 'User-Agent': 'TaxiSalesSupport/3.24.0 (taxi-app)' } }
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -1137,6 +1161,7 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   }
 
   return async function findNearbyLandmark(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
     // 最優先: 座標ベースの既知場所マッチング
     const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
     if (knownPlace) return knownPlace;
@@ -1174,6 +1199,8 @@ window.TaxiApp.utils.reverseGeocode = (() => {
   const CACHE_KEY = 'taxi_geocode_cache';
   const MAX_CACHE = 500;
   let memCache = null;
+  let _lastNominatimGeoCall = 0;
+  const NOMINATIM_MIN_MS = 1100; // Nominatim利用規約準拠
   function _loadCache() {
     if (memCache) return memCache;
     try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { memCache = {}; }
@@ -1190,6 +1217,7 @@ window.TaxiApp.utils.reverseGeocode = (() => {
   function _roundKey(lat, lng) { return `${lat.toFixed(4)},${lng.toFixed(4)}`; }
 
   return async function reverseGeocode(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
     // 最優先: 座標ベースの既知場所マッチング
     const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
     if (knownPlace) return knownPlace;
@@ -1216,10 +1244,15 @@ window.TaxiApp.utils.reverseGeocode = (() => {
       } catch {}
     }
 
-    // Nominatimフォールバック
+    // Nominatimフォールバック（レート制限付き）
+    const nowNom = Date.now();
+    if (nowNom - _lastNominatimGeoCall < NOMINATIM_MIN_MS) {
+      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    }
+    _lastNominatimGeoCall = nowNom;
     try {
       const url = TaxiApp.utils.nominatimUrl(lat, lng);
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: { 'User-Agent': 'TaxiSalesSupport/3.24.0 (taxi-app)' } });
       const data = await res.json();
       const name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
       cache[key] = name;
@@ -1240,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.23.1',
+  VERSION: '3.24.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -9676,7 +9709,15 @@ window.GpsLogService = (() => {
           db.createObjectStore(STORE_NAME);
         }
       };
-      req.onsuccess = () => { _db = req.result; resolve(_db); };
+      req.onsuccess = () => {
+        _db = req.result;
+        // DB接続が予期せず閉じられた場合に再接続できるようにする
+        _db.onclose = () => { _db = null; };
+        _db.onerror = (e) => {
+          if (window.AppLogger) AppLogger.warn('IndexedDB error:', e);
+        };
+        resolve(_db);
+      };
       req.onerror = () => reject(req.error);
     });
   }
@@ -9732,20 +9773,31 @@ window.GpsLogService = (() => {
   }
 
   // --- メモリバッファ → IndexedDBフラッシュ ---
+  let _flushing = false;
   async function _flush() {
+    if (_flushing) return; // 再入防止
     const dates = Object.keys(_buffer);
     if (dates.length === 0) return;
-    const snapshot = _buffer;
+    _flushing = true;
+    // ディープコピーでスナップショットを取る（参照ではなくコピー）
+    const snapshot = {};
+    for (const d of dates) {
+      snapshot[d] = _buffer[d].slice();
+    }
     _buffer = {};
-    for (const dateStr of dates) {
-      try {
-        const existing = (await _idbGet(dateStr)) || [];
-        await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
-      } catch (e) {
-        // フラッシュ失敗時はバッファに戻す
-        if (!_buffer[dateStr]) _buffer[dateStr] = [];
-        _buffer[dateStr] = snapshot[dateStr].concat(_buffer[dateStr]);
+    try {
+      for (const dateStr of Object.keys(snapshot)) {
+        try {
+          const existing = (await _idbGet(dateStr)) || [];
+          await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
+        } catch (e) {
+          // フラッシュ失敗時はバッファに戻す（新規追加分と結合）
+          if (!_buffer[dateStr]) _buffer[dateStr] = [];
+          _buffer[dateStr] = snapshot[dateStr].concat(_buffer[dateStr]);
+        }
       }
+    } finally {
+      _flushing = false;
     }
   }
 
@@ -9758,35 +9810,42 @@ window.GpsLogService = (() => {
     if (_flushTimer) { clearInterval(_flushTimer); _flushTimer = null; }
   }
 
-  // ページアンロード時にフラッシュ
+  // ページアンロード時にフラッシュ（beforeunloadではasyncが使えない）
   window.addEventListener('beforeunload', () => {
     _stopFlushTimer();
-    // beforeunloadではasyncが使えないのでベストエフォートで同期的にトランザクション開始
     const dates = Object.keys(_buffer);
     if (dates.length === 0 || !_db) return;
     try {
+      // 単一トランザクションで全日付を処理（確実性向上）
       const tx = _db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
       for (const dateStr of dates) {
-        // getしてconcatする余裕がないので、既存データを取得せず追記用に一旦put
-        // → 実際にはbeforeunloadでgetは間に合わないため、バッファ分だけ書き込む
-        // これはflushで後から結合されるか、ページが本当に閉じるなら最大10秒分のロス
         const entries = _buffer[dateStr];
+        if (!entries || entries.length === 0) continue;
         const getReq = store.get(dateStr);
         getReq.onsuccess = () => {
           const existing = getReq.result || [];
           store.put(existing.concat(entries), dateStr);
         };
       }
-    } catch { /* best effort */ }
+      // ブラウザにトランザクション完了を待つよう促す
+      tx.oncomplete = () => {};
+    } catch (e) {
+      if (window.AppLogger) AppLogger.warn('beforeunload flush error:', e);
+    }
     _buffer = {};
   });
 
-  // visibilitychange: タブ非表示時にもフラッシュ（モバイルブラウザ対策）
+  // visibilitychange: タブ非表示時にフラッシュ（モバイルブラウザで最も確実）
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       _flush();
     }
+  });
+
+  // pagehide: iOS Safariで最も確実なアンロードイベント
+  window.addEventListener('pagehide', () => {
+    _flush();
   });
 
   // --- ヘルパー ---
@@ -9844,10 +9903,16 @@ window.GpsLogService = (() => {
 
   /** リアルタイム待機検出: GPS受信のたびに呼ばれる */
   function _rtDetectStandby(lat, lng, now) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
     // まず前回の未確定待機をチェック
     _rtCheckPendingStandby(now);
 
     if (_rtAnchor === null) {
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+      return;
+    }
+
+    if (_rtAnchor.lat == null || _rtAnchor.lng == null) {
       _rtAnchor = { lat, lng, startTime: now, lastTime: now };
       return;
     }
@@ -10012,6 +10077,8 @@ window.GpsLogService = (() => {
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
+    if (!standby || standby.lat == null || standby.lng == null) return;
+    if (!standby.startTime || !standby.endTime) return;
     const dateStr = getLocalDateString(new Date(standby.startTime));
     const startT = new Date(standby.startTime);
     const endT = new Date(standby.endTime);
@@ -10060,17 +10127,17 @@ window.GpsLogService = (() => {
 
   /** 1秒スロットル記録（同期・バッファ書き込み）- スマホ+始業中+休憩外のみ */
   function maybeRecord(lat, lng, accuracy, speed) {
+    // 座標の基本バリデーション
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return false;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
     // 常に最新位置を保存（天気予報APIで使用）
-    if (lat != null && lng != null) {
-      _lastKnownPosition = { lat, lng };
-    }
+    _lastKnownPosition = { lat, lng };
     const now = Date.now();
     if (now - _lastRecordTime < THROTTLE_MS) return false;
     if (!_isMobile()) return false;
     if (!_isShiftActive()) return false;
     if (_isOnBreak()) return false;
-    if (lat == null || lng == null) return false;
-    if (accuracy != null && accuracy > 500) return false; // 精度500m超は破棄
+    if (accuracy != null && (isNaN(accuracy) || accuracy > 500)) return false; // 精度500m超は破棄
 
     _lastRecordTime = now;
     const dateStr = _todayStr();
@@ -10132,6 +10199,7 @@ window.GpsLogService = (() => {
 
     return log.map(p => {
       const ts = new Date(p.t).getTime();
+      if (isNaN(ts)) return { ...p, status: 'vacant' };
       const occupied = ranges.some(r => ts >= r.from && ts <= r.to);
       return { ...p, status: occupied ? 'occupied' : 'vacant' };
     });
@@ -10209,12 +10277,17 @@ window.GpsLogService = (() => {
 
   // --- 分析API ---
 
-  /** Haversine距離(メートル) */
+  /** Haversine距離(メートル) - 共通ユーティリティに委譲 */
   function _haversine(lat1, lng1, lat2, lng2) {
+    if (window.TaxiApp && TaxiApp.utils.haversineDistance) {
+      return TaxiApp.utils.haversineDistance(lat1, lng1, lat2, lng2);
+    }
+    // フォールバック（constants.js未ロード時）
     const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
@@ -10391,11 +10464,14 @@ window.GpsLogService = (() => {
   }
 
   function _classifyStandbyCategory(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) {
+      return { category: 'other', categoryLabel: 'その他', nearbyName: null };
+    }
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     if (!locs) return { category: 'other', categoryLabel: 'その他', nearbyName: null };
 
     // 駅チェック
-    if (locs.station) {
+    if (locs.station && locs.station.lat != null && locs.station.lng != null) {
       const d = _haversine(lat, lng, locs.station.lat, locs.station.lng);
       if (d <= 300) return { category: 'station', categoryLabel: locs.station.name, nearbyName: locs.station.name };
     }
@@ -10405,6 +10481,7 @@ window.GpsLogService = (() => {
       let bestHosp = null;
       let bestDist = Infinity;
       for (const h of locs.hospitalSchedules) {
+        if (!h || h.lat == null || h.lng == null) continue;
         const d = _haversine(lat, lng, h.lat, h.lng);
         if (d <= 300 && d < bestDist) { bestHosp = h; bestDist = d; }
       }
@@ -10416,6 +10493,7 @@ window.GpsLogService = (() => {
       let bestHotel = null;
       let bestDist = Infinity;
       for (const h of locs.hotels) {
+        if (!h || h.lat == null || h.lng == null) continue;
         const d = _haversine(lat, lng, h.lat, h.lng);
         if (d <= 200 && d < bestDist) { bestHotel = h; bestDist = d; }
       }
@@ -10427,10 +10505,10 @@ window.GpsLogService = (() => {
       let bestSpot = null;
       let bestDist = Infinity;
       for (const s of locs.waitingSpots) {
+        if (!s || s.lat == null || s.lng == null) continue;
         const radius = s.id === 'asahiyama_zoo' ? 500 : 300; // 動物園は敷地が広い
         const d = _haversine(lat, lng, s.lat, s.lng);
         if (d <= radius && d < bestDist) { bestSpot = s; bestDist = d; }
-      }
       if (bestSpot) {
         const result = { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
         // 動物園の場合は季節情報を付与
@@ -11197,27 +11275,31 @@ window.MapProvider = ({ children }) => {
   const locationLookupRef = useRef(null); // 重複防止用
 
   const updatePosition = useCallback((position) => {
-    const pos = {
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-    };
+    const lat = position.coords.latitude;
+    const lng = position.coords.longitude;
+    // 無効な座標を無視
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+    const pos = { lat, lng };
     setCurrentPosition(pos);
     setAccuracy(position.coords.accuracy);
     setSpeed(position.coords.speed);
     setHeading(position.coords.heading);
     setGpsError(null);
     if (window.GpsLogService) {
-      GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+      window.GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
       // 待機状態を更新
-      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
     }
     // 現在地名を更新（既知スポット→ランドマーク→住所の優先順位）
     const lookupId = Date.now();
     locationLookupRef.current = lookupId;
     // まず既知スポットを同期チェック
-    const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng);
+    const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace
+      ? TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng) : null;
     if (knownPlace) {
       setCurrentLocationName(knownPlace);
+      // 同期で確定したのでlookupIdを無効化（非同期結果に上書きされない）
+      locationLookupRef.current = null;
     } else if (window.TaxiApp && TaxiApp.utils.findNearbyLandmark) {
       // 非同期でランドマーク/住所を取得
       TaxiApp.utils.findNearbyLandmark(pos.lat, pos.lng).then(name => {
@@ -11244,7 +11326,7 @@ window.MapProvider = ({ children }) => {
     }
     AppLogger.info('GPS追跡を開始');
     setIsTracking(true);
-    if (window.GpsLogService) GpsLogService.startWeatherPolling();
+    if (window.GpsLogService) window.GpsLogService.startWeatherPolling();
 
     const id = navigator.geolocation.watchPosition(
       (position) => { updatePosition(position); },
@@ -11266,7 +11348,7 @@ window.MapProvider = ({ children }) => {
     }
     setIsTracking(false);
     setCurrentPosition(null);
-    if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+    if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
     AppLogger.info('GPS追跡を停止');
   }, []);
 
@@ -11275,7 +11357,7 @@ window.MapProvider = ({ children }) => {
     if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
     if (isTracking && window.GpsLogService) {
       standbyTimerRef.current = setInterval(() => {
-        setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+        setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
       }, 10000);
     }
     return () => {
@@ -11298,14 +11380,14 @@ window.MapProvider = ({ children }) => {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
-      if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+      if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
     };
-  }, []);
+  }, [startTracking]);
 
   // 待機開始時刻を手動変更
   const updateStandbyStartTime = useCallback((hhmm) => {
-    if (window.GpsLogService && GpsLogService.setStandbyStartTime(hhmm)) {
-      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+    if (window.GpsLogService && window.GpsLogService.setStandbyStartTime(hhmm)) {
+      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
       return true;
     }
     return false;
@@ -11313,8 +11395,8 @@ window.MapProvider = ({ children }) => {
 
   // 待機場所名を手動変更
   const updateStandbyLocationName = useCallback((name) => {
-    if (window.GpsLogService && GpsLogService.setStandbyLocationName(name)) {
-      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+    if (window.GpsLogService && window.GpsLogService.setStandbyLocationName(name)) {
+      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
       return true;
     }
     return false;

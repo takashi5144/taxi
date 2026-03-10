@@ -50,6 +50,8 @@ window.TaxiApp.utils.formatAddress = (result) => {
 
 // 2点間の距離(m)を計算 (Haversine)
 window.TaxiApp.utils.haversineDistance = (lat1, lng1, lat2, lng2) => {
+  if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return Infinity;
+  if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) return Infinity;
   const R = 6371000;
   const toRad = d => d * Math.PI / 180;
   const dLat = toRad(lat2 - lat1);
@@ -63,13 +65,16 @@ window.TaxiApp.utils.pickBestGeocoderResult = (results, queryLat, queryLng) => {
   const dist = TaxiApp.utils.haversineDistance;
   const MAX_DIST = 300; // 300m以内の結果のみ対象
 
-  // 各結果に距離を付与
-  const withDist = results.map(r => {
-    const loc = r.geometry && r.geometry.location;
-    const rLat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
-    const rLng = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
-    return { result: r, distance: dist(queryLat, queryLng, rLat, rLng) };
-  });
+  // 各結果に距離を付与（locationがないものは除外）
+  const withDist = results
+    .filter(r => r.geometry && r.geometry.location)
+    .map(r => {
+      const loc = r.geometry.location;
+      const rLat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
+      const rLng = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
+      return { result: r, distance: dist(queryLat, queryLng, rLat, rLng) };
+    });
+  if (withDist.length === 0) return results[0]; // フォールバック
 
   // 近い結果のみ (300m以内)
   const nearby = withDist.filter(w => w.distance <= MAX_DIST);
@@ -129,6 +134,7 @@ window.TaxiApp.utils.applyPlaceAlias = (address) => {
 // 座標ベースの既知場所マッチング（最優先）
 // KNOWN_PLACESに登録された座標のradius以内なら即座にその名称を返す
 window.TaxiApp.utils.matchKnownPlace = (lat, lng) => {
+  if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
   const places = APP_CONSTANTS.KNOWN_PLACES;
   if (!places || places.length === 0) return null;
   const dist = TaxiApp.utils.haversineDistance;
@@ -150,6 +156,11 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   const CACHE_KEY = 'taxi_landmark_cache';
   const MAX_CACHE = 500;
   let diskCache = null;
+  // APIレート制限
+  let _lastPlacesCall = 0;
+  let _lastNominatimCall = 0;
+  const PLACES_MIN_INTERVAL = 2000;    // Places API: 2秒間隔
+  const NOMINATIM_MIN_INTERVAL = 1100; // Nominatim: 1.1秒間隔（利用規約準拠）
 
   function _loadDiskCache() {
     if (diskCache) return diskCache;
@@ -196,6 +207,13 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
         resolve(null);
         return;
       }
+      // レート制限チェック
+      const now = Date.now();
+      if (now - _lastPlacesCall < PLACES_MIN_INTERVAL) {
+        resolve(null);
+        return;
+      }
+      _lastPlacesCall = now;
       // PlacesServiceにはmap要素かdiv要素が必要
       let attrDiv = document.getElementById('places-attr');
       if (!attrDiv) {
@@ -259,9 +277,15 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   // Nominatimで近くのPOI名を取得（フォールバック）
   async function _searchNominatim(lat, lng) {
     try {
+      // レート制限チェック（Nominatim利用規約: 1秒あたり1リクエストまで）
+      const now = Date.now();
+      if (now - _lastNominatimCall < NOMINATIM_MIN_INTERVAL) {
+        return null;
+      }
+      _lastNominatimCall = now;
       const res = await fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&addressdetails=1&namedetails=1&extratags=1&accept-language=ja`,
-        { headers: { 'User-Agent': 'TaxiSupportApp/1.0' } }
+        { headers: { 'User-Agent': 'TaxiSalesSupport/3.24.0 (taxi-app)' } }
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -277,6 +301,7 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   }
 
   return async function findNearbyLandmark(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
     // 最優先: 座標ベースの既知場所マッチング
     const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
     if (knownPlace) return knownPlace;
@@ -314,6 +339,8 @@ window.TaxiApp.utils.reverseGeocode = (() => {
   const CACHE_KEY = 'taxi_geocode_cache';
   const MAX_CACHE = 500;
   let memCache = null;
+  let _lastNominatimGeoCall = 0;
+  const NOMINATIM_MIN_MS = 1100; // Nominatim利用規約準拠
   function _loadCache() {
     if (memCache) return memCache;
     try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch { memCache = {}; }
@@ -330,6 +357,7 @@ window.TaxiApp.utils.reverseGeocode = (() => {
   function _roundKey(lat, lng) { return `${lat.toFixed(4)},${lng.toFixed(4)}`; }
 
   return async function reverseGeocode(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
     // 最優先: 座標ベースの既知場所マッチング
     const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
     if (knownPlace) return knownPlace;
@@ -356,10 +384,15 @@ window.TaxiApp.utils.reverseGeocode = (() => {
       } catch {}
     }
 
-    // Nominatimフォールバック
+    // Nominatimフォールバック（レート制限付き）
+    const nowNom = Date.now();
+    if (nowNom - _lastNominatimGeoCall < NOMINATIM_MIN_MS) {
+      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    }
+    _lastNominatimGeoCall = nowNom;
     try {
       const url = TaxiApp.utils.nominatimUrl(lat, lng);
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: { 'User-Agent': 'TaxiSalesSupport/3.24.0 (taxi-app)' } });
       const data = await res.json();
       const name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
       cache[key] = name;
@@ -380,7 +413,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.23.1',
+  VERSION: '3.24.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },

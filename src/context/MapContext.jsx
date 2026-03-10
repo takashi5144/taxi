@@ -37,27 +37,31 @@ window.MapProvider = ({ children }) => {
   const locationLookupRef = useRef(null); // 重複防止用
 
   const updatePosition = useCallback((position) => {
-    const pos = {
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-    };
+    const lat = position.coords.latitude;
+    const lng = position.coords.longitude;
+    // 無効な座標を無視
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+    const pos = { lat, lng };
     setCurrentPosition(pos);
     setAccuracy(position.coords.accuracy);
     setSpeed(position.coords.speed);
     setHeading(position.coords.heading);
     setGpsError(null);
     if (window.GpsLogService) {
-      GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+      window.GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
       // 待機状態を更新
-      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
     }
     // 現在地名を更新（既知スポット→ランドマーク→住所の優先順位）
     const lookupId = Date.now();
     locationLookupRef.current = lookupId;
     // まず既知スポットを同期チェック
-    const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng);
+    const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace
+      ? TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng) : null;
     if (knownPlace) {
       setCurrentLocationName(knownPlace);
+      // 同期で確定したのでlookupIdを無効化（非同期結果に上書きされない）
+      locationLookupRef.current = null;
     } else if (window.TaxiApp && TaxiApp.utils.findNearbyLandmark) {
       // 非同期でランドマーク/住所を取得
       TaxiApp.utils.findNearbyLandmark(pos.lat, pos.lng).then(name => {
@@ -84,7 +88,7 @@ window.MapProvider = ({ children }) => {
     }
     AppLogger.info('GPS追跡を開始');
     setIsTracking(true);
-    if (window.GpsLogService) GpsLogService.startWeatherPolling();
+    if (window.GpsLogService) window.GpsLogService.startWeatherPolling();
 
     const id = navigator.geolocation.watchPosition(
       (position) => { updatePosition(position); },
@@ -106,7 +110,7 @@ window.MapProvider = ({ children }) => {
     }
     setIsTracking(false);
     setCurrentPosition(null);
-    if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+    if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
     AppLogger.info('GPS追跡を停止');
   }, []);
 
@@ -115,7 +119,7 @@ window.MapProvider = ({ children }) => {
     if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
     if (isTracking && window.GpsLogService) {
       standbyTimerRef.current = setInterval(() => {
-        setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+        setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
       }, 10000);
     }
     return () => {
@@ -138,14 +142,14 @@ window.MapProvider = ({ children }) => {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
-      if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+      if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
     };
-  }, []);
+  }, [startTracking]);
 
   // 待機開始時刻を手動変更
   const updateStandbyStartTime = useCallback((hhmm) => {
-    if (window.GpsLogService && GpsLogService.setStandbyStartTime(hhmm)) {
-      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+    if (window.GpsLogService && window.GpsLogService.setStandbyStartTime(hhmm)) {
+      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
       return true;
     }
     return false;
@@ -153,8 +157,8 @@ window.MapProvider = ({ children }) => {
 
   // 待機場所名を手動変更
   const updateStandbyLocationName = useCallback((name) => {
-    if (window.GpsLogService && GpsLogService.setStandbyLocationName(name)) {
-      setStandbyStatus(GpsLogService.getRealtimeStandbyStatus());
+    if (window.GpsLogService && window.GpsLogService.setStandbyLocationName(name)) {
+      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
       return true;
     }
     return false;

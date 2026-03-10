@@ -87,7 +87,15 @@ window.GpsLogService = (() => {
           db.createObjectStore(STORE_NAME);
         }
       };
-      req.onsuccess = () => { _db = req.result; resolve(_db); };
+      req.onsuccess = () => {
+        _db = req.result;
+        // DB接続が予期せず閉じられた場合に再接続できるようにする
+        _db.onclose = () => { _db = null; };
+        _db.onerror = (e) => {
+          if (window.AppLogger) AppLogger.warn('IndexedDB error:', e);
+        };
+        resolve(_db);
+      };
       req.onerror = () => reject(req.error);
     });
   }
@@ -143,20 +151,31 @@ window.GpsLogService = (() => {
   }
 
   // --- メモリバッファ → IndexedDBフラッシュ ---
+  let _flushing = false;
   async function _flush() {
+    if (_flushing) return; // 再入防止
     const dates = Object.keys(_buffer);
     if (dates.length === 0) return;
-    const snapshot = _buffer;
+    _flushing = true;
+    // ディープコピーでスナップショットを取る（参照ではなくコピー）
+    const snapshot = {};
+    for (const d of dates) {
+      snapshot[d] = _buffer[d].slice();
+    }
     _buffer = {};
-    for (const dateStr of dates) {
-      try {
-        const existing = (await _idbGet(dateStr)) || [];
-        await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
-      } catch (e) {
-        // フラッシュ失敗時はバッファに戻す
-        if (!_buffer[dateStr]) _buffer[dateStr] = [];
-        _buffer[dateStr] = snapshot[dateStr].concat(_buffer[dateStr]);
+    try {
+      for (const dateStr of Object.keys(snapshot)) {
+        try {
+          const existing = (await _idbGet(dateStr)) || [];
+          await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
+        } catch (e) {
+          // フラッシュ失敗時はバッファに戻す（新規追加分と結合）
+          if (!_buffer[dateStr]) _buffer[dateStr] = [];
+          _buffer[dateStr] = snapshot[dateStr].concat(_buffer[dateStr]);
+        }
       }
+    } finally {
+      _flushing = false;
     }
   }
 
@@ -169,35 +188,42 @@ window.GpsLogService = (() => {
     if (_flushTimer) { clearInterval(_flushTimer); _flushTimer = null; }
   }
 
-  // ページアンロード時にフラッシュ
+  // ページアンロード時にフラッシュ（beforeunloadではasyncが使えない）
   window.addEventListener('beforeunload', () => {
     _stopFlushTimer();
-    // beforeunloadではasyncが使えないのでベストエフォートで同期的にトランザクション開始
     const dates = Object.keys(_buffer);
     if (dates.length === 0 || !_db) return;
     try {
+      // 単一トランザクションで全日付を処理（確実性向上）
       const tx = _db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
       for (const dateStr of dates) {
-        // getしてconcatする余裕がないので、既存データを取得せず追記用に一旦put
-        // → 実際にはbeforeunloadでgetは間に合わないため、バッファ分だけ書き込む
-        // これはflushで後から結合されるか、ページが本当に閉じるなら最大10秒分のロス
         const entries = _buffer[dateStr];
+        if (!entries || entries.length === 0) continue;
         const getReq = store.get(dateStr);
         getReq.onsuccess = () => {
           const existing = getReq.result || [];
           store.put(existing.concat(entries), dateStr);
         };
       }
-    } catch { /* best effort */ }
+      // ブラウザにトランザクション完了を待つよう促す
+      tx.oncomplete = () => {};
+    } catch (e) {
+      if (window.AppLogger) AppLogger.warn('beforeunload flush error:', e);
+    }
     _buffer = {};
   });
 
-  // visibilitychange: タブ非表示時にもフラッシュ（モバイルブラウザ対策）
+  // visibilitychange: タブ非表示時にフラッシュ（モバイルブラウザで最も確実）
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       _flush();
     }
+  });
+
+  // pagehide: iOS Safariで最も確実なアンロードイベント
+  window.addEventListener('pagehide', () => {
+    _flush();
   });
 
   // --- ヘルパー ---
@@ -255,10 +281,16 @@ window.GpsLogService = (() => {
 
   /** リアルタイム待機検出: GPS受信のたびに呼ばれる */
   function _rtDetectStandby(lat, lng, now) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
     // まず前回の未確定待機をチェック
     _rtCheckPendingStandby(now);
 
     if (_rtAnchor === null) {
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+      return;
+    }
+
+    if (_rtAnchor.lat == null || _rtAnchor.lng == null) {
       _rtAnchor = { lat, lng, startTime: now, lastTime: now };
       return;
     }
@@ -423,6 +455,8 @@ window.GpsLogService = (() => {
   /** 空車待機を売上データに自動記録（noPassenger: true） */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
+    if (!standby || standby.lat == null || standby.lng == null) return;
+    if (!standby.startTime || !standby.endTime) return;
     const dateStr = getLocalDateString(new Date(standby.startTime));
     const startT = new Date(standby.startTime);
     const endT = new Date(standby.endTime);
@@ -471,17 +505,17 @@ window.GpsLogService = (() => {
 
   /** 1秒スロットル記録（同期・バッファ書き込み）- スマホ+始業中+休憩外のみ */
   function maybeRecord(lat, lng, accuracy, speed) {
+    // 座標の基本バリデーション
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return false;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
     // 常に最新位置を保存（天気予報APIで使用）
-    if (lat != null && lng != null) {
-      _lastKnownPosition = { lat, lng };
-    }
+    _lastKnownPosition = { lat, lng };
     const now = Date.now();
     if (now - _lastRecordTime < THROTTLE_MS) return false;
     if (!_isMobile()) return false;
     if (!_isShiftActive()) return false;
     if (_isOnBreak()) return false;
-    if (lat == null || lng == null) return false;
-    if (accuracy != null && accuracy > 500) return false; // 精度500m超は破棄
+    if (accuracy != null && (isNaN(accuracy) || accuracy > 500)) return false; // 精度500m超は破棄
 
     _lastRecordTime = now;
     const dateStr = _todayStr();
@@ -543,6 +577,7 @@ window.GpsLogService = (() => {
 
     return log.map(p => {
       const ts = new Date(p.t).getTime();
+      if (isNaN(ts)) return { ...p, status: 'vacant' };
       const occupied = ranges.some(r => ts >= r.from && ts <= r.to);
       return { ...p, status: occupied ? 'occupied' : 'vacant' };
     });
@@ -620,12 +655,17 @@ window.GpsLogService = (() => {
 
   // --- 分析API ---
 
-  /** Haversine距離(メートル) */
+  /** Haversine距離(メートル) - 共通ユーティリティに委譲 */
   function _haversine(lat1, lng1, lat2, lng2) {
+    if (window.TaxiApp && TaxiApp.utils.haversineDistance) {
+      return TaxiApp.utils.haversineDistance(lat1, lng1, lat2, lng2);
+    }
+    // フォールバック（constants.js未ロード時）
     const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
@@ -802,11 +842,14 @@ window.GpsLogService = (() => {
   }
 
   function _classifyStandbyCategory(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) {
+      return { category: 'other', categoryLabel: 'その他', nearbyName: null };
+    }
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     if (!locs) return { category: 'other', categoryLabel: 'その他', nearbyName: null };
 
     // 駅チェック
-    if (locs.station) {
+    if (locs.station && locs.station.lat != null && locs.station.lng != null) {
       const d = _haversine(lat, lng, locs.station.lat, locs.station.lng);
       if (d <= 300) return { category: 'station', categoryLabel: locs.station.name, nearbyName: locs.station.name };
     }
@@ -816,6 +859,7 @@ window.GpsLogService = (() => {
       let bestHosp = null;
       let bestDist = Infinity;
       for (const h of locs.hospitalSchedules) {
+        if (!h || h.lat == null || h.lng == null) continue;
         const d = _haversine(lat, lng, h.lat, h.lng);
         if (d <= 300 && d < bestDist) { bestHosp = h; bestDist = d; }
       }
@@ -827,6 +871,7 @@ window.GpsLogService = (() => {
       let bestHotel = null;
       let bestDist = Infinity;
       for (const h of locs.hotels) {
+        if (!h || h.lat == null || h.lng == null) continue;
         const d = _haversine(lat, lng, h.lat, h.lng);
         if (d <= 200 && d < bestDist) { bestHotel = h; bestDist = d; }
       }
@@ -838,10 +883,10 @@ window.GpsLogService = (() => {
       let bestSpot = null;
       let bestDist = Infinity;
       for (const s of locs.waitingSpots) {
+        if (!s || s.lat == null || s.lng == null) continue;
         const radius = s.id === 'asahiyama_zoo' ? 500 : 300; // 動物園は敷地が広い
         const d = _haversine(lat, lng, s.lat, s.lng);
         if (d <= radius && d < bestDist) { bestSpot = s; bestDist = d; }
-      }
       if (bestSpot) {
         const result = { category: 'spot', categoryLabel: bestSpot.name, nearbyName: bestSpot.name };
         // 動物園の場合は季節情報を付与
