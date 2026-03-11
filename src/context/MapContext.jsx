@@ -146,6 +146,88 @@ window.MapProvider = ({ children }) => {
     };
   }, [startTracking]);
 
+  // 設定画面の基本勤務時間による自動始業/終業 + GPS追跡
+  // MapProviderはアプリ全体を包むので、どのページにいても動作する
+  const startTrackingRef = useRef(startTracking);
+  startTrackingRef.current = startTracking;
+  const stopTrackingRef = useRef(stopTracking);
+  stopTrackingRef.current = stopTracking;
+  const isTrackingRef = useRef(isTracking);
+  isTrackingRef.current = isTracking;
+
+  useEffect(() => {
+    let lastFiredMinute = '';
+    const checkAutoShift = () => {
+      const scheduledStart = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START);
+      const scheduledEnd = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END);
+      if (!scheduledStart && !scheduledEnd) return;
+
+      const now = new Date();
+      const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (nowHHMM === lastFiredMinute) return;
+
+      let shifts = [];
+      try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { return; }
+      const activeShift = shifts.find(s => !s.endTime);
+
+      // 自動始業: 設定時刻と一致 && 未始業 && 今日まだ自動始業していない
+      if (scheduledStart && nowHHMM === scheduledStart && !activeShift) {
+        const todayStr = getLocalDateString();
+        const alreadyStartedToday = shifts.some(s => {
+          const d = getLocalDateString(new Date(s.startTime));
+          return d === todayStr && s.autoStarted;
+        });
+        if (!alreadyStartedToday) {
+          lastFiredMinute = nowHHMM;
+          const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null, autoStarted: true };
+          shifts.push(newShift);
+          localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+          if (window.DataService) DataService.syncShiftsToCloud();
+          // GPS追跡を開始
+          if (!isTrackingRef.current) startTrackingRef.current();
+          if (window.GpsLogService) GpsLogService.startWeatherPolling();
+          window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+          window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'start', startTime: now.toISOString() } }));
+          AppLogger.info(`自動始業: ${scheduledStart} — GPS追跡開始`);
+        }
+      }
+
+      // 自動終業: 設定時刻と一致 && 始業中
+      if (scheduledEnd && nowHHMM === scheduledEnd && activeShift) {
+        lastFiredMinute = nowHHMM;
+        // 休憩中なら終了
+        try {
+          const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+          const ab = breaks.find(b => !b.endTime);
+          if (ab) {
+            ab.endTime = now.toISOString();
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+            if (window.DataService) DataService.syncBreaksToCloud();
+          }
+        } catch {}
+        activeShift.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+        if (window.DataService) DataService.syncShiftsToCloud();
+        // GPS追跡を停止
+        if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
+        if (isTrackingRef.current) stopTrackingRef.current();
+        if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+        window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+        window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'end' } }));
+        AppLogger.info(`自動終業: ${scheduledEnd} — GPS追跡停止`);
+      }
+    };
+
+    // 30秒間隔でチェック
+    const timer = setInterval(checkAutoShift, 30000);
+    const handleScheduleChanged = () => checkAutoShift();
+    window.addEventListener('taxi-shift-schedule-changed', handleScheduleChanged);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('taxi-shift-schedule-changed', handleScheduleChanged);
+    };
+  }, []);
+
   // 待機開始時刻を手動変更
   const updateStandbyStartTime = useCallback((hhmm) => {
     if (window.GpsLogService && window.GpsLogService.setStandbyStartTime(hhmm)) {

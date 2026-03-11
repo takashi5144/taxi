@@ -192,10 +192,6 @@ window.DashboardPage = () => {
   // 始業時間編集モード
   const [editingStartTime, setEditingStartTime] = useState(false);
   const [editStartTimeValue, setEditStartTimeValue] = useState('');
-  // geoをrefで保持（useEffect内でタイマー再登録を防ぐ）
-  const geoRef = useRef(geo);
-  geoRef.current = geo;
-
   useEffect(() => {
     try {
       const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
@@ -250,80 +246,20 @@ window.DashboardPage = () => {
     setEditingStartTime(false);
   }, [editStartTimeValue, shiftInfo, geo]);
 
-  // 自動始業/終業タイマー（設定画面で設定した基本時間に基づく）
-  // geoRefを使い依存配列を空にしてタイマー再登録を防止
+  // Dashboard側でも自動始業/終業イベントを受信してUI状態を同期
   useEffect(() => {
-    let lastFiredMinute = ''; // 同じ分で重複発火しない
-    const checkAutoShift = () => {
-      const startTime = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START);
-      const endTime = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END);
-      if (!startTime && !endTime) return;
-
-      const now = new Date();
-      const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      if (nowHHMM === lastFiredMinute) return;
-
-      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-      const activeShift = shifts.find(s => !s.endTime);
-      const g = geoRef.current;
-
-      // 自動始業: 設定時刻と一致 && 未始業 && 今日まだ自動始業していない
-      if (startTime && nowHHMM === startTime && !activeShift) {
-        const todayStr = getLocalDateString();
-        const alreadyStartedToday = shifts.some(s => {
-          const d = getLocalDateString(new Date(s.startTime));
-          return d === todayStr && s.autoStarted;
-        });
-        if (!alreadyStartedToday) {
-          lastFiredMinute = nowHHMM;
-          const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null, autoStarted: true };
-          shifts.push(newShift);
-          localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
-          DataService.syncShiftsToCloud();
-          setShiftInfo({ active: true, startTime: now.toISOString() });
-          window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-          if (g && !g.isTracking) g.startTracking();
-          if (window.GpsLogService) GpsLogService.startWeatherPolling();
-          AppLogger.info(`自動始業: ${startTime}`);
-        }
-      }
-
-      // 自動終業: 設定時刻と一致 && 始業中
-      if (endTime && nowHHMM === endTime && activeShift) {
-        lastFiredMinute = nowHHMM;
-        // 休憩中なら終了
-        try {
-          const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-          const ab = breaks.find(b => !b.endTime);
-          if (ab) {
-            ab.endTime = now.toISOString();
-            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
-            DataService.syncBreaksToCloud();
-            setBreakInfo({ active: false, startTime: null });
-          }
-        } catch {}
-        activeShift.endTime = now.toISOString();
-        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
-        DataService.syncShiftsToCloud();
+    const handleAutoShift = (e) => {
+      const { type, startTime } = e.detail || {};
+      if (type === 'start') {
+        setShiftInfo({ active: true, startTime });
+      } else if (type === 'end') {
         setShiftInfo({ active: false, startTime: null });
-        window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-        if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
-        if (g && g.isTracking) g.stopTracking();
-        if (window.GpsLogService) GpsLogService.stopWeatherPolling();
-        AppLogger.info(`自動終業: ${endTime}`);
+        setBreakInfo({ active: false, startTime: null });
       }
     };
-
-    // 30秒間隔でチェック（分の切り替わりを確実に捉える）
-    const timer = setInterval(checkAutoShift, 30000);
-    // 設定変更時にも再チェック
-    const handleScheduleChanged = () => checkAutoShift();
-    window.addEventListener('taxi-shift-schedule-changed', handleScheduleChanged);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener('taxi-shift-schedule-changed', handleScheduleChanged);
-    };
-  }, []); // 依存配列を空にしてタイマーは1度だけ登録
+    window.addEventListener('taxi-auto-shift', handleAutoShift);
+    return () => window.removeEventListener('taxi-auto-shift', handleAutoShift);
+  }, []);
 
   const handleShiftStart = useCallback(() => {
     try {
