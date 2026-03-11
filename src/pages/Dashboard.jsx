@@ -150,6 +150,9 @@ window.DashboardPage = () => {
   // 日次レポート
   const dailyReport = useMemo(() => DataService.getDailyReport(), [refreshKey]);
 
+  // 空車対策レコメンド
+  const vacancyAdvice = useMemo(() => DataService.getVacancyCountermeasures(), [refreshKey]);
+
   // 待機場所分析のロード（リクエストIDで競合防止）
   const standbyFetchIdRef = useRef(0);
   useEffect(() => {
@@ -2384,6 +2387,63 @@ window.DashboardPage = () => {
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#a855f7', animation: 'spin 1s linear infinite' } }, 'sync'),
       React.createElement('span', { style: { marginLeft: '8px', fontSize: '12px', color: 'var(--text-secondary)' } }, '流しエリア分析を読み込み中...')
+    ),
+
+    // 空車対策カード
+    vacancyAdvice && vacancyAdvice.actions.length > 0 && React.createElement(Card, {
+      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)', border: '1px solid rgba(99,102,241,0.3)', background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(79,70,229,0.04) 100%)' },
+    },
+      // ヘッダー
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#6366f1' } }, 'tips_and_updates'),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontWeight: 700, fontSize: '13px', color: '#6366f1' } }, '空車対策'),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, vacancyAdvice.periodLabel)
+          )
+        ),
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          vacancyAdvice.currentVacantMin != null && vacancyAdvice.currentVacantMin >= 10 && React.createElement('span', {
+            style: { fontSize: '9px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: vacancyAdvice.currentVacantMin >= 30 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)', color: vacancyAdvice.currentVacantMin >= 30 ? '#ef4444' : '#f59e0b' },
+          }, `空車${vacancyAdvice.currentVacantMin}分`),
+          vacancyAdvice.isValley && React.createElement('span', {
+            style: { fontSize: '9px', fontWeight: 600, padding: '2px 8px', borderRadius: '10px', background: 'rgba(99,102,241,0.15)', color: '#6366f1' },
+          }, '谷間')
+        )
+      ),
+      // 天気情報
+      vacancyAdvice.weather && React.createElement('div', {
+        style: { fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } },
+          vacancyAdvice.weather.w === '雨' ? 'water_drop' : vacancyAdvice.weather.w === '雪' ? 'ac_unit' : vacancyAdvice.weather.w === '晴れ' ? 'wb_sunny' : 'cloud'
+        ),
+        `${vacancyAdvice.weather.w} ${vacancyAdvice.weather.tp}℃`
+      ),
+      // アクションリスト
+      ...vacancyAdvice.actions.map((action, idx) =>
+        React.createElement('div', {
+          key: idx,
+          style: { marginBottom: '8px', padding: '10px', borderRadius: '8px', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.1)' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: action.color } }, action.icon),
+            React.createElement('span', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text-primary)' } }, action.title)
+          ),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '3px', paddingLeft: '26px' } }, action.description),
+          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', paddingLeft: '26px', fontStyle: 'italic' } }, action.detail)
+        )
+      ),
+      // シフトアドバイス
+      vacancyAdvice.shiftAdvice && React.createElement('div', {
+        style: { marginTop: '8px', padding: '8px 10px', borderRadius: '6px', background: 'rgba(99,102,241,0.06)', borderLeft: '3px solid #6366f1' },
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: '#6366f1' } }, vacancyAdvice.shiftAdvice.icon),
+          React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: '#6366f1' } }, vacancyAdvice.shiftAdvice.text)
+        ),
+        React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', paddingLeft: '20px' } }, vacancyAdvice.shiftAdvice.detail)
+      )
     ),
 
     // 閑散期流しルート

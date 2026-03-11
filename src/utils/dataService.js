@@ -2787,6 +2787,248 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 空車時間帯別対策レコメンド
+  // ============================================================
+  function getVacancyCountermeasures() {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMin = now.getMinutes();
+    const dayOfWeek = now.getDay();
+    const todayStr = getLocalDateString();
+    const todayHolidayInfo = JapaneseHolidays.getDateInfo(todayStr);
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5 && !todayHolidayInfo.isHoliday;
+    const isHoliday = !isWeekday;
+
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    if (!locs) return null;
+
+    // 現在の勤務状態
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const activeShift = shifts.find(s => !s.endTime);
+    if (!activeShift) return null; // 勤務中でなければ表示しない
+
+    // 動物園の開園状態
+    const zooStatus = getZooStatus();
+
+    // 天気キャッシュ
+    const weather = window.GpsLogService ? window.GpsLogService.getCurrentWeather() : null;
+
+    // 今日の実績
+    const entries = getEntries();
+    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === todayStr && !e.noPassenger && e.amount > 0);
+    const todayRideCount = todayEntries.length;
+
+    // 直近の空車時間を算出
+    let lastDropoffMin = null;
+    const sorted = todayEntries.filter(e => e.dropoffTime).sort((a, b) => (a.dropoffTime || '').localeCompare(b.dropoffTime || ''));
+    if (sorted.length > 0) {
+      lastDropoffMin = _timeToMinutes(sorted[sorted.length - 1].dropoffTime);
+    }
+    const currentMinOfDay = currentHour * 60 + currentMin;
+    const currentVacantMin = lastDropoffMin !== null ? Math.max(0, currentMinOfDay - lastDropoffMin) : null;
+
+    // 時間帯の分類
+    let period = 'other';
+    let periodLabel = '';
+    if (currentHour >= 7 && currentHour <= 9) { period = 'morning_rush'; periodLabel = '朝ピーク'; }
+    else if (currentHour >= 10 && currentHour < 12) { period = 'morning_valley'; periodLabel = '午前の谷間'; }
+    else if (currentHour >= 12 && currentHour < 13) { period = 'lunch'; periodLabel = '昼食時'; }
+    else if (currentHour >= 13 && currentHour < 15) { period = 'afternoon_valley'; periodLabel = '午後の谷間'; }
+    else if (currentHour >= 15 && currentHour < 17) { period = 'afternoon_peak'; periodLabel = '午後ピーク'; }
+    else if (currentHour >= 17 && currentHour < 20) { period = 'evening_peak'; periodLabel = '夕方ピーク'; }
+    else if (currentHour >= 20 && currentHour < 22) { period = 'night_valley'; periodLabel = '夜の谷間'; }
+    else if (currentHour >= 22 || currentHour < 2) { period = 'late_night'; periodLabel = '深夜帯'; }
+    else { period = 'early_morning'; periodLabel = '早朝'; }
+
+    const isValley = ['morning_valley', 'afternoon_valley', 'night_valley'].includes(period);
+
+    // 対策リスト生成
+    const actions = [];
+
+    // === 対策①: 移動先回り ===
+    if (period === 'morning_valley') {
+      // 10-12時: 病院帰宅需要
+      if (isWeekday) {
+        const hospSchedules = locs.hospitalSchedules || [];
+        const openHospitals = hospSchedules.filter(h => !isHospitalClosedToday(h.closedDays, now));
+        const dischargeSoon = openHospitals.filter(h =>
+          h.dischargePeaks && h.dischargePeaks.some(dp => {
+            const endH = parseInt(dp.end.split(':')[0], 10);
+            const endM = parseInt(dp.end.split(':')[1], 10);
+            const endMin = endH * 60 + endM;
+            return currentMinOfDay <= endMin && currentMinOfDay >= endMin - 90;
+          })
+        );
+        if (dischargeSoon.length > 0) {
+          actions.push({
+            type: 'move',
+            priority: 1,
+            icon: 'local_hospital',
+            color: '#ef4444',
+            title: '病院周辺へ移動',
+            description: `${dischargeSoon.map(h => h.name.replace('旭川', '')).join('・')}の午前診察終了で帰宅需要あり`,
+            detail: '高齢者の通院帰りは長距離になりやすく高単価',
+          });
+        }
+      }
+      // 動物園開園日の朝
+      if (zooStatus.isOpen) {
+        actions.push({
+          type: 'move',
+          priority: 2,
+          icon: 'park',
+          color: '#10b981',
+          title: '動物園行き客を駅で狙う',
+          description: `旭山動物園開園中（${zooStatus.open}〜${zooStatus.close}）`,
+          detail: '駅前で観光客の動物園行きを狙う。片道3,000円超の高単価',
+        });
+      }
+    }
+
+    if (period === 'afternoon_valley') {
+      // 13-15時: 動物園帰り・商業施設
+      if (zooStatus.isOpen) {
+        actions.push({
+          type: 'move',
+          priority: 1,
+          icon: 'park',
+          color: '#10b981',
+          title: '動物園の帰り客を狙う',
+          description: `閉園${zooStatus.close}に向けて帰り客が出始める時間帯`,
+          detail: '正門前で待機すれば単価3,000円超が見込める',
+        });
+      }
+      actions.push({
+        type: 'move',
+        priority: 2,
+        icon: 'shopping_cart',
+        color: '#8b5cf6',
+        title: '大型商業施設の出口付近',
+        description: 'イオン等の出口付近で買物帰りの高齢者の帰宅需要',
+        detail: '買物袋を持った方は手を挙げやすい',
+      });
+      actions.push({
+        type: 'rest',
+        priority: 3,
+        icon: 'coffee',
+        color: '#6b7280',
+        title: '戦略的休憩も選択肢',
+        description: '無理に待たず休憩し、15時以降の需要増に備える',
+        detail: '体力温存→夕方以降の高需要帯で集中稼働が効率的',
+      });
+    }
+
+    if (period === 'night_valley') {
+      // 20-22時: 深夜割増前
+      actions.push({
+        type: 'position',
+        priority: 1,
+        icon: 'nightlife',
+        color: '#f59e0b',
+        title: '繁華街にポジションを取る',
+        description: '22時の深夜割増開始に備えて3〜9条周辺に待機',
+        detail: '1次会終了の21:30頃から需要が急増',
+      });
+      if (isWeekday) {
+        actions.push({
+          type: 'move',
+          priority: 2,
+          icon: 'apartment',
+          color: '#3b82f6',
+          title: 'ホテル周辺を流す',
+          description: 'ビジネス客の夕食後の帰館・外出需要',
+          detail: '駅遠方ホテル（アートホテル・OMO7周辺）が狙い目',
+        });
+      }
+    }
+
+    // === 対策②: 配車アプリ活用（谷間時間帯共通） ===
+    if (isValley) {
+      actions.push({
+        type: 'app',
+        priority: 4,
+        icon: 'phone_android',
+        color: '#3b82f6',
+        title: '配車アプリ待機を併用',
+        description: '付け待ちで回転が悪い時間帯こそアプリ配車の比重を上げる',
+        detail: 'ライバルが少ないエリアに移動してからアプリ待機。流しながらアプリ配車も同時待ち',
+      });
+    }
+
+    // === 対策③: 確実な需要を押さえる ===
+    if (isValley && todayRideCount < 3) {
+      actions.push({
+        type: 'proactive',
+        priority: 5,
+        icon: 'contact_phone',
+        color: '#14b8a6',
+        title: '予約・常連客を活用',
+        description: '谷間の時間帯に予約を入れてもらう提案が有効',
+        detail: '通院帰り・買物送迎など定期需要を谷間に集約',
+      });
+    }
+
+    // === 対策④: 情報収集（空車15分以上で表示） ===
+    if (currentVacantMin !== null && currentVacantMin >= 15) {
+      actions.push({
+        type: 'info',
+        priority: 6,
+        icon: 'search',
+        color: '#6366f1',
+        title: '需要情報を確認',
+        description: `空車${currentVacantMin}分経過 — 情報収集で次の一手を判断`,
+        detail: '空港到着便・天気変化・混雑レーダーをチェック',
+      });
+    }
+
+    // === 天気による追加アドバイス ===
+    if (weather) {
+      if (weather.weather === '雨' || weather.weather === '雪') {
+        actions.push({
+          type: 'weather',
+          priority: 0,
+          icon: weather.weather === '雨' ? 'umbrella' : 'ac_unit',
+          color: '#0ea5e9',
+          title: `${weather.weather}で需要増の可能性`,
+          description: `現在${weather.weather}（${weather.temperature}℃）— 徒歩客がタクシーに切り替え`,
+          detail: weather.weather === '雪'
+            ? '路面凍結時は高齢者の通院・買物需要が特に増加'
+            : '傘がない観光客・駅から離れた場所での需要増',
+        });
+      }
+    }
+
+    // ピーク帯はアドバイスなし
+    if (!isValley && actions.length === 0) return null;
+
+    // 優先度でソート
+    actions.sort((a, b) => a.priority - b.priority);
+
+    // 推薦シフト設計
+    let shiftAdvice = null;
+    const hoursWorked = (Date.now() - new Date(activeShift.startTime).getTime()) / 3600000;
+    if (period === 'afternoon_valley' && hoursWorked >= 5 && !isHoliday) {
+      shiftAdvice = {
+        icon: 'schedule',
+        text: '12:30〜14:30を休憩に充てると谷間をカットできます',
+        detail: '需要の波に合わせたシフト設計で時間あたり売上UP',
+      };
+    }
+
+    return {
+      period,
+      periodLabel,
+      isValley,
+      currentHour,
+      currentVacantMin,
+      todayRideCount,
+      actions: actions.slice(0, 5),
+      shiftAdvice,
+      weather: weather ? { w: weather.weather, tp: weather.temperature } : null,
+    };
+  }
+
+  // ============================================================
   // エリア別レコメンド（統計ベース）
   // ============================================================
   function getAreaRecommendation() {
@@ -6417,6 +6659,9 @@ window.DataService = (() => {
 
     // 日次レポート
     getDailyReport,
+
+    // 空車対策
+    getVacancyCountermeasures,
 
     // 日種別
     getTodayDayType,
