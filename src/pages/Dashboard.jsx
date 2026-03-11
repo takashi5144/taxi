@@ -189,6 +189,12 @@ window.DashboardPage = () => {
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
   // 休憩管理
   const [breakInfo, setBreakInfo] = useState({ active: false, startTime: null });
+  // 始業時間編集モード
+  const [editingStartTime, setEditingStartTime] = useState(false);
+  const [editStartTimeValue, setEditStartTimeValue] = useState('');
+  // geoをrefで保持（useEffect内でタイマー再登録を防ぐ）
+  const geoRef = useRef(geo);
+  geoRef.current = geo;
 
   useEffect(() => {
     try {
@@ -206,6 +212,118 @@ window.DashboardPage = () => {
       AppLogger.warn('シフト/休憩データの読み込みに失敗', e.message);
     }
   }, []);
+
+  // 始業時間変更ハンドラ
+  const handleStartTimeEdit = useCallback(() => {
+    if (!shiftInfo.active || !shiftInfo.startTime) return;
+    const d = new Date(shiftInfo.startTime);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    setEditStartTimeValue(`${hh}:${mm}`);
+    setEditingStartTime(true);
+  }, [shiftInfo]);
+
+  const handleStartTimeSave = useCallback(() => {
+    if (!editStartTimeValue) return;
+    try {
+      const [h, m] = editStartTimeValue.split(':').map(Number);
+      const oldStart = new Date(shiftInfo.startTime);
+      const newStart = new Date(oldStart);
+      newStart.setHours(h, m, 0, 0);
+
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift) {
+        activeShift.startTime = newStart.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+        DataService.syncShiftsToCloud();
+        setShiftInfo({ active: true, startTime: newStart.toISOString() });
+        window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+        // 時間変更後、GPSが未稼働なら開始
+        if (!geo.isTracking) geo.startTracking();
+        if (window.GpsLogService) GpsLogService.startWeatherPolling();
+        AppLogger.info(`始業時間を変更: ${editStartTimeValue}`);
+      }
+    } catch (e) {
+      AppLogger.error('始業時間の変更に失敗', e.message);
+    }
+    setEditingStartTime(false);
+  }, [editStartTimeValue, shiftInfo, geo]);
+
+  // 自動始業/終業タイマー（設定画面で設定した基本時間に基づく）
+  // geoRefを使い依存配列を空にしてタイマー再登録を防止
+  useEffect(() => {
+    let lastFiredMinute = ''; // 同じ分で重複発火しない
+    const checkAutoShift = () => {
+      const startTime = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START);
+      const endTime = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END);
+      if (!startTime && !endTime) return;
+
+      const now = new Date();
+      const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (nowHHMM === lastFiredMinute) return;
+
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      const g = geoRef.current;
+
+      // 自動始業: 設定時刻と一致 && 未始業 && 今日まだ自動始業していない
+      if (startTime && nowHHMM === startTime && !activeShift) {
+        const todayStr = getLocalDateString();
+        const alreadyStartedToday = shifts.some(s => {
+          const d = getLocalDateString(new Date(s.startTime));
+          return d === todayStr && s.autoStarted;
+        });
+        if (!alreadyStartedToday) {
+          lastFiredMinute = nowHHMM;
+          const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null, autoStarted: true };
+          shifts.push(newShift);
+          localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+          DataService.syncShiftsToCloud();
+          setShiftInfo({ active: true, startTime: now.toISOString() });
+          window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+          if (g && !g.isTracking) g.startTracking();
+          if (window.GpsLogService) GpsLogService.startWeatherPolling();
+          AppLogger.info(`自動始業: ${startTime}`);
+        }
+      }
+
+      // 自動終業: 設定時刻と一致 && 始業中
+      if (endTime && nowHHMM === endTime && activeShift) {
+        lastFiredMinute = nowHHMM;
+        // 休憩中なら終了
+        try {
+          const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+          const ab = breaks.find(b => !b.endTime);
+          if (ab) {
+            ab.endTime = now.toISOString();
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+            DataService.syncBreaksToCloud();
+            setBreakInfo({ active: false, startTime: null });
+          }
+        } catch {}
+        activeShift.endTime = now.toISOString();
+        localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+        DataService.syncShiftsToCloud();
+        setShiftInfo({ active: false, startTime: null });
+        window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+        if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
+        if (g && g.isTracking) g.stopTracking();
+        if (window.GpsLogService) GpsLogService.stopWeatherPolling();
+        AppLogger.info(`自動終業: ${endTime}`);
+      }
+    };
+
+    // 30秒間隔でチェック（分の切り替わりを確実に捉える）
+    const timer = setInterval(checkAutoShift, 30000);
+    // 設定変更時にも再チェック
+    const handleScheduleChanged = () => checkAutoShift();
+    window.addEventListener('taxi-shift-schedule-changed', handleScheduleChanged);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('taxi-shift-schedule-changed', handleScheduleChanged);
+    };
+  }, []); // 依存配列を空にしてタイマーは1度だけ登録
 
   const handleShiftStart = useCallback(() => {
     try {
@@ -488,19 +606,70 @@ window.DashboardPage = () => {
           marginTop: '8px', padding: '8px 12px', borderRadius: '8px',
           background: 'rgba(0,200,83,0.06)', border: '1px solid rgba(0,200,83,0.15)',
           fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
         },
       },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: 'var(--color-accent)' } }, 'schedule'),
-        `${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} から勤務中`,
-        (() => {
-          const elapsed = Date.now() - new Date(shiftInfo.startTime).getTime();
-          const hours = Math.floor(elapsed / 3600000);
-          const mins = Math.floor((elapsed % 3600000) / 60000);
-          return React.createElement('span', {
-            style: { fontWeight: '600', color: 'var(--color-accent)', padding: '1px 8px', borderRadius: '4px', background: 'rgba(0,200,83,0.12)' },
-          }, `${hours}時間${mins}分`);
-        })()
+        // 通常表示 or 編集モード
+        !editingStartTime ? React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: 'var(--color-accent)' } }, 'schedule'),
+          `${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} から勤務中`,
+          (() => {
+            const elapsed = Date.now() - new Date(shiftInfo.startTime).getTime();
+            const hours = Math.floor(elapsed / 3600000);
+            const mins = Math.floor((elapsed % 3600000) / 60000);
+            return React.createElement('span', {
+              style: { fontWeight: '600', color: 'var(--color-accent)', padding: '1px 8px', borderRadius: '4px', background: 'rgba(0,200,83,0.12)' },
+            }, `${hours}時間${mins}分`);
+          })(),
+          React.createElement('button', {
+            type: 'button',
+            onClick: handleStartTimeEdit,
+            style: {
+              marginLeft: '4px', padding: '2px 6px', borderRadius: '4px',
+              border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
+              color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '11px',
+              display: 'flex', alignItems: 'center', gap: '2px',
+            },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'edit'),
+            '変更'
+          )
+        )
+        // 編集モード
+        : React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
+        },
+          React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, '始業時間:'),
+          React.createElement('input', {
+            type: 'time',
+            value: editStartTimeValue,
+            onChange: (e) => setEditStartTimeValue(e.target.value),
+            style: {
+              padding: '4px 8px', borderRadius: '6px',
+              border: '1px solid rgba(0,200,83,0.4)', background: 'rgba(0,200,83,0.08)',
+              color: 'var(--text-primary)', fontSize: '14px', fontFamily: 'var(--font-family)',
+            },
+          }),
+          React.createElement('button', {
+            type: 'button',
+            onClick: handleStartTimeSave,
+            style: {
+              padding: '4px 10px', borderRadius: '6px', border: 'none',
+              background: 'var(--color-accent)', color: '#fff', cursor: 'pointer',
+              fontSize: '12px', fontWeight: 600,
+            },
+          }, '確定'),
+          React.createElement('button', {
+            type: 'button',
+            onClick: () => setEditingStartTime(false),
+            style: {
+              padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)',
+              background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+              fontSize: '12px',
+            },
+          }, '取消')
+        )
       )
     ),
 

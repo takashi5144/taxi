@@ -26,6 +26,11 @@ window.SettingsPage = () => {
   });
   const [goalSaved, setGoalSaved] = useState(false);
 
+  // 基本始業・終業時間
+  const [defaultShiftStart, setDefaultShiftStart] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START) || '');
+  const [defaultShiftEnd, setDefaultShiftEnd] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END) || '');
+  const [shiftTimeSaved, setShiftTimeSaved] = useState(false);
+
 
   // GPS設定state - MapContextから取得（独自watchPositionは不要）
   const { useEffect, useCallback } = React;
@@ -499,6 +504,93 @@ window.SettingsPage = () => {
             setTimeout(() => setGoalSaved(false), 2000);
           },
         }, goalSaved ? '保存済み' : '保存')
+      )
+    ),
+
+    // 基本勤務時間設定
+    React.createElement(Card, { title: '基本勤務時間', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, '基本の始業・終業時間を設定すると、設定時刻に自動で始業しGPS取得を開始します。'),
+
+      React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
+        React.createElement('div', { style: { flex: 1, minWidth: '120px' } },
+          React.createElement('label', { style: { display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '4px' } }, '始業時間'),
+          React.createElement('input', {
+            type: 'time',
+            value: defaultShiftStart,
+            onChange: (e) => setDefaultShiftStart(e.target.value),
+            style: {
+              width: '100%', padding: '10px 12px', borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.06)',
+              color: 'var(--text-primary)',
+              fontSize: 'var(--font-size-md)',
+              fontFamily: 'var(--font-family)',
+            },
+          })
+        ),
+        React.createElement('div', { style: { flex: 1, minWidth: '120px' } },
+          React.createElement('label', { style: { display: 'block', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '4px' } }, '終業時間'),
+          React.createElement('input', {
+            type: 'time',
+            value: defaultShiftEnd,
+            onChange: (e) => setDefaultShiftEnd(e.target.value),
+            style: {
+              width: '100%', padding: '10px 12px', borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.06)',
+              color: 'var(--text-primary)',
+              fontSize: 'var(--font-size-md)',
+              fontFamily: 'var(--font-family)',
+            },
+          })
+        )
+      ),
+
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+        React.createElement(Button, {
+          variant: 'primary',
+          icon: 'save',
+          onClick: () => {
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START, defaultShiftStart);
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END, defaultShiftEnd);
+            window.dispatchEvent(new CustomEvent('taxi-shift-schedule-changed'));
+            setShiftTimeSaved(true);
+            setTimeout(() => setShiftTimeSaved(false), 2000);
+          },
+        }, '保存'),
+        (defaultShiftStart || defaultShiftEnd) && React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'delete',
+          onClick: () => {
+            setDefaultShiftStart('');
+            setDefaultShiftEnd('');
+            localStorage.removeItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START);
+            localStorage.removeItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END);
+            window.dispatchEvent(new CustomEvent('taxi-shift-schedule-changed'));
+            setShiftTimeSaved(true);
+            setTimeout(() => setShiftTimeSaved(false), 2000);
+          },
+        }, 'クリア'),
+        shiftTimeSaved && React.createElement('span', {
+          style: { color: 'var(--color-accent)', fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '4px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
+          '保存しました'
+        )
+      ),
+
+      defaultShiftStart && React.createElement('div', {
+        style: {
+          marginTop: 'var(--space-md)', padding: '8px 12px', borderRadius: '8px',
+          background: 'rgba(0,200,83,0.08)', border: '1px solid rgba(0,200,83,0.2)',
+          fontSize: 'var(--font-size-sm)', color: 'var(--color-accent)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'schedule'),
+        `毎日 ${defaultShiftStart} に自動始業${defaultShiftEnd ? '・' + defaultShiftEnd + ' に自動終業' : ''}`
       )
     ),
 

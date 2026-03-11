@@ -413,7 +413,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.25.0',
+  VERSION: '3.26.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -504,6 +504,8 @@ window.APP_CONSTANTS = {
     GPS_LOG: 'taxi_app_gps_log',
     GPS_BG_ENABLED: 'taxi_gps_bg_enabled',
     PLACE_ALIASES: 'taxi_app_place_aliases',
+    DEFAULT_SHIFT_START: 'taxi_app_default_shift_start',
+    DEFAULT_SHIFT_END: 'taxi_app_default_shift_end',
   },
 
   // 場所名エイリアス（逆ジオコーディング結果の自動置換）
