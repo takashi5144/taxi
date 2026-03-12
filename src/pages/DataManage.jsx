@@ -1136,6 +1136,7 @@ window.DataManagePage = () => {
   const [search, setSearch] = useState('');
   const [filterSource, setFilterSource] = useState('');   // 配車方法フィルター
   const [filterPurpose, setFilterPurpose] = useState(''); // 用途フィルター
+  const [filterUser, setFilterUser] = useState(false);    // ユーザーフィルター
   const [showAddForm, setShowAddForm] = useState(false);
   const todayDefault = getLocalDateString();
   const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discounts: {} });
@@ -1310,6 +1311,7 @@ window.DataManagePage = () => {
         passengers: String(entry.passengers || '1'), gender: entry.gender || '',
         purpose: entry.purpose || '', memo: entry.memo || '',
         source: entry.source || '', paymentMethod: entry.paymentMethod || 'cash',
+        isRegisteredUser: !!entry.isRegisteredUser, customerName: entry.customerName || '',
         discounts,
         pickupCoords: entry.pickupCoords || null,
         dropoffCoords: entry.dropoffCoords || null,
@@ -1695,16 +1697,19 @@ window.DataManagePage = () => {
     if (filterPurpose) {
       result = result.filter(e => (e.purpose || '') === filterPurpose);
     }
+    if (filterUser) {
+      result = result.filter(e => e.isRegisteredUser);
+    }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(e =>
         (e.pickup || '').toLowerCase().includes(q) || (e.dropoff || '').toLowerCase().includes(q) ||
         (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q) ||
-        String(e.amount).includes(q)
+        String(e.amount).includes(q) || (e.customerName || '').toLowerCase().includes(q)
       );
     }
     return result;
-  }, [revenueEntries, search, filterSource, filterPurpose]);
+  }, [revenueEntries, search, filterSource, filterPurpose, filterUser]);
 
   const filteredVacant = useMemo(() => {
     if (!search) return vacantEntries;
@@ -1983,6 +1988,26 @@ window.DataManagePage = () => {
             }, p.e + ' ' + p.v))
           )
         ),
+        // ユーザー（リピーター）
+        React.createElement('div', { style: { marginBottom: '8px' } },
+          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'ユーザー'),
+          React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+            React.createElement('button', {
+              type: 'button',
+              onClick: () => setEditForm(f => ({ ...f, isRegisteredUser: !f.isRegisteredUser, customerName: f.isRegisteredUser ? '' : f.customerName })),
+              style: { padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: editForm.isRegisteredUser ? 700 : 400, cursor: 'pointer', border: editForm.isRegisteredUser ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.15)', background: editForm.isRegisteredUser ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)', color: editForm.isRegisteredUser ? '#f59e0b' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, editForm.isRegisteredUser ? 'person' : 'person_outline'),
+              'ユーザー'
+            ),
+            editForm.isRegisteredUser && React.createElement('input', {
+              type: 'text', value: editForm.customerName || '',
+              onChange: e => setEditForm(f => ({ ...f, customerName: e.target.value })),
+              style: { flex: 1, padding: '5px 8px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.06)', color: 'var(--text-primary)', fontSize: '12px' },
+              placeholder: 'お客様の名前'
+            })
+          )
+        ),
         // メモ
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
@@ -2033,6 +2058,10 @@ window.DataManagePage = () => {
             entry.weather && React.createElement('span', null, entry.weather),
             entry.passengers && React.createElement('span', { style: { fontSize: '10px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' } }, `${entry.passengers}名`),
             entry.source && React.createElement('span', { style: { fontSize: '10px', padding: '1px 4px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: 600 } }, entry.source),
+            entry.isRegisteredUser && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(245,158,11,0.2)', color: '#f59e0b', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'person'),
+              entry.customerName || 'ユーザー'
+            ),
             entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
           )
         ),
@@ -2177,9 +2206,25 @@ window.DataManagePage = () => {
           React.createElement('option', { key: p, value: p }, p)
         )
       ),
+      // ユーザーフィルター
+      React.createElement('button', {
+        onClick: () => setFilterUser(!filterUser),
+        style: {
+          padding: '5px 10px', borderRadius: '6px', fontSize: '12px',
+          border: filterUser ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.15)',
+          background: filterUser ? 'rgba(245,158,11,0.2)' : 'var(--bg-secondary)',
+          color: filterUser ? '#f59e0b' : 'var(--text-primary)',
+          cursor: 'pointer', outline: 'none',
+          display: 'flex', alignItems: 'center', gap: '4px',
+          fontWeight: filterUser ? 700 : 400,
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'person'),
+        'ユーザー'
+      ),
       // フィルタークリア
-      (filterSource || filterPurpose) && React.createElement('button', {
-        onClick: () => { setFilterSource(''); setFilterPurpose(''); },
+      (filterSource || filterPurpose || filterUser) && React.createElement('button', {
+        onClick: () => { setFilterSource(''); setFilterPurpose(''); setFilterUser(false); },
         style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px' },
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'close'),
@@ -2437,7 +2482,7 @@ window.DataManagePage = () => {
 
       React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
         React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
-          `${filteredRevenue.length}件${(search || filterSource || filterPurpose) ? ` (全${revenueEntries.length}件中)` : ''}`
+          `${filteredRevenue.length}件${(search || filterSource || filterPurpose || filterUser) ? ` (全${revenueEntries.length}件中)` : ''}`
         ),
         React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
           React.createElement(Button, {

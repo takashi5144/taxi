@@ -19,7 +19,7 @@ window.RevenuePage = () => {
 
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
-  const [form, setForm] = useState({ date: todayDefault, weather: '', temperature: null, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+  const [form, setForm] = useState({ date: todayDefault, weather: '', temperature: null, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
   const [errors, setErrors] = useState([]);
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
@@ -539,7 +539,7 @@ window.RevenuePage = () => {
       }
     }
 
-    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
     setMapPickerField(null);
@@ -1915,6 +1915,41 @@ window.RevenuePage = () => {
             )
           ),
 
+          // ユーザー（リピーター登録）
+          React.createElement('div', { className: 'form-group', style: { gridColumn: '1 / -1' } },
+            React.createElement('label', { className: 'form-label' }, 'ユーザー（リピーター）'),
+            React.createElement('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
+              React.createElement('button', {
+                type: 'button',
+                onClick: () => setForm({ ...form, isRegisteredUser: !form.isRegisteredUser, customerName: form.isRegisteredUser ? '' : form.customerName }),
+                style: {
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 16px', borderRadius: '8px',
+                  fontSize: '13px', fontWeight: form.isRegisteredUser ? '700' : '400',
+                  cursor: 'pointer',
+                  border: form.isRegisteredUser ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.15)',
+                  background: form.isRegisteredUser ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)',
+                  color: form.isRegisteredUser ? '#f59e0b' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease',
+                },
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, form.isRegisteredUser ? 'person' : 'person_outline'),
+                'ユーザー'
+              )
+            ),
+            // ユーザーON時に名前入力を表示
+            form.isRegisteredUser && React.createElement('div', { style: { marginTop: '8px' } },
+              React.createElement('input', {
+                className: 'form-input',
+                type: 'text',
+                placeholder: 'お客様の名前（任意）',
+                value: form.customerName,
+                onChange: (e) => setForm({ ...form, customerName: e.target.value }),
+                style: { fontSize: '14px' },
+              })
+            )
+          ),
+
           // メモ
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, 'メモ'),
@@ -2401,6 +2436,12 @@ window.RevenuePage = () => {
                   entry.source && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: '600' },
                   }, entry.source),
+                  entry.isRegisteredUser && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(245,158,11,0.2)', color: '#f59e0b', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '2px' },
+                  },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'person'),
+                    entry.customerName || 'ユーザー'
+                  ),
                   React.createElement('span', null, new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })),
                   entry.memo && React.createElement('span', null, `| ${entry.memo}`)
                 );
