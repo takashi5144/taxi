@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.31.0</title>
+  <title>タクシー売上サポート v3.31.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.31.0',
+  VERSION: '3.31.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -4140,7 +4140,7 @@ window.DataService = (() => {
       const weather = (e.weather || '').replace(/,/g, '、');
       const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'didi' ? 'DIDI決済' : '現金';
       const discountAmount = e.discountAmount || 0;
-      const discountTypeMap = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
+      const discountTypeMap = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
       const discountType = (e.discounts && Array.isArray(e.discounts) && e.discounts.length > 0)
         ? e.discounts.map(d => d.type === 'coupon' && d.sheets ? `${discountTypeMap[d.type]}(¥${d.unitPrice || d.amount}×${d.sheets}枚=¥${d.amount})` : `${discountTypeMap[d.type] || d.type}(¥${d.amount})`).join('/')
         : discountTypeMap[e.discountType] || (e.discountType || '');
@@ -19785,10 +19785,10 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '割引（複数選択可）'),
               React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                ...['disability', 'coupon', 'ticket'].map(dtype => {
+                ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
                   const sel = dtype in (editForm.discounts || {});
-                  const labels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                  const icons = { disability: 'accessible', coupon: 'local_offer', ticket: 'confirmation_number' };
+                  const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                  const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
                   return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                     React.createElement('button', {
                       type: 'button',

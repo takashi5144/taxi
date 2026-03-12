@@ -1737,7 +1737,7 @@ window.DataService = (() => {
       const weather = (e.weather || '').replace(/,/g, '、');
       const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'didi' ? 'DIDI決済' : '現金';
       const discountAmount = e.discountAmount || 0;
-      const discountTypeMap = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
+      const discountTypeMap = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
       const discountType = (e.discounts && Array.isArray(e.discounts) && e.discounts.length > 0)
         ? e.discounts.map(d => d.type === 'coupon' && d.sheets ? `${discountTypeMap[d.type]}(¥${d.unitPrice || d.amount}×${d.sheets}枚=¥${d.amount})` : `${discountTypeMap[d.type] || d.type}(¥${d.amount})`).join('/')
         : discountTypeMap[e.discountType] || (e.discountType || '');

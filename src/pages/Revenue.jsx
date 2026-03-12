@@ -2006,10 +2006,10 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '割引（複数選択可）'),
               React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                ...['disability', 'coupon', 'ticket'].map(dtype => {
+                ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
                   const sel = dtype in (editForm.discounts || {});
-                  const labels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                  const icons = { disability: 'accessible', coupon: 'local_offer', ticket: 'confirmation_number' };
+                  const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                  const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
                   return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                     React.createElement('button', {
                       type: 'button',
