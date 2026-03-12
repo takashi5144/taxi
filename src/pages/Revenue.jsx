@@ -849,17 +849,29 @@ window.RevenuePage = () => {
 
   // GPS取得ボタンのスタイル
   const gpsButtonStyle = (loading) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-    padding: '8px 12px', borderRadius: '6px',
-    fontSize: '11px', fontWeight: '600',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+    padding: '12px 16px', borderRadius: '10px',
+    fontSize: '13px', fontWeight: '700',
     color: loading ? 'var(--color-secondary)' : '#fff',
     cursor: loading ? 'wait' : 'pointer',
-    border: '1px solid rgba(255,255,255,0.15)',
+    border: loading ? '2px solid rgba(249,168,37,0.4)' : '2px solid rgba(26,115,232,0.4)',
     background: loading ? 'rgba(249,168,37,0.15)' : 'rgba(26,115,232,0.2)',
     transition: 'all 0.2s ease',
     whiteSpace: 'nowrap',
-    minWidth: '0',
-    flex: '0 0 auto',
+    flex: 1,
+    minHeight: '44px',
+  });
+  const mapPickerButtonStyle = (active) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+    padding: '12px 16px', borderRadius: '10px',
+    fontSize: '13px', fontWeight: '700',
+    color: '#fff', cursor: 'pointer',
+    border: active ? '2px solid rgba(156,39,176,0.6)' : '2px solid rgba(156,39,176,0.3)',
+    background: active ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
+    transition: 'all 0.2s ease',
+    whiteSpace: 'nowrap',
+    flex: 1,
+    minHeight: '44px',
   });
 
   return React.createElement('div', null,
@@ -909,15 +921,15 @@ window.RevenuePage = () => {
           // 乗車地（GPS付き）
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '乗車地'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-              React.createElement('input', {
-                className: 'form-input',
-                type: 'text',
-                placeholder: '東京駅',
-                value: form.pickup,
-                onChange: (e) => { setForm({ ...form, pickup: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, pickup: null })); },
-                style: { flex: 1, minWidth: 0 },
-              }),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'text',
+              placeholder: '東京駅',
+              value: form.pickup,
+              onChange: (e) => { setForm({ ...form, pickup: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, pickup: null })); },
+              style: { width: '100%', boxSizing: 'border-box' },
+            }),
+            React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
                 onClick: () => getGpsLocation('pickup'),
@@ -927,25 +939,18 @@ window.RevenuePage = () => {
               },
                 React.createElement('span', {
                   className: 'material-icons-round',
-                  style: { fontSize: '16px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
+                  style: { fontSize: '20px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.pickup ? 'sync' : 'my_location'),
-                gpsLoading.pickup ? '取得中' : 'GPS'
+                gpsLoading.pickup ? '取得中...' : 'GPS現在地'
               ),
               React.createElement('button', {
                 type: 'button',
                 onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
-                style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-                  color: mapPickerField === 'pickup' ? '#fff' : '#fff', cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: mapPickerField === 'pickup' ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
-                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
-                },
+                style: mapPickerButtonStyle(mapPickerField === 'pickup'),
                 title: '地図から場所を選択',
               },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'),
-                '地図'
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
+                '地図で選択'
               )
             ),
             // GPS取得結果の住所・座標表示
@@ -1018,15 +1023,15 @@ window.RevenuePage = () => {
           // 降車地（GPS付き）
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '降車地'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-              React.createElement('input', {
-                className: 'form-input',
-                type: 'text',
-                placeholder: '渋谷駅',
-                value: form.dropoff,
-                onChange: (e) => { setForm({ ...form, dropoff: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, dropoff: null })); },
-                style: { flex: 1, minWidth: 0 },
-              }),
+            React.createElement('input', {
+              className: 'form-input',
+              type: 'text',
+              placeholder: '渋谷駅',
+              value: form.dropoff,
+              onChange: (e) => { setForm({ ...form, dropoff: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, dropoff: null })); },
+              style: { width: '100%', boxSizing: 'border-box' },
+            }),
+            React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
                 onClick: () => getGpsLocation('dropoff'),
@@ -1036,25 +1041,18 @@ window.RevenuePage = () => {
               },
                 React.createElement('span', {
                   className: 'material-icons-round',
-                  style: { fontSize: '16px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
+                  style: { fontSize: '20px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.dropoff ? 'sync' : 'my_location'),
-                gpsLoading.dropoff ? '取得中' : 'GPS'
+                gpsLoading.dropoff ? '取得中...' : 'GPS現在地'
               ),
               React.createElement('button', {
                 type: 'button',
                 onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
-                style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-                  color: mapPickerField === 'dropoff' ? '#fff' : '#fff', cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: mapPickerField === 'dropoff' ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
-                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
-                },
+                style: mapPickerButtonStyle(mapPickerField === 'dropoff'),
                 title: '地図から場所を選択',
               },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'map'),
-                '地図'
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
+                '地図で選択'
               )
             ),
             // GPS取得結果の住所・座標表示
