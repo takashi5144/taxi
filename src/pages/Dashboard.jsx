@@ -153,6 +153,86 @@ window.DashboardPage = () => {
   // 空車対策レコメンド
   const vacancyAdvice = useMemo(() => DataService.getVacancyCountermeasures(), [refreshKey]);
 
+  // リピーター予測（今日来そうな常連客）
+  const repeaterForecast = useMemo(() => {
+    const entries = DataService.getEntries();
+    const repeaters = entries.filter(e => e.isRegisteredUser);
+    if (repeaters.length === 0) return null;
+    const now = new Date();
+    const todayDow = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
+    const currentHour = now.getHours();
+
+    // 顧客ごとにパターン分析
+    const byName = {};
+    repeaters.forEach(e => {
+      const name = e.customerName || '名前なし';
+      if (!byName[name]) byName[name] = { rides: [], days: {}, hours: {}, areas: {}, totalAmount: 0 };
+      const u = byName[name];
+      u.rides.push(e);
+      u.totalAmount += e.amount || 0;
+      const dow = e.dayOfWeek || '';
+      if (dow) u.days[dow] = (u.days[dow] || 0) + 1;
+      if (e.pickupTime) {
+        const h = parseInt(e.pickupTime.split(':')[0]);
+        if (!isNaN(h)) u.hours[h] = (u.hours[h] || 0) + 1;
+      }
+      if (e.pickup) u.areas[e.pickup] = (u.areas[e.pickup] || 0) + 1;
+    });
+
+    const predictions = [];
+    Object.entries(byName).forEach(([name, data]) => {
+      const totalRides = data.rides.length;
+      const todayDowCount = data.days[todayDow] || 0;
+      if (todayDowCount === 0 || totalRides < 2) return;
+
+      const dowRate = todayDowCount / totalRides;
+      // この曜日に来る確率が15%以上
+      if (dowRate < 0.15) return;
+
+      const topArea = Object.entries(data.areas).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
+      const avgAmount = Math.round(data.totalAmount / totalRides);
+
+      // 最頻時間帯
+      const todayHourRides = data.rides.filter(e => e.dayOfWeek === todayDow && e.pickupTime);
+      const hourCounts = {};
+      todayHourRides.forEach(e => {
+        const h = parseInt(e.pickupTime.split(':')[0]);
+        if (!isNaN(h)) hourCounts[h] = (hourCounts[h] || 0) + 1;
+      });
+      const topHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
+      const expectedHour = topHour ? parseInt(topHour[0]) : null;
+
+      // 最終来訪日
+      const lastDate = data.rides.reduce((latest, e) => {
+        const d = e.date || '';
+        return d > latest ? d : latest;
+      }, '');
+
+      // 今日の乗車済みか
+      const todayStr = now.toISOString().split('T')[0];
+      const riddenToday = data.rides.some(e => e.date === todayStr);
+
+      predictions.push({
+        name, topArea, avgAmount, expectedHour, totalRides, todayDowCount,
+        dowRate: Math.round(dowRate * 100), lastDate, riddenToday,
+      });
+    });
+
+    predictions.sort((a, b) => {
+      // まだ来てない人を上に
+      if (a.riddenToday !== b.riddenToday) return a.riddenToday ? 1 : -1;
+      // 時間が近い順
+      if (a.expectedHour !== null && b.expectedHour !== null) {
+        const aDiff = Math.abs(a.expectedHour - currentHour);
+        const bDiff = Math.abs(b.expectedHour - currentHour);
+        return aDiff - bDiff;
+      }
+      return b.dowRate - a.dowRate;
+    });
+
+    return predictions.length > 0 ? predictions : null;
+  }, [refreshKey]);
+
   // 待機場所分析のロード（リクエストIDで競合防止）
   const standbyFetchIdRef = useRef(0);
   useEffect(() => {
@@ -1006,6 +1086,62 @@ window.DashboardPage = () => {
           )
         );
       })
+    ),
+
+    // ============================================================
+    // リピーター予測アラート
+    // ============================================================
+    repeaterForecast && repeaterForecast.length > 0 && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(251,191,36,0.06))',
+        border: '1px solid rgba(245,158,11,0.25)',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#f59e0b' } }, 'people'),
+          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, '本日のリピーター予測')
+        ),
+        React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
+          ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()] + '曜日'
+        )
+      ),
+      ...repeaterForecast.slice(0, 5).map((p, i) =>
+        React.createElement('div', {
+          key: p.name,
+          style: {
+            padding: '10px 12px', marginBottom: i < Math.min(repeaterForecast.length, 5) - 1 ? '8px' : 0,
+            borderRadius: '10px',
+            background: p.riddenToday ? 'rgba(76,175,80,0.1)' : 'rgba(255,255,255,0.05)',
+            border: p.riddenToday ? '1px solid rgba(76,175,80,0.25)' : '1px solid rgba(255,255,255,0.08)',
+            opacity: p.riddenToday ? 0.7 : 1,
+          },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' } },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: p.riddenToday ? '#4CAF50' : '#f59e0b' } },
+                p.riddenToday ? 'check_circle' : 'person'
+              ),
+              React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: p.riddenToday ? '#4CAF50' : '#f59e0b' } }, p.name),
+              p.riddenToday && React.createElement('span', { style: { fontSize: '10px', color: '#4CAF50', background: 'rgba(76,175,80,0.15)', padding: '1px 6px', borderRadius: '3px', fontWeight: 600 } }, '乗車済み')
+            ),
+            React.createElement('span', { style: { fontWeight: 700, fontSize: '14px', color: 'var(--color-secondary)' } }, `¥${p.avgAmount.toLocaleString()}`)
+          ),
+          React.createElement('div', { style: { display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-muted)', flexWrap: 'wrap' } },
+            p.expectedHour !== null && React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'schedule'),
+              `${p.expectedHour}時頃`
+            ),
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'place'),
+              p.topArea
+            ),
+            React.createElement('span', null, `過去${p.todayDowCount}/${p.totalRides}回`),
+            React.createElement('span', { style: { color: '#f59e0b', fontSize: '10px', background: 'rgba(245,158,11,0.1)', padding: '1px 5px', borderRadius: '3px', fontWeight: 600 } }, `確率${p.dowRate}%`)
+          )
+        )
+      )
     ),
 
     // 実車率トラッキング

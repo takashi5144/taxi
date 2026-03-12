@@ -150,6 +150,137 @@ window.AnalyticsPage = () => {
   const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown(dt) : null, [refreshKey, tab, dt]);
   const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis() : null, [refreshKey, tab]);
 
+  // リピーター分析データ
+  const repeaterData = useMemo(() => {
+    if (tab !== 'repeater') return null;
+    const entries = DataService.getEntries();
+    const all = entries;
+    const repeaters = all.filter(e => e.isRegisteredUser);
+    const nonRepeaters = all.filter(e => !e.isRegisteredUser);
+    if (repeaters.length === 0) return { hasData: false };
+
+    // 基本比較
+    const rTotal = repeaters.reduce((s, e) => s + (e.amount || 0), 0);
+    const nTotal = nonRepeaters.reduce((s, e) => s + (e.amount || 0), 0);
+    const rAvg = repeaters.length > 0 ? Math.round(rTotal / repeaters.length) : 0;
+    const nAvg = nonRepeaters.length > 0 ? Math.round(nTotal / nonRepeaters.length) : 0;
+    const rRate = all.length > 0 ? Math.round((repeaters.length / all.length) * 1000) / 10 : 0;
+
+    // 顧客別ランキング
+    const byName = {};
+    repeaters.forEach(e => {
+      const name = e.customerName || '名前なし';
+      if (!byName[name]) byName[name] = { count: 0, total: 0, areas: {}, days: {}, hours: {}, lastDate: '', sources: {} };
+      const u = byName[name];
+      u.count++;
+      u.total += e.amount || 0;
+      if (e.pickup) u.areas[e.pickup] = (u.areas[e.pickup] || 0) + 1;
+      const dow = e.dayOfWeek || '';
+      if (dow) u.days[dow] = (u.days[dow] || 0) + 1;
+      if (e.pickupTime) {
+        const h = parseInt(e.pickupTime.split(':')[0]);
+        if (!isNaN(h)) u.hours[h] = (u.hours[h] || 0) + 1;
+      }
+      if (e.source) u.sources[e.source] = (u.sources[e.source] || 0) + 1;
+      const d = e.date || '';
+      if (d > u.lastDate) u.lastDate = d;
+    });
+    const ranking = Object.entries(byName)
+      .map(([name, d]) => ({
+        name, count: d.count, total: d.total, avg: Math.round(d.total / d.count),
+        topArea: Object.entries(d.areas).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+        topDay: Object.entries(d.days).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+        topHour: Object.entries(d.hours).sort((a, b) => b[1] - a[1])[0]?.[0],
+        topSource: Object.entries(d.sources).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+        lastDate: d.lastDate,
+        days: d.days, hours: d.hours, areas: d.areas,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    // 曜日別リピーター率
+    const dowNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const dowStats = dowNames.map(d => {
+      const dayAll = all.filter(e => e.dayOfWeek === d);
+      const dayR = dayAll.filter(e => e.isRegisteredUser);
+      return {
+        name: d, total: dayAll.length, repeaters: dayR.length,
+        rate: dayAll.length > 0 ? Math.round((dayR.length / dayAll.length) * 1000) / 10 : 0,
+        amount: dayR.reduce((s, e) => s + (e.amount || 0), 0),
+      };
+    });
+
+    // 時間帯別リピーター率
+    const hourStats = [];
+    for (let h = 5; h <= 28; h++) {
+      const displayH = h >= 24 ? h - 24 : h;
+      const hAll = all.filter(e => {
+        if (!e.pickupTime) return false;
+        const eh = parseInt(e.pickupTime.split(':')[0]);
+        return eh === displayH;
+      });
+      const hR = hAll.filter(e => e.isRegisteredUser);
+      if (hAll.length > 0) {
+        hourStats.push({
+          hour: displayH, label: `${displayH}時`,
+          total: hAll.length, repeaters: hR.length,
+          rate: Math.round((hR.length / hAll.length) * 1000) / 10,
+          amount: hR.reduce((s, e) => s + (e.amount || 0), 0),
+        });
+      }
+    }
+
+    // エリア別リピーター分析
+    const areaMap = {};
+    all.forEach(e => {
+      const area = e.pickup || '不明';
+      if (!areaMap[area]) areaMap[area] = { total: 0, repeaters: 0, rAmount: 0 };
+      areaMap[area].total++;
+      if (e.isRegisteredUser) {
+        areaMap[area].repeaters++;
+        areaMap[area].rAmount += e.amount || 0;
+      }
+    });
+    const areaStats = Object.entries(areaMap)
+      .filter(([, d]) => d.repeaters > 0)
+      .map(([area, d]) => ({
+        area, total: d.total, repeaters: d.repeaters,
+        rate: Math.round((d.repeaters / d.total) * 1000) / 10,
+        amount: d.rAmount, avg: Math.round(d.rAmount / d.repeaters),
+      }))
+      .sort((a, b) => b.repeaters - a.repeaters)
+      .slice(0, 15);
+
+    // 月別リピーター推移
+    const monthMap = {};
+    all.forEach(e => {
+      const m = (e.date || '').substring(0, 7);
+      if (!m) return;
+      if (!monthMap[m]) monthMap[m] = { total: 0, repeaters: 0, rAmount: 0 };
+      monthMap[m].total++;
+      if (e.isRegisteredUser) {
+        monthMap[m].repeaters++;
+        monthMap[m].rAmount += e.amount || 0;
+      }
+    });
+    const monthlyTrend = Object.entries(monthMap)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([month, d]) => ({
+        month, total: d.total, repeaters: d.repeaters,
+        rate: Math.round((d.repeaters / d.total) * 1000) / 10,
+        amount: d.rAmount,
+      }));
+
+    return {
+      hasData: true,
+      comparison: {
+        rCount: repeaters.length, nCount: nonRepeaters.length,
+        rTotal, nTotal, rAvg, nAvg, rRate,
+        allCount: all.length, allTotal: rTotal + nTotal,
+      },
+      ranking, dowStats, hourStats, areaStats, monthlyTrend,
+    };
+  }, [refreshKey, tab]);
+
   const hasData = overall.rideCount > 0;
 
   // データなし画面
@@ -182,6 +313,7 @@ window.AnalyticsPage = () => {
     { id: 'purposeDay', label: '用途別', icon: 'category' },
     { id: 'rival', label: '他社分析', icon: 'local_taxi' },
     { id: 'forecast', label: '業務予測', icon: 'tips_and_updates' },
+    { id: 'repeater', label: 'リピーター', icon: 'people' },
   ];
 
   return React.createElement('div', null,
@@ -1295,6 +1427,195 @@ window.AnalyticsPage = () => {
           )
         )
       )
+    ),
+
+    // ============================================================
+    // リピーター分析タブ
+    // ============================================================
+    tab === 'repeater' && React.createElement(React.Fragment, null,
+      !repeaterData || !repeaterData.hasData
+        ? React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '12px' } }, 'person_off'),
+            React.createElement('h3', { style: { marginBottom: '8px' } }, 'リピーターデータがありません'),
+            React.createElement('p', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } },
+              '売上記録で「登録ユーザー」をONにして名前を入力すると、リピーター分析が表示されます。'
+            )
+          )
+        : React.createElement(React.Fragment, null,
+
+          // --- 比較サマリー ---
+          React.createElement('div', { className: 'grid grid--2', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement(Card, { className: 'stat-card', style: { border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.08)' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: '#f59e0b', marginBottom: '4px' } }, 'people'),
+              React.createElement('div', { className: 'stat-card__value', style: { fontSize: 'var(--font-size-xl)' } }, `${repeaterData.comparison.rCount}回`),
+              React.createElement('div', { className: 'stat-card__label' }, 'リピーター乗車'),
+              React.createElement('div', { style: { fontSize: '11px', color: '#f59e0b', fontWeight: 600, marginTop: '4px' } }, `全体の${repeaterData.comparison.rRate}%`)
+            ),
+            React.createElement(Card, { className: 'stat-card' },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)', marginBottom: '4px' } }, 'payments'),
+              React.createElement('div', { className: 'stat-card__value', style: { fontSize: 'var(--font-size-xl)' } }, `¥${repeaterData.comparison.rTotal.toLocaleString()}`),
+              React.createElement('div', { className: 'stat-card__label' }, 'リピーター売上合計'),
+              React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' } },
+                `全売上の${repeaterData.comparison.allTotal > 0 ? Math.round((repeaterData.comparison.rTotal / repeaterData.comparison.allTotal) * 1000) / 10 : 0}%`
+              )
+            )
+          ),
+
+          // 平均単価比較
+          React.createElement(Card, { title: '平均単価比較', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+              ...[
+                { label: 'リピーター', value: repeaterData.comparison.rAvg, color: '#f59e0b', count: repeaterData.comparison.rCount },
+                { label: '一般客', value: repeaterData.comparison.nAvg, color: 'var(--color-primary-light)', count: repeaterData.comparison.nCount },
+              ].map(item => {
+                const maxVal = Math.max(repeaterData.comparison.rAvg, repeaterData.comparison.nAvg, 1);
+                return React.createElement('div', { key: item.label },
+                  React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)', marginBottom: '4px' } },
+                    React.createElement('span', { style: { color: item.color, fontWeight: 600 } }, `${item.label}（${item.count}回）`),
+                    React.createElement('span', { style: { fontWeight: 700 } }, `¥${item.value.toLocaleString()}`)
+                  ),
+                  React.createElement('div', { style: { background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '10px', overflow: 'hidden' } },
+                    React.createElement('div', { style: { width: `${(item.value / maxVal) * 100}%`, height: '100%', background: item.color, borderRadius: '4px', transition: 'width 0.3s' } })
+                  )
+                );
+              })
+            ),
+            repeaterData.comparison.rAvg > repeaterData.comparison.nAvg
+              ? React.createElement('div', { style: { marginTop: '10px', fontSize: '12px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'trending_up'),
+                  `リピーターは一般客より¥${(repeaterData.comparison.rAvg - repeaterData.comparison.nAvg).toLocaleString()}高い`
+                )
+              : repeaterData.comparison.nAvg > repeaterData.comparison.rAvg
+                ? React.createElement('div', { style: { marginTop: '10px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' } },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'info'),
+                    `一般客がリピーターより¥${(repeaterData.comparison.nAvg - repeaterData.comparison.rAvg).toLocaleString()}高い`
+                  )
+                : null
+          ),
+
+          // --- 顧客ランキング ---
+          React.createElement(Card, { title: `顧客ランキング（${repeaterData.ranking.length}名）`, style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+              ...repeaterData.ranking.slice(0, 10).map((r, i) => {
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+                return React.createElement('div', {
+                  key: r.name,
+                  style: {
+                    padding: '10px 12px', borderRadius: '10px',
+                    background: i < 3 ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.03)',
+                    border: i === 0 ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                  },
+                },
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' } },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                      medal ? React.createElement('span', { style: { fontSize: '16px' } }, medal) : React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-muted)', width: '20px', textAlign: 'center' } }, `${i + 1}`),
+                      React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: '#f59e0b' } }, r.name)
+                    ),
+                    React.createElement('span', { style: { fontWeight: 700, fontSize: i < 3 ? '16px' : '13px', color: 'var(--color-secondary)' } }, `¥${r.total.toLocaleString()}`)
+                  ),
+                  React.createElement('div', { style: { display: 'flex', gap: '8px', fontSize: '11px', color: 'var(--text-muted)', flexWrap: 'wrap' } },
+                    React.createElement('span', null, `${r.count}回`),
+                    React.createElement('span', null, `平均¥${r.avg.toLocaleString()}`),
+                    React.createElement('span', null, `主要: ${r.topArea}`),
+                    React.createElement('span', null, `${r.topDay}曜日`),
+                    r.topHour !== undefined && React.createElement('span', null, `${r.topHour}時台`),
+                    React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `最終: ${r.lastDate}`)
+                  )
+                );
+              })
+            )
+          ),
+
+          // --- 曜日別リピーター率 ---
+          React.createElement(Card, { title: '曜日別リピーター率', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '6px' } },
+              ...repeaterData.dowStats.map(d => {
+                const maxRate = Math.max(...repeaterData.dowStats.map(x => x.rate), 1);
+                return React.createElement('div', { key: d.name },
+                  React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '30px 1fr 60px 70px', gap: '8px', alignItems: 'center' } },
+                    React.createElement('span', { style: { fontWeight: 700, color: (d.name === '日' || d.name === '土') ? 'var(--color-danger)' : 'var(--text-primary)' } }, d.name),
+                    React.createElement('div', { style: { background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '8px', overflow: 'hidden' } },
+                      React.createElement('div', { style: { width: `${(d.rate / maxRate) * 100}%`, height: '100%', background: '#f59e0b', borderRadius: '4px' } })
+                    ),
+                    React.createElement('span', { style: { fontSize: '12px', color: '#f59e0b', fontWeight: 600, textAlign: 'right' } }, `${d.rate}%`),
+                    React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', textAlign: 'right' } }, `${d.repeaters}/${d.total}件`)
+                  )
+                );
+              })
+            )
+          ),
+
+          // --- 時間帯別リピーター率 ---
+          repeaterData.hourStats.length > 0 && React.createElement(Card, { title: '時間帯別リピーター率', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '4px' } },
+              ...repeaterData.hourStats.map(h => {
+                const maxRate = Math.max(...repeaterData.hourStats.map(x => x.rate), 1);
+                return React.createElement('div', {
+                  key: h.hour,
+                  style: { display: 'grid', gridTemplateColumns: '40px 1fr 50px 60px', gap: '8px', alignItems: 'center' },
+                },
+                  React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, h.label),
+                  React.createElement('div', { style: { background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '8px', overflow: 'hidden' } },
+                    React.createElement('div', { style: { width: `${(h.rate / maxRate) * 100}%`, height: '100%', background: '#818cf8', borderRadius: '4px' } })
+                  ),
+                  React.createElement('span', { style: { fontSize: '12px', color: '#818cf8', fontWeight: 600, textAlign: 'right' } }, `${h.rate}%`),
+                  React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', textAlign: 'right' } }, `${h.repeaters}/${h.total}`)
+                );
+              })
+            )
+          ),
+
+          // --- エリア別リピーター分析 ---
+          repeaterData.areaStats.length > 0 && React.createElement(Card, { title: 'エリア別リピーター分析', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+              ...repeaterData.areaStats.map((a, i) => {
+                const maxR = repeaterData.areaStats[0].repeaters || 1;
+                return React.createElement('div', {
+                  key: a.area,
+                  style: { padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)' },
+                },
+                  React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } },
+                    React.createElement('span', { style: { fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }, title: a.area }, a.area),
+                    React.createElement('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } },
+                      React.createElement('span', { style: { fontSize: '11px', color: '#f59e0b', fontWeight: 600 } }, `${a.rate}%`),
+                      React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${a.avg.toLocaleString()}`)
+                    )
+                  ),
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                    React.createElement('div', { style: { flex: 1, background: 'rgba(255,255,255,0.06)', borderRadius: '4px', height: '6px', overflow: 'hidden' } },
+                      React.createElement('div', { style: { width: `${(a.repeaters / maxR) * 100}%`, height: '100%', background: '#f59e0b', borderRadius: '4px' } })
+                    ),
+                    React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } }, `${a.repeaters}/${a.total}件`)
+                  )
+                );
+              })
+            )
+          ),
+
+          // --- 月別リピーター推移 ---
+          repeaterData.monthlyTrend.length > 1 && React.createElement(Card, { title: 'リピーター率の推移', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement(BarChart, {
+              data: repeaterData.monthlyTrend.map(m => ({ ...m, label: m.month })),
+              valueKey: 'rate', labelKey: 'label',
+              color: '#f59e0b', height: 140, prefix: '', showLabels: true, labelInterval: 1,
+            }),
+            React.createElement('div', { style: { display: 'grid', gap: '6px', marginTop: '12px' } },
+              ...repeaterData.monthlyTrend.map(m =>
+                React.createElement('div', {
+                  key: m.month,
+                  style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '13px' },
+                },
+                  React.createElement('span', null, m.month),
+                  React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center' } },
+                    React.createElement('span', { style: { color: '#f59e0b', fontWeight: 600 } }, `${m.rate}%`),
+                    React.createElement('span', { style: { color: 'var(--text-muted)', fontSize: '11px' } }, `${m.repeaters}/${m.total}件`),
+                    React.createElement('span', { style: { color: 'var(--color-secondary)', fontWeight: 500 } }, `¥${m.amount.toLocaleString()}`)
+                  )
+                )
+              )
+            )
+          )
+        )
     )
   );
 };
