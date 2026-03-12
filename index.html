@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.28.0</title>
+  <title>タクシー売上サポート v3.28.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.28.0',
+  VERSION: '3.28.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -18706,6 +18706,15 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
+                onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
+                style: mapPickerButtonStyle(mapPickerField === 'pickup'),
+                title: '地図から場所を選択',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
+                '地図で選択'
+              ),
+              React.createElement('button', {
+                type: 'button',
                 onClick: () => getGpsLocation('pickup'),
                 disabled: gpsLoading.pickup,
                 style: gpsButtonStyle(gpsLoading.pickup),
@@ -18716,15 +18725,6 @@ window.RevenuePage = () => {
                   style: { fontSize: '20px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.pickup ? 'sync' : 'my_location'),
                 gpsLoading.pickup ? '取得中...' : 'GPS現在地'
-              ),
-              React.createElement('button', {
-                type: 'button',
-                onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
-                style: mapPickerButtonStyle(mapPickerField === 'pickup'),
-                title: '地図から場所を選択',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
-                '地図で選択'
               )
             ),
             // GPS取得結果の住所・座標表示
@@ -18808,6 +18808,15 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
+                onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
+                style: mapPickerButtonStyle(mapPickerField === 'dropoff'),
+                title: '地図から場所を選択',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
+                '地図で選択'
+              ),
+              React.createElement('button', {
+                type: 'button',
                 onClick: () => getGpsLocation('dropoff'),
                 disabled: gpsLoading.dropoff,
                 style: gpsButtonStyle(gpsLoading.dropoff),
@@ -18818,15 +18827,6 @@ window.RevenuePage = () => {
                   style: { fontSize: '20px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.dropoff ? 'sync' : 'my_location'),
                 gpsLoading.dropoff ? '取得中...' : 'GPS現在地'
-              ),
-              React.createElement('button', {
-                type: 'button',
-                onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
-                style: mapPickerButtonStyle(mapPickerField === 'dropoff'),
-                title: '地図から場所を選択',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
-                '地図で選択'
               )
             ),
             // GPS取得結果の住所・座標表示

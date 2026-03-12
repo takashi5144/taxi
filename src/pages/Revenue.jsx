@@ -932,6 +932,15 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
+                onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
+                style: mapPickerButtonStyle(mapPickerField === 'pickup'),
+                title: '地図から場所を選択',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
+                '地図で選択'
+              ),
+              React.createElement('button', {
+                type: 'button',
                 onClick: () => getGpsLocation('pickup'),
                 disabled: gpsLoading.pickup,
                 style: gpsButtonStyle(gpsLoading.pickup),
@@ -942,15 +951,6 @@ window.RevenuePage = () => {
                   style: { fontSize: '20px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.pickup ? 'sync' : 'my_location'),
                 gpsLoading.pickup ? '取得中...' : 'GPS現在地'
-              ),
-              React.createElement('button', {
-                type: 'button',
-                onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
-                style: mapPickerButtonStyle(mapPickerField === 'pickup'),
-                title: '地図から場所を選択',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
-                '地図で選択'
               )
             ),
             // GPS取得結果の住所・座標表示
@@ -1034,6 +1034,15 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
+                onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
+                style: mapPickerButtonStyle(mapPickerField === 'dropoff'),
+                title: '地図から場所を選択',
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
+                '地図で選択'
+              ),
+              React.createElement('button', {
+                type: 'button',
                 onClick: () => getGpsLocation('dropoff'),
                 disabled: gpsLoading.dropoff,
                 style: gpsButtonStyle(gpsLoading.dropoff),
@@ -1044,15 +1053,6 @@ window.RevenuePage = () => {
                   style: { fontSize: '20px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.dropoff ? 'sync' : 'my_location'),
                 gpsLoading.dropoff ? '取得中...' : 'GPS現在地'
-              ),
-              React.createElement('button', {
-                type: 'button',
-                onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
-                style: mapPickerButtonStyle(mapPickerField === 'dropoff'),
-                title: '地図から場所を選択',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
-                '地図で選択'
               )
             ),
             // GPS取得結果の住所・座標表示
