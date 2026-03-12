@@ -421,10 +421,11 @@ window.DashboardPage = () => {
     return { total, count, sheets };
   };
   const todayDiscountDisability = getDiscountByType(todayEntries, 'disability');
+  const todayDiscountLongDistance = getDiscountByType(todayEntries, 'longDistance');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountCoupon.count + todayDiscountTicket.count;
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountLongDistance.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountLongDistance.count + todayDiscountCoupon.count + todayDiscountTicket.count;
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
   const currentMonth = getLocalDateString().slice(0, 7);
@@ -837,6 +838,7 @@ window.DashboardPage = () => {
           React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
+          todayDiscountLongDistance.count > 0 && React.createElement('span', null, `遠距離割: ${todayDiscountLongDistance.count}件 ¥${Math.abs(todayDiscountLongDistance.total).toLocaleString()}`),
           todayDiscountCoupon.count > 0 && React.createElement('span', null, `クーポン: ¥${Math.abs(todayDiscountCoupon.total).toLocaleString()}${todayDiscountCoupon.sheets ? ` (${todayDiscountCoupon.sheets}枚)` : ''}`),
           todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ¥${Math.abs(todayDiscountTicket.total).toLocaleString()}${todayDiscountTicket.sheets ? ` (${todayDiscountTicket.sheets}枚)` : ''}`)
         )
@@ -861,6 +863,9 @@ window.DashboardPage = () => {
         },
           React.createElement('span', { style: { color: '#a78bfa' } },
             `障害者割引: ${todayDiscountDisability.count}件 -¥${todayDiscountDisability.total.toLocaleString()}`
+          ),
+          todayDiscountLongDistance.count > 0 && React.createElement('span', { style: { color: '#a78bfa' } },
+            `遠距離割: ${todayDiscountLongDistance.count}件 -¥${todayDiscountLongDistance.total.toLocaleString()}`
           ),
           React.createElement('span', { style: { color: '#a78bfa' } },
             `クーポン: ${todayDiscountCoupon.sheets}枚 -¥${todayDiscountCoupon.total.toLocaleString()}`

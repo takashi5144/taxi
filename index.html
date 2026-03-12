@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.30.0</title>
+  <title>タクシー売上サポート v3.31.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.30.0',
+  VERSION: '3.31.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -14995,10 +14995,11 @@ window.DashboardPage = () => {
     return { total, count, sheets };
   };
   const todayDiscountDisability = getDiscountByType(todayEntries, 'disability');
+  const todayDiscountLongDistance = getDiscountByType(todayEntries, 'longDistance');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountCoupon.count + todayDiscountTicket.count;
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountLongDistance.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountLongDistance.count + todayDiscountCoupon.count + todayDiscountTicket.count;
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
   const currentMonth = getLocalDateString().slice(0, 7);
@@ -15411,6 +15412,7 @@ window.DashboardPage = () => {
           React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
+          todayDiscountLongDistance.count > 0 && React.createElement('span', null, `遠距離割: ${todayDiscountLongDistance.count}件 ¥${Math.abs(todayDiscountLongDistance.total).toLocaleString()}`),
           todayDiscountCoupon.count > 0 && React.createElement('span', null, `クーポン: ¥${Math.abs(todayDiscountCoupon.total).toLocaleString()}${todayDiscountCoupon.sheets ? ` (${todayDiscountCoupon.sheets}枚)` : ''}`),
           todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ¥${Math.abs(todayDiscountTicket.total).toLocaleString()}${todayDiscountTicket.sheets ? ` (${todayDiscountTicket.sheets}枚)` : ''}`)
         )
@@ -15435,6 +15437,9 @@ window.DashboardPage = () => {
         },
           React.createElement('span', { style: { color: '#a78bfa' } },
             `障害者割引: ${todayDiscountDisability.count}件 -¥${todayDiscountDisability.total.toLocaleString()}`
+          ),
+          todayDiscountLongDistance.count > 0 && React.createElement('span', { style: { color: '#a78bfa' } },
+            `遠距離割: ${todayDiscountLongDistance.count}件 -¥${todayDiscountLongDistance.total.toLocaleString()}`
           ),
           React.createElement('span', { style: { color: '#a78bfa' } },
             `クーポン: ${todayDiscountCoupon.sheets}枚 -¥${todayDiscountCoupon.total.toLocaleString()}`
@@ -19236,10 +19241,10 @@ window.RevenuePage = () => {
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '割引（複数選択可）'),
             React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-              ...['disability', 'coupon', 'ticket'].map(dtype => {
+              ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
                 const selected = dtype in (form.discounts || {});
-                const labels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                const icons = { disability: 'accessible', coupon: 'local_offer', ticket: 'confirmation_number' };
+                const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
                 return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                   React.createElement('button', {
                     type: 'button',
@@ -19322,9 +19327,10 @@ window.RevenuePage = () => {
               const d = form.discounts || {};
               const amt = parseInt(form.amount) || 0;
               const disabilityAmt = parseInt(d.disability) || 0;
+              const longDistanceAmt = parseInt(d.longDistance) || 0;
               const couponAmt = parseInt(d.coupon) || 0;
               const ticketAmt = parseInt(d.ticket) || 0;
-              const discountOnly = disabilityAmt;
+              const discountOnly = disabilityAmt + longDistanceAmt;
               const totalDeduction = discountOnly + couponAmt + ticketAmt;
               const remaining = amt - totalDeduction;
               if (totalDeduction > 0 && amt > 0) {
@@ -19342,6 +19348,9 @@ window.RevenuePage = () => {
                   ),
                   disabilityAmt > 0 && React.createElement('div', { style: { color: '#a78bfa' } },
                     `障害者割引: -¥${disabilityAmt.toLocaleString()}`
+                  ),
+                  longDistanceAmt > 0 && React.createElement('div', { style: { color: '#a78bfa' } },
+                    `遠距離割: -¥${longDistanceAmt.toLocaleString()}`
                   ),
                   couponAmt > 0 && React.createElement('div', { style: { color: '#a78bfa' } },
                     `クーポン: -¥${couponAmt.toLocaleString()}（別途未収として記録）`
@@ -20018,7 +20027,7 @@ window.RevenuePage = () => {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
               (() => {
-                const typeLabels = { disability: '障害者割引', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                const typeLabels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
                 if (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.length > 0) {
                   const realDiscounts = entry.discounts.filter(d => d.type !== 'ticket' && d.type !== 'coupon');
                   const paymentDiscounts = entry.discounts.filter(d => d.type === 'ticket' || d.type === 'coupon');
@@ -27335,7 +27344,7 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '割引'),
           React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' } },
-            ...[ { type: 'disability', label: '♿ 障害者割引' }, { type: 'coupon', label: '🎟️ クーポン' }, { type: 'ticket', label: '🎫 タクシーチケット' } ].map(dt => {
+            ...[ { type: 'disability', label: '♿ 障害者割引' }, { type: 'longDistance', label: '🛣️ 遠距離割' }, { type: 'coupon', label: '🎟️ クーポン' }, { type: 'ticket', label: '🎫 タクシーチケット' } ].map(dt => {
               const d = editForm.discounts || {};
               const active = d[dt.type] != null;
               return React.createElement('button', {
