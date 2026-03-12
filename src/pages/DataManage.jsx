@@ -1160,6 +1160,7 @@ window.DataManagePage = () => {
 
   const tabs = [
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
+    { id: 'user', label: 'ユーザー', icon: 'person' },
     { id: 'vacant', label: '空車記録', icon: 'person_off' },
     { id: 'standby', label: '待機記録', icon: 'hourglass_top' },
     { id: 'rival', label: '他社記録', icon: 'local_taxi' },
@@ -1331,7 +1332,7 @@ window.DataManagePage = () => {
   const saveEdit = useCallback(() => {
     setErrors([]);
     let result;
-    if (tab === 'revenue') {
+    if (tab === 'revenue' || tab === 'user') {
       // 割引を保存用フォーマットに変換
       const d = editForm.discounts || {};
       const discounts = Object.entries(d).filter(([k, v]) => !k.startsWith('_') && v && parseInt(v) > 0).map(([dtype, amount]) => {
@@ -1410,7 +1411,7 @@ window.DataManagePage = () => {
   // 削除確認→実行（ゴミ箱に移動）
   const handleDelete = useCallback((id) => {
     if (confirmDelete === id) {
-      if (tab === 'revenue' || tab === 'vacant' || tab === 'standby') DataService.moveToTrash(id);
+      if (tab === 'revenue' || tab === 'user' || tab === 'vacant' || tab === 'standby') DataService.moveToTrash(id);
       else if (tab === 'rival') DataService.moveRivalToTrash(id);
       setConfirmDelete(null);
       setRefreshKey(k => k + 1);
@@ -1710,6 +1711,35 @@ window.DataManagePage = () => {
     }
     return result;
   }, [revenueEntries, search, filterSource, filterPurpose, filterUser]);
+
+  // ユーザータブ用フィルター（isRegisteredUser=trueのみ）
+  const filteredUser = useMemo(() => {
+    let result = revenueEntries.filter(e => e.isRegisteredUser);
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(e =>
+        (e.pickup || '').toLowerCase().includes(q) || (e.dropoff || '').toLowerCase().includes(q) ||
+        (e.date || '').includes(q) || (e.memo || '').toLowerCase().includes(q) ||
+        String(e.amount).includes(q) || (e.customerName || '').toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [revenueEntries, search]);
+
+  // ユーザー名ごとの集計
+  const userSummary = useMemo(() => {
+    const users = revenueEntries.filter(e => e.isRegisteredUser);
+    const byName = {};
+    users.forEach(e => {
+      const name = e.customerName || '名前なし';
+      if (!byName[name]) byName[name] = { count: 0, total: 0, lastDate: '' };
+      byName[name].count++;
+      byName[name].total += e.amount || 0;
+      const d = e.date || e.timestamp.split('T')[0];
+      if (d > byName[name].lastDate) byName[name].lastDate = d;
+    });
+    return { total: users.length, byName };
+  }, [revenueEntries]);
 
   const filteredVacant = useMemo(() => {
     if (!search) return vacantEntries;
@@ -2151,8 +2181,8 @@ window.DataManagePage = () => {
       ))
     ),
 
-    // 検索バー（売上・空車・他社タブ）
-    (tab === 'revenue' || tab === 'vacant' || tab === 'standby' || tab === 'rival') && React.createElement('div', { style: { marginBottom: '12px' } },
+    // 検索バー（売上・ユーザー・空車・他社タブ）
+    (tab === 'revenue' || tab === 'user' || tab === 'vacant' || tab === 'standby' || tab === 'rival') && React.createElement('div', { style: { marginBottom: '12px' } },
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-tertiary)', borderRadius: '8px', padding: '8px 12px' } },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-muted)' } }, 'search'),
         React.createElement('input', {
@@ -2504,6 +2534,63 @@ window.DataManagePage = () => {
             search ? '該当する記録がありません' : '売上記録がありません'
           )
         : React.createElement(Card, null, filteredRevenue.map(e => revenueRow(e)))
+    ),
+
+    // === ユーザータブ ===
+    tab === 'user' && React.createElement(React.Fragment, null,
+      // ユーザー集計サマリー
+      React.createElement(Card, { style: { marginBottom: '12px' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: '#f59e0b' } }, 'people'),
+          React.createElement('span', { style: { fontSize: '14px', fontWeight: 700, color: '#f59e0b' } }, 'ユーザー（リピーター）'),
+          React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-muted)', marginLeft: 'auto' } }, `全${userSummary.total}件`)
+        ),
+        Object.keys(userSummary.byName).length > 0
+          ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+              Object.entries(userSummary.byName)
+                .sort((a, b) => b[1].count - a[1].count)
+                .map(([name, data]) =>
+                  React.createElement('div', {
+                    key: name,
+                    style: {
+                      display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px',
+                      borderRadius: '8px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)',
+                    },
+                  },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#f59e0b' } }, 'person'),
+                    React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                      React.createElement('div', { style: { fontSize: '13px', fontWeight: 600, color: '#f59e0b' } }, name),
+                      React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
+                        `最終利用: ${data.lastDate}`
+                      )
+                    ),
+                    React.createElement('div', { style: { textAlign: 'right' } },
+                      React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: 'var(--color-secondary)' } },
+                        `¥${data.total.toLocaleString()}`
+                      ),
+                      React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
+                        `${data.count}回`
+                      )
+                    )
+                  )
+                )
+            )
+          : React.createElement('div', { style: { textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' } },
+              'ユーザー登録された記録がありません'
+            )
+      ),
+      // ユーザー記録一覧
+      filteredUser.length === 0
+        ? React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', opacity: 0.3, display: 'block', marginBottom: '8px' } }, 'person'),
+            search ? '該当する記録がありません' : 'ユーザー記録がありません'
+          )
+        : React.createElement(Card, null,
+            React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: 600 } },
+              `乗車履歴（${filteredUser.length}件）`
+            ),
+            filteredUser.map(e => revenueRow(e))
+          )
     ),
 
     // === 空車記録タブ ===
