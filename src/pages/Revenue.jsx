@@ -1740,7 +1740,7 @@ window.RevenuePage = () => {
         React.createElement(Button, {
           variant: 'primary',
           icon: 'add',
-          style: { marginTop: 'var(--space-sm)' },
+          style: { marginTop: 'var(--space-md)', width: '100%', padding: '16px 24px', fontSize: '16px', fontWeight: '700', minHeight: '56px', borderRadius: '12px' },
         }, '記録を追加')
       )
     ),

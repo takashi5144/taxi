@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.29.0</title>
+  <title>タクシー売上サポート v3.29.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.29.0',
+  VERSION: '3.29.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -19514,7 +19514,7 @@ window.RevenuePage = () => {
         React.createElement(Button, {
           variant: 'primary',
           icon: 'add',
-          style: { marginTop: 'var(--space-sm)' },
+          style: { marginTop: 'var(--space-md)', width: '100%', padding: '16px 24px', fontSize: '16px', fontWeight: '700', minHeight: '56px', borderRadius: '12px' },
         }, '記録を追加')
       )
     ),
