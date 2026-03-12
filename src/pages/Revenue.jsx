@@ -28,6 +28,8 @@ window.RevenuePage = () => {
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
   const mapPickerMarkerRef = useRef(null);
+  const dropoffSectionRef = useRef(null);
+  const sourceSectionRef = useRef(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const [receiptLoading, setReceiptLoading] = useState(false);
@@ -276,6 +278,24 @@ window.RevenuePage = () => {
       });
   }, [_reverseGeocodeAndSetForm]);
 
+  // GPS取得完了後に次のセクションへ自動スクロール
+  const prevGpsLoadingRef = useRef({ pickup: false, dropoff: false });
+  useEffect(() => {
+    const prev = prevGpsLoadingRef.current;
+    // pickup: loading中→完了 → 降車地セクションへスクロール
+    if (prev.pickup && !gpsLoading.pickup && dropoffSectionRef.current) {
+      setTimeout(() => {
+        dropoffSectionRef.current && dropoffSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+    // dropoff: loading中→完了 → 配車方法セクションへスクロール
+    if (prev.dropoff && !gpsLoading.dropoff && sourceSectionRef.current) {
+      setTimeout(() => {
+        sourceSectionRef.current && sourceSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+    prevGpsLoadingRef.current = { pickup: gpsLoading.pickup, dropoff: gpsLoading.dropoff };
+  }, [gpsLoading.pickup, gpsLoading.dropoff]);
 
   // Geocoding結果から簡潔な住所を抽出（共通ユーティリティ委譲）
   const _formatAddress = TaxiApp.utils.formatAddress;
@@ -1021,7 +1041,7 @@ window.RevenuePage = () => {
           ),
 
           // 降車地（GPS付き）
-          React.createElement('div', { className: 'form-group' },
+          React.createElement('div', { className: 'form-group', ref: dropoffSectionRef },
             React.createElement('label', { className: 'form-label' }, '降車地'),
             React.createElement('input', {
               className: 'form-input',
@@ -1321,7 +1341,7 @@ window.RevenuePage = () => {
           ),
 
           // 配車方法
-          React.createElement('div', { className: 'form-group' },
+          React.createElement('div', { className: 'form-group', ref: sourceSectionRef },
             React.createElement('label', { className: 'form-label' }, '配車方法'),
             React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
               ...[
