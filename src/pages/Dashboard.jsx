@@ -944,14 +944,34 @@ window.DashboardPage = () => {
           React.createElement('span', { style: { color: '#a78bfa' } },
             `障害者割引: ${todayDiscountDisability.count}件 -¥${todayDiscountDisability.total.toLocaleString()}`
           ),
-          todayDiscountLongDistance.count > 0 && React.createElement('span', { style: { color: '#a78bfa' } },
-            `遠距離割: ${todayDiscountLongDistance.count}件 -¥${todayDiscountLongDistance.total.toLocaleString()}`
-          ),
           React.createElement('span', { style: { color: '#a78bfa' } },
             `クーポン: ${todayDiscountCoupon.sheets}枚 -¥${todayDiscountCoupon.total.toLocaleString()}`
           ),
           React.createElement('span', { style: { color: '#a78bfa' } },
             `チケット: ${todayDiscountTicket.count}件 -¥${todayDiscountTicket.total.toLocaleString()}`
+          )
+        )
+      ),
+
+      // 遠距離割（独立表示）
+      React.createElement('div', {
+        style: {
+          borderTop: '1px solid var(--border-color)', padding: '10px 12px',
+          background: 'rgba(96,165,250,0.06)', borderRadius: '0 0 var(--border-radius) var(--border-radius)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#60a5fa', fontWeight: 600 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'route'),
+            '遠距離割',
+            React.createElement('span', { style: { fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' } }, `${todayDiscountLongDistance.count}件`)
+          ),
+          React.createElement('span', { style: { fontSize: '14px', fontWeight: 700, color: '#60a5fa' } },
+            `¥${Math.abs(todayDiscountLongDistance.total).toLocaleString()}`
           )
         )
       ),
