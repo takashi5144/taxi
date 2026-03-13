@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.33.1</title>
+  <title>タクシー売上サポート v3.33.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.33.1',
+  VERSION: '3.33.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -15078,8 +15078,8 @@ window.DashboardPage = () => {
   const todayDiscountLongDistance = getDiscountByType(todayEntries, 'longDistance');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountLongDistance.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountLongDistance.count + todayDiscountCoupon.count + todayDiscountTicket.count;
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountCoupon.count + todayDiscountTicket.count;
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
   const currentMonth = getLocalDateString().slice(0, 7);
@@ -15492,7 +15492,6 @@ window.DashboardPage = () => {
           React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
-          todayDiscountLongDistance.count > 0 && React.createElement('span', null, `遠距離割: ${todayDiscountLongDistance.count}件 ¥${Math.abs(todayDiscountLongDistance.total).toLocaleString()}`),
           todayDiscountCoupon.count > 0 && React.createElement('span', null, `クーポン: ¥${Math.abs(todayDiscountCoupon.total).toLocaleString()}${todayDiscountCoupon.sheets ? ` (${todayDiscountCoupon.sheets}枚)` : ''}`),
           todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ¥${Math.abs(todayDiscountTicket.total).toLocaleString()}${todayDiscountTicket.sheets ? ` (${todayDiscountTicket.sheets}枚)` : ''}`)
         )
