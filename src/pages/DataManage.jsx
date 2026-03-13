@@ -1137,6 +1137,8 @@ window.DataManagePage = () => {
   const [filterSource, setFilterSource] = useState('');   // 配車方法フィルター
   const [filterPurpose, setFilterPurpose] = useState(''); // 用途フィルター
   const [filterUser, setFilterUser] = useState(false);    // ユーザーフィルター
+  const [filterPickup, setFilterPickup] = useState('');   // 乗車地フィルター
+  const [filterDropoff, setFilterDropoff] = useState(''); // 降車地フィルター
   const [showAddForm, setShowAddForm] = useState(false);
   const todayDefault = getLocalDateString();
   const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discounts: {} });
@@ -1689,6 +1691,25 @@ window.DataManagePage = () => {
     setRefreshKey(k => k + 1);
   }, [standbyAddForm]);
 
+  // 乗車地・降車地の選択肢を動的生成
+  const pickupLocations = useMemo(() => {
+    const counts = {};
+    revenueEntries.forEach(e => {
+      const p = (e.pickup || '').trim();
+      if (p) counts[p] = (counts[p] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+  }, [revenueEntries]);
+
+  const dropoffLocations = useMemo(() => {
+    const counts = {};
+    revenueEntries.forEach(e => {
+      const d = (e.dropoff || '').trim();
+      if (d) counts[d] = (counts[d] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+  }, [revenueEntries]);
+
   // 検索・フィルター
   const filteredRevenue = useMemo(() => {
     let result = revenueEntries;
@@ -1701,6 +1722,12 @@ window.DataManagePage = () => {
     if (filterUser) {
       result = result.filter(e => e.isRegisteredUser);
     }
+    if (filterPickup) {
+      result = result.filter(e => (e.pickup || '').includes(filterPickup));
+    }
+    if (filterDropoff) {
+      result = result.filter(e => (e.dropoff || '').includes(filterDropoff));
+    }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(e =>
@@ -1710,7 +1737,7 @@ window.DataManagePage = () => {
       );
     }
     return result;
-  }, [revenueEntries, search, filterSource, filterPurpose, filterUser]);
+  }, [revenueEntries, search, filterSource, filterPurpose, filterUser, filterPickup, filterDropoff]);
 
   // ユーザータブ用フィルター（isRegisteredUser=trueのみ）
   const filteredUser = useMemo(() => {
@@ -2236,6 +2263,40 @@ window.DataManagePage = () => {
           React.createElement('option', { key: p, value: p }, p)
         )
       ),
+      // 乗車地フィルター
+      React.createElement('select', {
+        value: filterPickup,
+        onChange: e => setFilterPickup(e.target.value),
+        style: {
+          padding: '5px 8px', borderRadius: '6px', fontSize: '12px',
+          border: filterPickup ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.15)',
+          background: filterPickup ? 'rgba(16,185,129,0.15)' : 'var(--bg-secondary)',
+          color: filterPickup ? '#10b981' : 'var(--text-primary)',
+          cursor: 'pointer', outline: 'none', maxWidth: '120px',
+        },
+      },
+        React.createElement('option', { value: '' }, '乗車地: すべて'),
+        ...pickupLocations.map(loc =>
+          React.createElement('option', { key: loc.name, value: loc.name }, `${loc.name} (${loc.count})`)
+        )
+      ),
+      // 降車地フィルター
+      React.createElement('select', {
+        value: filterDropoff,
+        onChange: e => setFilterDropoff(e.target.value),
+        style: {
+          padding: '5px 8px', borderRadius: '6px', fontSize: '12px',
+          border: filterDropoff ? '1px solid #f472b6' : '1px solid rgba(255,255,255,0.15)',
+          background: filterDropoff ? 'rgba(244,114,182,0.15)' : 'var(--bg-secondary)',
+          color: filterDropoff ? '#f472b6' : 'var(--text-primary)',
+          cursor: 'pointer', outline: 'none', maxWidth: '120px',
+        },
+      },
+        React.createElement('option', { value: '' }, '降車地: すべて'),
+        ...dropoffLocations.map(loc =>
+          React.createElement('option', { key: loc.name, value: loc.name }, `${loc.name} (${loc.count})`)
+        )
+      ),
       // ユーザーフィルター
       React.createElement('button', {
         onClick: () => setFilterUser(!filterUser),
@@ -2253,8 +2314,8 @@ window.DataManagePage = () => {
         'ユーザー'
       ),
       // フィルタークリア
-      (filterSource || filterPurpose || filterUser) && React.createElement('button', {
-        onClick: () => { setFilterSource(''); setFilterPurpose(''); setFilterUser(false); },
+      (filterSource || filterPurpose || filterUser || filterPickup || filterDropoff) && React.createElement('button', {
+        onClick: () => { setFilterSource(''); setFilterPurpose(''); setFilterUser(false); setFilterPickup(''); setFilterDropoff(''); },
         style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px' },
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'close'),
@@ -2512,7 +2573,7 @@ window.DataManagePage = () => {
 
       React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
         React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
-          `${filteredRevenue.length}件${(search || filterSource || filterPurpose || filterUser) ? ` (全${revenueEntries.length}件中)` : ''}`
+          `${filteredRevenue.length}件${(search || filterSource || filterPurpose || filterUser || filterPickup || filterDropoff) ? ` (全${revenueEntries.length}件中)` : ''}`
         ),
         React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
           React.createElement(Button, {
