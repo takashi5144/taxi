@@ -1125,7 +1125,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
 };
 
 window.DataManagePage = () => {
-  const { useState, useEffect, useCallback, useMemo } = React;
+  const { useState, useEffect, useCallback, useMemo, useRef } = React;
   const [tab, setTab] = useState('revenue');
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingId, setEditingId] = useState(null);
@@ -1196,6 +1196,58 @@ window.DataManagePage = () => {
     }
     return spots;
   }, []);
+  // 待機タブ表示時: 売上記録のstandbyInfoで対応する待機記録がないものを自動作成
+  const standbySyncDoneRef = useRef(false);
+  useEffect(() => {
+    if (tab !== 'standby') { standbySyncDoneRef.current = false; return; }
+    if (standbySyncDoneRef.current) return;
+    standbySyncDoneRef.current = true;
+    const revEntries = DataService.getEntries();
+    const stbEntries = DataService.getStandbyEntries();
+    let created = 0;
+    revEntries.forEach(rev => {
+      if (!rev.standbyInfo || !rev.standbyInfo.locationName) return;
+      const si = rev.standbyInfo;
+      // 同日・同時刻の待機記録が既に存在するかチェック
+      const exists = stbEntries.some(s => {
+        if (s.date !== rev.date) return false;
+        const sSi = s.standbyInfo || {};
+        const sStart = sSi.startTime || s.pickupTime || '';
+        if (si.startTime && sStart && si.startTime === sStart) return true;
+        if (sStart && si.startTime) {
+          const sMin = parseInt(sStart.replace(':', ''));
+          const eMin = parseInt(si.startTime.replace(':', ''));
+          if (!isNaN(sMin) && !isNaN(eMin) && Math.abs(sMin - eMin) <= 5) return true;
+        }
+        // 場所名+日付で一致
+        const sLoc = sSi.locationName || s.pickup || '';
+        if (sLoc === si.locationName && s.date === rev.date) return true;
+        return false;
+      });
+      if (!exists) {
+        DataService.addEntry({
+          date: rev.date,
+          weather: rev.weather || '',
+          amount: '0',
+          noPassenger: true,
+          pickup: si.locationName,
+          pickupTime: si.startTime || '',
+          dropoff: si.locationName,
+          dropoffTime: si.endTime || '',
+          passengers: '0',
+          gender: '',
+          purpose: '待機',
+          source: '',
+          memo: `待機（${si.locationName}）売上記録連動`,
+          paymentMethod: 'cash',
+          standbyInfo: si,
+        });
+        created++;
+      }
+    });
+    if (created > 0) setRefreshKey(k => k + 1);
+  }, [tab]);
+
   const [confirmTrashDelete, setConfirmTrashDelete] = useState(null);
   const [regeocoding, setRegeocoding] = useState(false);
   const [regeoProgress, setRegeoProgress] = useState('');
@@ -1454,15 +1506,23 @@ window.DataManagePage = () => {
       if (result && result.success) {
         const updatedStandby = result.entry || DataService._getRawEntries().find(e => e.id === editingId);
         if (updatedStandby) {
-          const allEntries = DataService._getRawEntries();
-          allEntries.forEach(entry => {
-            if (!entry.noPassenger && entry.standbyInfo && entry.standbyInfo.standbyId === editingId) {
+          const uSi = updatedStandby.standbyInfo || {};
+          const uLoc = uSi.locationName || updatedStandby.pickup || '';
+          const uStart = uSi.startTime || updatedStandby.pickupTime || '';
+          const uEnd = uSi.endTime || updatedStandby.dropoffTime || '';
+          const revenueEntries = DataService.getEntries();
+          revenueEntries.forEach(entry => {
+            if (!entry.standbyInfo) return;
+            if (entry.date !== updatedStandby.date) return;
+            const eSi = entry.standbyInfo;
+            // standbyIdで一致、または時刻・場所名で一致
+            let matched = false;
+            if (eSi.standbyId && eSi.standbyId === editingId) matched = true;
+            if (!matched && eSi.startTime && uStart && eSi.startTime === uStart) matched = true;
+            if (!matched && eSi.locationName && uLoc && eSi.locationName === uLoc) matched = true;
+            if (matched) {
               DataService.updateEntry(entry.id, {
-                standbyInfo: {
-                  ...entry.standbyInfo,
-                  locationName: updatedStandby.pickupLocation || updatedStandby.standbyInfo?.locationName || '',
-                  waitMinutes: updatedStandby.waitingTime || updatedStandby.standbyInfo?.waitMinutes || '',
-                }
+                standbyInfo: { ...eSi, locationName: uLoc, startTime: uStart, endTime: uEnd }
               });
             }
           });
