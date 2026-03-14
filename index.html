@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.3</title>
+  <title>タクシー売上サポート v3.35.4</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.3',
+  VERSION: '3.35.4',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1329,6 +1329,8 @@ window.APP_CONSTANTS = {
   // 情報ナビゲーション項目
   INFO_NAV_ITEMS: [
     { id: 'info', label: '情報', icon: 'info' },
+    { id: 'events', label: 'イベント', icon: 'event' },
+    { id: 'transit-info', label: '交通情報', icon: 'directions_transit' },
   ],
 
   // ボトムナビ項目
@@ -4282,6 +4284,9 @@ window.DataService = (() => {
       couponAmount: _couponAmt > 0 ? _couponAmt : 0,
       waitingTime: '',
       timestamp: new Date().toISOString(),
+      isRegisteredUser: form.isRegisteredUser || false,
+      customerName: form.customerName || '',
+      standbyInfo: form.standbyInfo || null,
     };
 
     entries.unshift(entry);

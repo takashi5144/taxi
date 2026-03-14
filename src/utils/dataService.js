@@ -1872,6 +1872,9 @@ window.DataService = (() => {
       couponAmount: _couponAmt > 0 ? _couponAmt : 0,
       waitingTime: '',
       timestamp: new Date().toISOString(),
+      isRegisteredUser: form.isRegisteredUser || false,
+      customerName: form.customerName || '',
+      standbyInfo: form.standbyInfo || null,
     };
 
     entries.unshift(entry);
