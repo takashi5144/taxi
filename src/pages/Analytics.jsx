@@ -92,10 +92,15 @@ const HBarChart = ({ data, nameKey, valueKey, color, prefix = '¥' }) => {
   );
 };
 window.AnalyticsPage = () => {
-  const { useState, useEffect, useMemo } = React;
+  const { useState, useEffect, useMemo, useCallback } = React;
   const [tab, setTab] = useState('daily');
   const [refreshKey, setRefreshKey] = useState(0);
   const [dayTypeFilter, setDayTypeFilter] = useState(null);
+  const [gpsDate, setGpsDate] = useState(getLocalDateString());
+  const [gpsData, setGpsData] = useState(null);
+  const [gpsMultiDay, setGpsMultiDay] = useState(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsView, setGpsView] = useState('timeline');
 
   // localStorageの変更を監視して自動更新（Dashboardと同じパターン）
   useEffect(() => {
@@ -121,6 +126,26 @@ window.AnalyticsPage = () => {
       window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
+
+  // GPS分析データ読み込み
+  useEffect(() => {
+    if (tab !== 'gps') return;
+    let cancelled = false;
+    setGpsLoading(true);
+    (async () => {
+      if (window.GpsLogService) {
+        if (gpsView === 'timeline') {
+          const data = await GpsLogService.getGpsSegmentAnalysis(gpsDate);
+          if (!cancelled) setGpsData(data);
+        } else {
+          const multi = await GpsLogService.getGpsMultiDaySummary();
+          if (!cancelled) setGpsMultiDay(multi);
+        }
+      }
+      if (!cancelled) setGpsLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tab, gpsDate, gpsView, refreshKey]);
 
   // 常に必要なデータ
   const overall = useMemo(() => DataService.getOverallSummary(dayTypeFilter), [refreshKey, dayTypeFilter]);
@@ -314,6 +339,7 @@ window.AnalyticsPage = () => {
     { id: 'rival', label: '他社分析', icon: 'local_taxi' },
     { id: 'forecast', label: '業務予測', icon: 'tips_and_updates' },
     { id: 'repeater', label: 'リピーター', icon: 'people' },
+    { id: 'gps', label: 'GPS分析', icon: 'gps_fixed' },
   ];
 
   return React.createElement('div', null,
@@ -1616,6 +1642,264 @@ window.AnalyticsPage = () => {
             )
           )
         )
+    ),
+
+    // ======== GPS分析タブ ========
+    tab === 'gps' && React.createElement(React.Fragment, null,
+      // サブビュー切替
+      React.createElement('div', {
+        style: { display: 'flex', gap: '4px', marginBottom: 'var(--space-md)', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px' },
+      },
+        ...[
+          { key: 'timeline', label: '日別タイムライン', icon: 'timeline' },
+          { key: 'stats', label: '統計サマリ', icon: 'insights' },
+        ].map(v => React.createElement('button', {
+          key: v.key,
+          onClick: () => setGpsView(v.key),
+          style: {
+            flex: 1, padding: '8px', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+            background: gpsView === v.key ? 'rgba(26,115,232,0.2)' : 'transparent',
+            color: gpsView === v.key ? 'var(--color-primary-light)' : 'var(--text-muted)',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, v.icon),
+          v.label
+        ))
+      ),
+
+      // ---- タイムライン表示 ----
+      gpsView === 'timeline' && React.createElement(React.Fragment, null,
+        // 日付選択
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-md)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: 'var(--text-muted)' } }, 'calendar_today'),
+          React.createElement('input', {
+            type: 'date', value: gpsDate,
+            onChange: (e) => setGpsDate(e.target.value),
+            style: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '6px 10px', color: 'var(--text-primary)', fontSize: '14px' },
+          }),
+          React.createElement('button', {
+            onClick: () => setGpsDate(getLocalDateString()),
+            style: { background: 'rgba(26,115,232,0.15)', border: '1px solid rgba(26,115,232,0.3)', borderRadius: '8px', padding: '6px 12px', color: 'var(--color-primary-light)', fontSize: '12px', cursor: 'pointer' },
+          }, '今日')
+        ),
+
+        gpsLoading && React.createElement('div', { style: { textAlign: 'center', padding: '40px', color: 'var(--text-muted)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '32px', animation: 'spin 1s linear infinite' } }, 'sync'),
+          React.createElement('div', { style: { marginTop: '8px', fontSize: '13px' } }, 'GPS軌跡を分析中...')
+        ),
+
+        !gpsLoading && !gpsData && React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '12px' } }, 'gps_off'),
+          React.createElement('h3', { style: { marginBottom: '8px' } }, 'この日のGPSデータがありません'),
+          React.createElement('p', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, '始業中にGPSが記録されると、ここに空車/実車の軌跡が表示されます。')
+        ),
+
+        !gpsLoading && gpsData && React.createElement(React.Fragment, null,
+          // サマリカード
+          React.createElement('div', { className: 'grid grid--3', style: { marginBottom: 'var(--space-lg)' } },
+            ...[
+              { icon: 'timer', label: '実車時間', value: `${gpsData.stats.occupiedMin}分`, sub: `${gpsData.stats.occupiedKm}km`, color: '#4fc3f7' },
+              { icon: 'timer_off', label: '空車時間', value: `${gpsData.stats.vacantMin}分`, sub: `${gpsData.stats.vacantKm}km`, color: '#ff8a65' },
+              { icon: 'speed', label: '実車率', value: `${gpsData.stats.occupancyRate}%`, sub: `平均空車${gpsData.stats.avgVacantMin}分`, color: gpsData.stats.occupancyRate >= 50 ? '#66bb6a' : '#ffa726' },
+            ].map((s, i) => React.createElement('div', { key: i, className: 'stat-card', style: { textAlign: 'center' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: s.color, marginBottom: '4px' } }, s.icon),
+              React.createElement('div', { style: { fontSize: '20px', fontWeight: 800, color: s.color } }, s.value),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, s.sub),
+              React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' } }, s.label)
+            ))
+          ),
+
+          // セグメントタイムライン
+          React.createElement(Card, { title: '空車／実車タイムライン', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '2px' } },
+              ...gpsData.segments.map((seg, i) => {
+                const isOcc = seg.status === 'occupied';
+                const bgColor = isOcc ? 'rgba(79,195,247,0.12)' : 'rgba(255,138,101,0.08)';
+                const borderColor = isOcc ? 'rgba(79,195,247,0.4)' : 'rgba(255,138,101,0.3)';
+                const statusColor = isOcc ? '#4fc3f7' : '#ff8a65';
+                const statusIcon = isOcc ? 'local_taxi' : 'airline_stops';
+                return React.createElement('div', {
+                  key: i,
+                  style: { display: 'flex', alignItems: 'stretch', gap: '8px', padding: '8px 10px', borderRadius: '8px', background: bgColor, borderLeft: `3px solid ${borderColor}` },
+                },
+                  // タイムライン左側
+                  React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '52px' } },
+                    React.createElement('span', { style: { fontSize: '11px', fontWeight: 700, color: statusColor } }, seg.startTime),
+                    React.createElement('div', { style: { flex: 1, width: '2px', background: borderColor, margin: '2px 0' } }),
+                    React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, seg.endTime)
+                  ),
+                  // アイコン
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center' } },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: statusColor } }, statusIcon)
+                  ),
+                  // 詳細
+                  React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+                      React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, color: statusColor } }, isOcc ? '実車' : '空車'),
+                      React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, `${seg.durationMin}分`),
+                      React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, `${seg.distanceKm}km`),
+                      React.createElement('span', {
+                        style: { fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' },
+                      }, seg.area)
+                    ),
+                    isOcc && seg.fare != null && React.createElement('div', { style: { marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' } },
+                      React.createElement('span', { style: { color: 'var(--color-secondary)', fontWeight: 700 } }, `¥${seg.fare.toLocaleString()}`),
+                      seg.pickup && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `${seg.pickup}→${seg.dropoff}`),
+                      seg.source && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '4px', background: 'rgba(255,167,38,0.15)', color: '#ffa726' } }, seg.source)
+                    )
+                  )
+                );
+              })
+            )
+          ),
+
+          // 空車→実車の転換ポイント
+          gpsData.transitions.length > 0 && React.createElement(Card, { title: '乗車転換ポイント（空車→実車）', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '6px' } },
+              ...gpsData.transitions.map((t, i) => React.createElement('div', {
+                key: i,
+                style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)' },
+              },
+                React.createElement('span', { style: { fontSize: '13px', fontWeight: 700, color: 'var(--color-primary-light)', minWidth: '40px' } }, t.time),
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: '#66bb6a' } }, 'hail'),
+                React.createElement('div', { style: { flex: 1 } },
+                  React.createElement('div', { style: { fontSize: '12px', fontWeight: 600 } }, t.pickup || t.area),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' } }, `空車${t.vacantMin}分 / ${t.vacantKm}km走行後`)
+                ),
+                t.fare > 0 && React.createElement('span', { style: { fontSize: '13px', fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${t.fare.toLocaleString()}`)
+              ))
+            )
+          ),
+
+          // エリア別転換統計
+          gpsData.stats.areaTransitions.length > 0 && React.createElement(Card, { title: 'エリア別 乗車発生率', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '6px' } },
+              ...gpsData.stats.areaTransitions.map((a, i) => {
+                const maxCount = gpsData.stats.areaTransitions[0].count || 1;
+                return React.createElement('div', {
+                  key: a.area,
+                  style: { padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)' },
+                },
+                  React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } },
+                    React.createElement('span', { style: { fontSize: '13px', fontWeight: 600 } }, a.area),
+                    React.createElement('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } },
+                      React.createElement('span', { style: { fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 700 } }, `${a.count}回`),
+                      React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, `平均空車${a.avgVacantMin}分`),
+                      a.avgFare > 0 && React.createElement('span', { style: { fontSize: '12px', color: 'var(--color-secondary)', fontWeight: 600 } }, `¥${a.avgFare.toLocaleString()}`)
+                    )
+                  ),
+                  React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' } },
+                    React.createElement('div', { style: { height: '100%', width: `${Math.round(a.count / maxCount * 100)}%`, borderRadius: '2px', background: 'linear-gradient(90deg, #1a73e8, #4fc3f7)' } })
+                  )
+                );
+              })
+            )
+          )
+        )
+      ),
+
+      // ---- 統計サマリ表示 ----
+      gpsView === 'stats' && React.createElement(React.Fragment, null,
+        gpsLoading && React.createElement('div', { style: { textAlign: 'center', padding: '40px', color: 'var(--text-muted)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '32px', animation: 'spin 1s linear infinite' } }, 'sync'),
+          React.createElement('div', { style: { marginTop: '8px', fontSize: '13px' } }, '統計データを集計中...')
+        ),
+
+        !gpsLoading && !gpsMultiDay && React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '12px' } }, 'gps_off'),
+          React.createElement('h3', { style: { marginBottom: '8px' } }, 'GPSデータがありません')
+        ),
+
+        !gpsLoading && gpsMultiDay && React.createElement(React.Fragment, null,
+          // 総合サマリ
+          React.createElement(Card, { title: `直近${gpsMultiDay.daysWithData}日間の走行統計`, style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { className: 'grid grid--2', style: { gap: '8px' } },
+              ...[
+                { label: '総実車時間', value: `${Math.round(gpsMultiDay.occupiedMin / 60)}h${gpsMultiDay.occupiedMin % 60}m`, icon: 'local_taxi', color: '#4fc3f7' },
+                { label: '総空車時間', value: `${Math.round(gpsMultiDay.vacantMin / 60)}h${gpsMultiDay.vacantMin % 60}m`, icon: 'airline_stops', color: '#ff8a65' },
+                { label: '実車距離', value: `${gpsMultiDay.occupiedKm}km`, icon: 'route', color: '#4fc3f7' },
+                { label: '空車距離', value: `${gpsMultiDay.vacantKm}km`, icon: 'route', color: '#ff8a65' },
+                { label: '平均実車率', value: `${gpsMultiDay.occupancyRate}%`, icon: 'speed', color: gpsMultiDay.occupancyRate >= 50 ? '#66bb6a' : '#ffa726' },
+                { label: '乗車転換回数', value: `${gpsMultiDay.totalTransitions}回`, icon: 'hail', color: '#66bb6a' },
+                { label: '平均空車→乗車', value: `${gpsMultiDay.avgVacantPerTransition}分`, icon: 'hourglass_bottom', color: '#ce93d8' },
+                { label: '1日平均転換', value: gpsMultiDay.daysWithData > 0 ? `${Math.round(gpsMultiDay.totalTransitions / gpsMultiDay.daysWithData * 10) / 10}回` : '-', icon: 'trending_up', color: '#4db6ac' },
+              ].map((s, i) => React.createElement('div', {
+                key: i,
+                style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)' },
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: s.color } }, s.icon),
+                React.createElement('div', null,
+                  React.createElement('div', { style: { fontSize: '16px', fontWeight: 800, color: s.color } }, s.value),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, s.label)
+                )
+              ))
+            )
+          ),
+
+          // 時間帯別 空車/実車比率
+          React.createElement(Card, { title: '時間帯別 空車／実車比率', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '3px' } },
+              ...[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2,3,4].map(h => {
+                const v = gpsMultiDay.hourlyVacant[h] || 0;
+                const o = gpsMultiDay.hourlyOccupied[h] || 0;
+                const total = v + o;
+                if (total === 0) return null;
+                const oRate = Math.round(o / total * 100);
+                return React.createElement('div', {
+                  key: h,
+                  style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' },
+                },
+                  React.createElement('span', { style: { minWidth: '32px', fontWeight: 600, color: 'var(--text-secondary)', textAlign: 'right' } }, `${h}時`),
+                  React.createElement('div', { style: { flex: 1, height: '16px', borderRadius: '4px', background: 'rgba(255,138,101,0.2)', overflow: 'hidden', display: 'flex' } },
+                    React.createElement('div', { style: { width: `${oRate}%`, height: '100%', background: 'linear-gradient(90deg, #1a73e8, #4fc3f7)', borderRadius: '4px 0 0 4px', transition: 'width 0.3s' } })
+                  ),
+                  React.createElement('span', { style: { minWidth: '36px', textAlign: 'right', fontWeight: 700, color: oRate >= 50 ? '#4fc3f7' : '#ff8a65' } }, `${oRate}%`)
+                );
+              }).filter(Boolean)
+            ),
+            React.createElement('div', { style: { display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '8px', fontSize: '11px', color: 'var(--text-muted)' } },
+              React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { style: { width: '12px', height: '8px', borderRadius: '2px', background: '#4fc3f7' } }),
+                '実車'
+              ),
+              React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
+                React.createElement('span', { style: { width: '12px', height: '8px', borderRadius: '2px', background: 'rgba(255,138,101,0.4)' } }),
+                '空車'
+              )
+            )
+          ),
+
+          // エリア別転換統計（複数日）
+          gpsMultiDay.areaTransitions.length > 0 && React.createElement(Card, { title: 'エリア別 乗車転換ランキング（直近30日）', style: { marginBottom: 'var(--space-lg)' } },
+            React.createElement('div', { style: { display: 'grid', gap: '6px' } },
+              ...gpsMultiDay.areaTransitions.map((a, i) => {
+                const maxCount = gpsMultiDay.areaTransitions[0].count || 1;
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+                return React.createElement('div', {
+                  key: a.area,
+                  style: { padding: '10px 12px', borderRadius: '8px', background: i < 3 ? 'rgba(26,115,232,0.08)' : 'rgba(255,255,255,0.03)' },
+                },
+                  React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } },
+                    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                      medal && React.createElement('span', { style: { fontSize: '14px' } }, medal),
+                      React.createElement('span', { style: { fontSize: '13px', fontWeight: 700 } }, a.area)
+                    ),
+                    React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center' } },
+                      React.createElement('span', { style: { fontSize: '13px', color: 'var(--color-primary-light)', fontWeight: 700 } }, `${a.count}回`),
+                      React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, `平均空車${a.avgVacantMin}分`),
+                      a.avgFare > 0 && React.createElement('span', { style: { fontSize: '12px', color: 'var(--color-secondary)', fontWeight: 600 } }, `平均¥${a.avgFare.toLocaleString()}`)
+                    )
+                  ),
+                  React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' } },
+                    React.createElement('div', { style: { height: '100%', width: `${Math.round(a.count / maxCount * 100)}%`, borderRadius: '2px', background: i < 3 ? 'linear-gradient(90deg, #1a73e8, #4fc3f7)' : 'rgba(255,255,255,0.15)' } })
+                  )
+                );
+              })
+            )
+          )
+        )
+      )
     )
   );
 };

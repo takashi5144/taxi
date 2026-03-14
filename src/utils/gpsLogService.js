@@ -1537,6 +1537,226 @@ window.GpsLogService = (() => {
     return { areas: result, overall };
   }
 
+  // GPS軌跡を空車/実車セグメントに分割し、エリア・売上と紐付けて分析
+  async function getGpsSegmentAnalysis(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return null;
+
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    const areas = locs && locs.cruisingAreas || [];
+    const waitingSpots = locs && locs.waitingSpots || [];
+    const allLocations = [
+      ...areas.map(a => ({ id: a.id, name: a.name, shortName: a.shortName, lat: a.lat, lng: a.lng, type: 'cruising', radius: 1500 })),
+      ...waitingSpots.map(s => ({ id: s.id, name: s.name, shortName: s.shortName, lat: s.lat, lng: s.lng, type: 'waiting', radius: s.id === 'asahiyama_zoo' ? 500 : 300 })),
+    ];
+    function matchLoc(lat, lng) {
+      let best = null, bestD = Infinity;
+      for (const a of allLocations) {
+        const d = _haversine(lat, lng, a.lat, a.lng);
+        if (d < a.radius && d < bestD) { best = a; bestD = d; }
+      }
+      return best;
+    }
+
+    // セグメント分割
+    const segments = [];
+    let segStart = 0;
+    for (let i = 1; i <= classified.length; i++) {
+      if (i === classified.length || classified[i].status !== classified[segStart].status) {
+        const pts = classified.slice(segStart, i);
+        const startT = new Date(pts[0].t);
+        const endT = new Date(pts[pts.length - 1].t);
+        const durMin = Math.round((endT - startT) / 60000);
+        // 距離計算
+        let distM = 0;
+        for (let j = 1; j < pts.length; j++) {
+          distM += _haversine(pts[j - 1].lat, pts[j - 1].lng, pts[j].lat, pts[j].lng);
+        }
+        // エリア判定（最頻エリア）
+        const areaCounts = {};
+        pts.forEach(p => {
+          const m = matchLoc(p.lat, p.lng);
+          if (m) areaCounts[m.shortName] = (areaCounts[m.shortName] || 0) + 1;
+        });
+        const topArea = Object.entries(areaCounts).sort((a, b) => b[1] - a[1])[0];
+        segments.push({
+          status: pts[0].status,
+          startTime: startT.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+          endTime: endT.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+          durationMin: durMin,
+          distanceKm: Math.round(distM / 100) / 10,
+          area: topArea ? topArea[0] : '範囲外',
+          pointCount: pts.length,
+          startLat: pts[0].lat,
+          startLng: pts[0].lng,
+          endLat: pts[pts.length - 1].lat,
+          endLng: pts[pts.length - 1].lng,
+        });
+        segStart = i;
+      }
+    }
+
+    // 売上記録と紐付け
+    const entries = DataService.getEntries().filter(e => e.date === dateStr);
+    segments.forEach(seg => {
+      if (seg.status === 'occupied') {
+        const match = entries.find(e => {
+          if (!e.pickupTime || !e.dropoffTime) return false;
+          return e.pickupTime <= seg.startTime && e.dropoffTime >= seg.endTime ||
+                 (e.pickupTime >= seg.startTime && e.pickupTime <= seg.endTime);
+        });
+        if (match) {
+          seg.fare = match.amount || 0;
+          seg.pickup = match.pickup || '';
+          seg.dropoff = match.dropoff || '';
+          seg.source = match.source || '';
+          seg.purpose = match.purpose || '';
+        }
+      }
+    });
+
+    // 統計集計
+    let totalVacantMin = 0, totalOccupiedMin = 0;
+    let totalVacantKm = 0, totalOccupiedKm = 0;
+    let vacantSegCount = 0, occupiedSegCount = 0;
+    const areaVacant = {}, areaOccupied = {}, areaPickups = {};
+    const hourlyVacant = {}, hourlyOccupied = {};
+    for (let h = 0; h < 24; h++) { hourlyVacant[h] = 0; hourlyOccupied[h] = 0; }
+
+    segments.forEach(seg => {
+      const startH = parseInt(seg.startTime.split(':')[0]);
+      if (seg.status === 'vacant') {
+        totalVacantMin += seg.durationMin;
+        totalVacantKm += seg.distanceKm;
+        vacantSegCount++;
+        areaVacant[seg.area] = (areaVacant[seg.area] || 0) + seg.durationMin;
+        if (!isNaN(startH)) hourlyVacant[startH] += seg.durationMin;
+      } else {
+        totalOccupiedMin += seg.durationMin;
+        totalOccupiedKm += seg.distanceKm;
+        occupiedSegCount++;
+        areaOccupied[seg.area] = (areaOccupied[seg.area] || 0) + seg.durationMin;
+        if (!isNaN(startH)) hourlyOccupied[startH] += seg.durationMin;
+        if (seg.area) areaPickups[seg.area] = (areaPickups[seg.area] || 0) + 1;
+      }
+    });
+
+    // エリア別転換率（空車→実車がどのエリアで起きたか）
+    const transitions = [];
+    for (let i = 1; i < segments.length; i++) {
+      if (segments[i].status === 'occupied' && segments[i - 1].status === 'vacant') {
+        transitions.push({
+          area: segments[i].area || segments[i - 1].area || '不明',
+          vacantMin: segments[i - 1].durationMin,
+          vacantKm: segments[i - 1].distanceKm,
+          fare: segments[i].fare || 0,
+          pickup: segments[i].pickup || '',
+          time: segments[i].startTime,
+        });
+      }
+    }
+    // エリア別転換統計
+    const transitionByArea = {};
+    transitions.forEach(t => {
+      if (!transitionByArea[t.area]) transitionByArea[t.area] = { count: 0, totalVacantMin: 0, totalFare: 0 };
+      transitionByArea[t.area].count++;
+      transitionByArea[t.area].totalVacantMin += t.vacantMin;
+      transitionByArea[t.area].totalFare += t.fare;
+    });
+    const areaTransitions = Object.entries(transitionByArea)
+      .map(([area, d]) => ({
+        area,
+        count: d.count,
+        avgVacantMin: d.count > 0 ? Math.round(d.totalVacantMin / d.count) : 0,
+        avgFare: d.count > 0 ? Math.round(d.totalFare / d.count) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const totalMin = totalVacantMin + totalOccupiedMin;
+    return {
+      segments,
+      transitions,
+      stats: {
+        totalMin,
+        vacantMin: totalVacantMin,
+        occupiedMin: totalOccupiedMin,
+        vacantKm: totalVacantKm,
+        occupiedKm: totalOccupiedKm,
+        vacantSegCount,
+        occupiedSegCount,
+        occupancyRate: totalMin > 0 ? Math.round(totalOccupiedMin / totalMin * 100) : 0,
+        avgVacantMin: vacantSegCount > 0 ? Math.round(totalVacantMin / vacantSegCount) : 0,
+        avgOccupiedMin: occupiedSegCount > 0 ? Math.round(totalOccupiedMin / occupiedSegCount) : 0,
+        areaVacant,
+        areaOccupied,
+        areaPickups,
+        hourlyVacant,
+        hourlyOccupied,
+        areaTransitions,
+      },
+    };
+  }
+
+  // 複数日のGPS統計サマリ
+  async function getGpsMultiDaySummary() {
+    const dates = await getLogDates();
+    if (dates.length === 0) return null;
+    const recent = dates.slice(-30);
+    let totalVacantMin = 0, totalOccupiedMin = 0;
+    let totalVacantKm = 0, totalOccupiedKm = 0;
+    let totalTransitions = 0;
+    const areaTransAll = {};
+    const hourlyV = {}, hourlyO = {};
+    for (let h = 0; h < 24; h++) { hourlyV[h] = 0; hourlyO[h] = 0; }
+    let daysWithData = 0;
+
+    for (const d of recent) {
+      const result = await getGpsSegmentAnalysis(d);
+      if (!result) continue;
+      daysWithData++;
+      totalVacantMin += result.stats.vacantMin;
+      totalOccupiedMin += result.stats.occupiedMin;
+      totalVacantKm += result.stats.vacantKm;
+      totalOccupiedKm += result.stats.occupiedKm;
+      totalTransitions += result.transitions.length;
+      result.stats.areaTransitions.forEach(at => {
+        if (!areaTransAll[at.area]) areaTransAll[at.area] = { count: 0, totalVacantMin: 0, totalFare: 0 };
+        areaTransAll[at.area].count += at.count;
+        areaTransAll[at.area].totalVacantMin += at.avgVacantMin * at.count;
+        areaTransAll[at.area].totalFare += at.avgFare * at.count;
+      });
+      for (let h = 0; h < 24; h++) {
+        hourlyV[h] += result.stats.hourlyVacant[h] || 0;
+        hourlyO[h] += result.stats.hourlyOccupied[h] || 0;
+      }
+    }
+
+    const totalMin = totalVacantMin + totalOccupiedMin;
+    const areaTransitions = Object.entries(areaTransAll)
+      .map(([area, d]) => ({
+        area,
+        count: d.count,
+        avgVacantMin: d.count > 0 ? Math.round(d.totalVacantMin / d.count) : 0,
+        avgFare: d.count > 0 ? Math.round(d.totalFare / d.count) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      daysWithData,
+      totalMin,
+      vacantMin: totalVacantMin,
+      occupiedMin: totalOccupiedMin,
+      vacantKm: Math.round(totalVacantKm * 10) / 10,
+      occupiedKm: Math.round(totalOccupiedKm * 10) / 10,
+      occupancyRate: totalMin > 0 ? Math.round(totalOccupiedMin / totalMin * 100) : 0,
+      avgVacantPerTransition: totalTransitions > 0 ? Math.round(totalVacantMin / totalTransitions) : 0,
+      totalTransitions,
+      areaTransitions,
+      hourlyVacant: hourlyV,
+      hourlyOccupied: hourlyO,
+    };
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -1564,6 +1784,8 @@ window.GpsLogService = (() => {
     getStandbyAllDaysSummary,
     getStandbyLocationAnalysis,
     getCruisingAreaPerformance,
+    getGpsSegmentAnalysis,
+    getGpsMultiDaySummary,
     flushRealtimeStandby,
     getRealtimeStandbyStatus,
     getLastCompletedStandby,
