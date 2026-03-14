@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.10</title>
+  <title>タクシー売上サポート v3.35.11</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1282,7 +1282,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.10',
+  VERSION: '3.35.11',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -29362,35 +29362,36 @@ window.DataManagePage = () => {
                       };
                       const result = DataService.updateEntry(editingId, updates);
                       if (!result || !result.success) { setErrors((result && result.errors) || ['保存に失敗しました']); return; }
-                      // 待機記録→売上記録の双方向同期
+                      // 待機記録→売上記録の双方向同期（全一致を更新）
                       if (result.entry && updates.standbyInfo && updates.standbyInfo.locationName) {
                         const sEntry = result.entry;
                         const origSi = sEntry.standbyInfo || {};
+                        const newSi = updates.standbyInfo;
                         const revEntries = DataService.getEntries();
-                        // 配車方法が「待機」またはstandbyInfoが一致する売上記録を検索
-                        const matchingRev = revEntries.find(r => {
-                          if (r.noPassenger) return false; // 空車/待機記録は除外
-                          if (r.date !== sEntry.date) return false;
-                          // 配車方法が「待機」でstandbyInfoが一致
-                          if (r.source === '待機') {
-                            const rsi = r.standbyInfo || {};
-                            if (rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) return true;
-                            if (rsi.startTime && updates.standbyInfo.startTime && rsi.startTime === updates.standbyInfo.startTime) return true;
-                            // 時刻が近い（5分以内）
-                            if (rsi.startTime && origSi.startTime) {
-                              const rMin = parseInt(rsi.startTime.replace(':',''));
-                              const sMin = parseInt(origSi.startTime.replace(':',''));
-                              if (!isNaN(rMin) && !isNaN(sMin) && Math.abs(rMin - sMin) <= 5) return true;
-                            }
+                        revEntries.forEach(r => {
+                          if (r.noPassenger) return;
+                          if (r.date !== sEntry.date) return;
+                          if (!r.standbyInfo) return;
+                          const rsi = r.standbyInfo;
+                          let matched = false;
+                          // standbyIdで一致
+                          if (rsi.standbyId && rsi.standbyId === editingId) matched = true;
+                          // 元の開始時刻が一致
+                          if (!matched && rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) matched = true;
+                          // 新しい開始時刻が一致
+                          if (!matched && rsi.startTime && newSi.startTime && rsi.startTime === newSi.startTime) matched = true;
+                          // 場所名が一致
+                          if (!matched && rsi.locationName && (rsi.locationName === (origSi.locationName || '') || rsi.locationName === newSi.locationName)) matched = true;
+                          // 時刻が近い（5分以内）
+                          if (!matched && rsi.startTime && origSi.startTime) {
+                            const rMin = parseInt(rsi.startTime.replace(':',''));
+                            const sMin = parseInt(origSi.startTime.replace(':',''));
+                            if (!isNaN(rMin) && !isNaN(sMin) && Math.abs(rMin - sMin) <= 5) matched = true;
                           }
-                          // standbyInfoのstartTimeが一致
-                          const rsi = r.standbyInfo || {};
-                          if (rsi.locationName && rsi.startTime && origSi.startTime && rsi.startTime === origSi.startTime) return true;
-                          return false;
+                          if (matched) {
+                            DataService.updateEntry(r.id, { standbyInfo: newSi });
+                          }
                         });
-                        if (matchingRev) {
-                          DataService.updateEntry(matchingRev.id, { standbyInfo: updates.standbyInfo });
-                        }
                       }
                       setEditingId(null); setEditForm({}); setSaved(true); setTimeout(() => setSaved(false), 2000); setRefreshKey(k => k + 1);
                     },
