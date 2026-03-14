@@ -170,22 +170,34 @@ window.CalendarPage = () => {
   // 月間サマリー（休日でない過去日＝勤務日）
   const monthlySummary = useMemo(() => {
     let workDays = 0, offDays = 0, totalRevenue = 0, workDayRevenue = 0;
+    let futureWorkDays = 0, futureOffDays = 0, totalDaysWithRevenue = 0, allDayRevenue = 0;
     calendarDays.forEach(d => {
       if (!d) return;
       const isPastOrToday = d.dateStr <= todayStr;
       if (d.status === 'off') {
         if (isPastOrToday) offDays++;
+        else futureOffDays++;
       } else if (isPastOrToday) {
         workDays++;
         workDayRevenue += d.revenue;
+      } else {
+        futureWorkDays++;
       }
       totalRevenue += d.revenue;
+      if (d.revenue > 0) {
+        totalDaysWithRevenue++;
+        allDayRevenue += d.revenue;
+      }
     });
     return {
       workDays,
       offDays,
       totalRevenue,
       avgDaily: workDays > 0 ? Math.round(workDayRevenue / workDays) : 0,
+      remainingWorkDays: futureWorkDays,
+      remainingOffDays: futureOffDays,
+      totalDaysInMonth: calendarDays.filter(d => d !== null).length,
+      avgAllDays: totalDaysWithRevenue > 0 ? Math.round(allDayRevenue / totalDaysWithRevenue) : 0,
     };
   }, [calendarDays, todayStr]);
 
@@ -270,6 +282,57 @@ window.CalendarPage = () => {
       createElement('span', {
         style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
       }, `¥${Math.round(monthlySummary.totalRevenue * 0.5).toLocaleString()}`)
+    ),
+
+    // 残り勤務日数・1日平均売上
+    createElement('div', {
+      style: {
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px',
+        marginBottom: 'var(--space-md)',
+      }
+    },
+      createElement('div', {
+        style: {
+          background: 'var(--surface-color)', borderRadius: 'var(--border-radius)',
+          padding: '10px 8px', textAlign: 'center', border: '1px solid var(--border-color)',
+        }
+      },
+        createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, '残り勤務日'),
+        createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-primary-light)' } },
+          `${monthlySummary.remainingWorkDays}日`
+        ),
+        createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } },
+          `残り休日 ${monthlySummary.remainingOffDays}日`
+        )
+      ),
+      createElement('div', {
+        style: {
+          background: 'var(--surface-color)', borderRadius: 'var(--border-radius)',
+          padding: '10px 8px', textAlign: 'center', border: '1px solid var(--border-color)',
+        }
+      },
+        createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, '1日平均売上'),
+        createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-accent)' } },
+          monthlySummary.avgAllDays > 0 ? `¥${monthlySummary.avgAllDays.toLocaleString()}` : '−'
+        ),
+        createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } },
+          `勤務日平均 ¥${monthlySummary.avgDaily > 0 ? monthlySummary.avgDaily.toLocaleString() : '−'}`
+        )
+      ),
+      createElement('div', {
+        style: {
+          background: 'var(--surface-color)', borderRadius: 'var(--border-radius)',
+          padding: '10px 8px', textAlign: 'center', border: '1px solid var(--border-color)',
+        }
+      },
+        createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, '勤務/休日'),
+        createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
+          `${monthlySummary.workDays}/${monthlySummary.offDays}`
+        ),
+        createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } },
+          `全${monthlySummary.totalDaysInMonth}日中`
+        )
+      )
     ),
 
     // 月ナビゲーション
