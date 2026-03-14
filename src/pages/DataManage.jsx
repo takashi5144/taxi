@@ -1199,6 +1199,29 @@ window.DataManagePage = () => {
   const [confirmTrashDelete, setConfirmTrashDelete] = useState(null);
   const [regeocoding, setRegeocoding] = useState(false);
   const [regeoProgress, setRegeoProgress] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+
+  // 手動クラウド同期
+  const handleManualSync = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const result = await DataService.autoSync();
+      if (result) {
+        const merged = (result.revenue || 0) + (result.rival || 0) + (result.gathering || 0) + (result.shifts || 0) + (result.breaks || 0);
+        setSyncResult({ success: true, merged });
+      } else {
+        setSyncResult({ success: true, merged: 0 });
+      }
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      setSyncResult({ success: false, error: e.message || '同期に失敗しました' });
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncResult(null), 4000);
+  }, [syncing]);
 
   // 座標から住所を一括再取得
   const handleRegeocode = useCallback(async () => {
@@ -2226,6 +2249,44 @@ window.DataManagePage = () => {
   const transitIcons = { trouble: 'warning', train: 'train', bus: 'directions_bus', flight: 'flight' };
 
   return React.createElement('div', null,
+    // クラウド同期バー
+    React.createElement('div', {
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '10px' },
+    },
+      // 同期結果メッセージ
+      syncResult && React.createElement('span', {
+        style: {
+          fontSize: '12px',
+          color: syncResult.success ? '#66bb6a' : '#ef5350',
+          display: 'flex', alignItems: 'center', gap: '4px',
+        },
+      },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } },
+          syncResult.success ? 'check_circle' : 'error'),
+        syncResult.success
+          ? (syncResult.merged > 0 ? `${syncResult.merged}件のデータを同期しました` : '最新の状態です')
+          : syncResult.error
+      ),
+      // 同期ボタン
+      React.createElement('button', {
+        onClick: handleManualSync,
+        disabled: syncing,
+        style: {
+          display: 'flex', alignItems: 'center', gap: '5px',
+          padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(100,181,246,0.3)',
+          background: syncing ? 'rgba(100,181,246,0.1)' : 'rgba(100,181,246,0.15)',
+          color: '#64b5f6', cursor: syncing ? 'not-allowed' : 'pointer',
+          fontSize: '12px', fontWeight: 600, transition: 'all 0.2s',
+          opacity: syncing ? 0.7 : 1,
+        },
+      },
+        React.createElement('span', {
+          className: 'material-icons-round',
+          style: { fontSize: '16px', animation: syncing ? 'spin 1s linear infinite' : 'none' },
+        }, 'sync'),
+        syncing ? '同期中...' : 'クラウド同期'
+      )
+    ),
     // タブバー
     React.createElement('div', { style: { display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px' } },
       tabs.map(t => React.createElement('button', {
