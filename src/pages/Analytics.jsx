@@ -146,14 +146,14 @@ window.AnalyticsPage = () => {
   const purposeData = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getPurposeBreakdown(dt) : [], [refreshKey, tab, dt]);
   const areaTime = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getAreaTimeBreakdown(dt) : [], [refreshKey, tab, dt]);
   const unitPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getUnitPriceAnalysis(dt) : null, [refreshKey, tab, dt]);
-  const recommendation = useMemo(() => DataService.getBusinessRecommendation(dt), [refreshKey, dt]);
+  const recommendation = useMemo(() => (tab === 'forecast') ? DataService.getBusinessRecommendation(dt) : null, [refreshKey, tab, dt]);
   const sourceAreaPrice = useMemo(() => (tab === 'area' || tab === 'forecast') ? DataService.getSourceAreaPriceBreakdown(dt) : null, [refreshKey, tab, dt]);
-  const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis() : null, [refreshKey, tab]);
+  const purposeDay = useMemo(() => (tab === 'purposeDay' || tab === 'forecast') ? DataService.getPurposeDayAnalysis(dt) : null, [refreshKey, tab, dt]);
 
   // リピーター分析データ
   const repeaterData = useMemo(() => {
     if (tab !== 'repeater') return null;
-    const entries = DataService.getEntries();
+    const entries = DataService.getFilteredEntries(dt);
     const all = entries;
     const repeaters = all.filter(e => e.isRegisteredUser);
     const nonRepeaters = all.filter(e => !e.isRegisteredUser);
@@ -279,7 +279,7 @@ window.AnalyticsPage = () => {
       },
       ranking, dowStats, hourStats, areaStats, monthlyTrend,
     };
-  }, [refreshKey, tab]);
+  }, [refreshKey, tab, dt]);
 
   const hasData = overall.rideCount > 0;
 

@@ -1158,8 +1158,8 @@ window.DataService = (() => {
   // ============================================================
   // 用途×曜日×日種別（平日/休日/大型連休）クロス分析
   // ============================================================
-  function getPurposeDayAnalysis() {
-    const entries = getEntries();
+  function getPurposeDayAnalysis(dayType) {
+    const entries = _filterByDayType(getEntries(), dayType);
     const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'];
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -4958,7 +4958,7 @@ window.DataService = (() => {
     // 天気係数: GPSキャッシュ優先 → 直近エントリーフォールバック
     const weatherFactor = (() => {
       // GPSキャッシュ天気を最優先使用
-      const gpsWeather = GpsLogService.getCurrentWeather();
+      const gpsWeather = window.GpsLogService ? window.GpsLogService.getCurrentWeather() : null;
       let weather = gpsWeather ? gpsWeather.weather : '';
       // フォールバック: 直近エントリーから天気取得
       if (!weather) {
@@ -5210,7 +5210,7 @@ window.DataService = (() => {
 
     // 天気係数: GPSキャッシュ優先 → 直近エントリーフォールバック
     const weatherFactor = (() => {
-      const gpsWeather = GpsLogService.getCurrentWeather();
+      const gpsWeather = window.GpsLogService ? window.GpsLogService.getCurrentWeather() : null;
       let weather = gpsWeather ? gpsWeather.weather : '';
       if (!weather) {
         const entries = getEntries();
@@ -6497,6 +6497,9 @@ window.DataService = (() => {
     getVacantEntries,
     getStandbyEntries,
     saveEntries,
+
+    // フィルタ
+    getFilteredEntries: (dayType) => _filterByDayType(getEntries(), dayType),
 
     // サマリー
     getTodaySummary,
