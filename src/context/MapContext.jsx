@@ -35,20 +35,92 @@ window.MapProvider = ({ children }) => {
   const watchIdRef = useRef(null);
   const standbyTimerRef = useRef(null);
   const locationLookupRef = useRef(null); // 重複防止用
+  const positionHistoryRef = useRef([]); // GPS平滑化用の履歴
+  const lastAcceptedRef = useRef(null); // 最後に受け入れた位置・時刻
+
+  // Haversine距離計算（メートル）
+  const calcDistance = useCallback((lat1, lng1, lat2, lng2) => {
+    if (window.TaxiApp && TaxiApp.utils.haversineDistance) {
+      return TaxiApp.utils.haversineDistance(lat1, lng1, lat2, lng2);
+    }
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }, []);
+
+  // GPS位置の平滑化（精度加重平均）
+  const smoothPosition = useCallback((rawLat, rawLng, rawAccuracy) => {
+    const cfg = APP_CONSTANTS.GPS_ACCURACY || {};
+    const maxHistory = cfg.SMOOTHING_COUNT || 3;
+    const history = positionHistoryRef.current;
+
+    // 履歴に追加
+    history.push({ lat: rawLat, lng: rawLng, accuracy: rawAccuracy, time: Date.now() });
+    // 古い履歴を削除
+    while (history.length > maxHistory) history.shift();
+
+    if (history.length === 1) return { lat: rawLat, lng: rawLng };
+
+    // 精度の逆数で加重平均（精度が良い=値が小さいほど重みが大きい）
+    let totalWeight = 0;
+    let wLat = 0;
+    let wLng = 0;
+    history.forEach(h => {
+      const weight = 1 / Math.max(h.accuracy, 1);
+      totalWeight += weight;
+      wLat += h.lat * weight;
+      wLng += h.lng * weight;
+    });
+    return { lat: wLat / totalWeight, lng: wLng / totalWeight };
+  }, []);
 
   const updatePosition = useCallback((position) => {
-    const lat = position.coords.latitude;
-    const lng = position.coords.longitude;
+    const rawLat = position.coords.latitude;
+    const rawLng = position.coords.longitude;
+    const rawAccuracy = position.coords.accuracy;
     // 無効な座標を無視
-    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
-    const pos = { lat, lng };
+    if (rawLat == null || rawLng == null || isNaN(rawLat) || isNaN(rawLng)) return;
+
+    const cfg = APP_CONSTANTS.GPS_ACCURACY || {};
+    const maxAccept = cfg.MAX_ACCEPT || 200;
+    const maxJump = cfg.MAX_JUMP_METERS || 500;
+    const maxJumpInterval = cfg.MAX_JUMP_INTERVAL || 5000;
+
+    // 精度フィルタ: 精度が悪すぎる測位は無視（ただし最初の測位は受け入れ）
+    if (rawAccuracy > maxAccept && lastAcceptedRef.current) {
+      AppLogger.info(`GPS測位を無視: 精度${Math.round(rawAccuracy)}m > ${maxAccept}m`);
+      return;
+    }
+
+    // ジャンプフィルタ: 前回位置から不自然に離れている場合は無視
+    const now = Date.now();
+    if (lastAcceptedRef.current) {
+      const prev = lastAcceptedRef.current;
+      const elapsed = now - prev.time;
+      if (elapsed < maxJumpInterval) {
+        const dist = calcDistance(prev.lat, prev.lng, rawLat, rawLng);
+        if (dist > maxJump) {
+          AppLogger.info(`GPS位置ジャンプを無視: ${Math.round(dist)}m移動 (${elapsed}ms間)`);
+          return;
+        }
+      }
+    }
+
+    // 平滑化
+    const smoothed = smoothPosition(rawLat, rawLng, rawAccuracy);
+    const pos = { lat: smoothed.lat, lng: smoothed.lng };
+
+    lastAcceptedRef.current = { lat: rawLat, lng: rawLng, time: now };
+
     setCurrentPosition(pos);
-    setAccuracy(position.coords.accuracy);
+    setAccuracy(rawAccuracy);
     setSpeed(position.coords.speed);
     setHeading(position.coords.heading);
     setGpsError(null);
     if (window.GpsLogService) {
-      window.GpsLogService.maybeRecord(pos.lat, pos.lng, position.coords.accuracy, position.coords.speed);
+      window.GpsLogService.maybeRecord(pos.lat, pos.lng, rawAccuracy, position.coords.speed);
       // 待機状態を更新
       setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
     }
@@ -76,7 +148,7 @@ window.MapProvider = ({ children }) => {
         }
       }).catch(() => {});
     }
-  }, []);
+  }, [calcDistance, smoothPosition]);
 
   // GPS追跡開始（天気ポーリングも連動開始）
   const startTracking = useCallback(() => {
@@ -88,6 +160,8 @@ window.MapProvider = ({ children }) => {
     }
     AppLogger.info('GPS追跡を開始');
     setIsTracking(true);
+    positionHistoryRef.current = [];
+    lastAcceptedRef.current = null;
     if (window.GpsLogService) window.GpsLogService.startWeatherPolling();
 
     const id = navigator.geolocation.watchPosition(

@@ -413,7 +413,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.2',
+  VERSION: '3.35.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -422,8 +422,15 @@ window.APP_CONSTANTS = {
   // GPS設定
   GPS_OPTIONS: {
     enableHighAccuracy: true,
-    timeout: 15000,
-    maximumAge: 0,
+    timeout: 10000,
+    maximumAge: 3000,
+  },
+  // GPS精度フィルタリング設定
+  GPS_ACCURACY: {
+    MAX_ACCEPT: 200,       // この精度(m)以上の測位は無視
+    SMOOTHING_COUNT: 3,    // 平滑化に使う直近の測位数
+    MAX_JUMP_METERS: 500,  // 1回の更新で許容する最大移動距離(m)
+    MAX_JUMP_INTERVAL: 5000, // ジャンプ判定の最小間隔(ms)
   },
 
   // ルート定義
