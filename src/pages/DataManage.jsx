@@ -1395,9 +1395,29 @@ window.DataManagePage = () => {
           return false;
         });
         if (matchingStandby) {
+          // 既存の待機記録を更新
           DataService.updateEntry(matchingStandby.id, {
             pickup: si.locationName, dropoff: si.locationName,
             pickupTime: si.startTime, dropoffTime: si.endTime, standbyInfo: si,
+            date: entry.date, weather: entry.weather || '',
+          });
+        } else {
+          // 対応する待機記録がない場合は新規作成
+          DataService.addEntry({
+            date: entry.date,
+            weather: entry.weather || '',
+            amount: '0',
+            noPassenger: true,
+            pickup: si.locationName,
+            pickupTime: si.startTime,
+            dropoff: si.locationName,
+            dropoffTime: si.endTime || '',
+            passengers: '0',
+            gender: '',
+            purpose: '待機',
+            source: '',
+            memo: '',
+            standbyInfo: si,
           });
         }
       }

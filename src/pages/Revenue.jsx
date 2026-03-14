@@ -509,8 +509,8 @@ window.RevenuePage = () => {
       }
     }
 
-    // 新規保存後: 配車方法が「待機」の場合、待機記録と同期
-    if (result.entry && result.entry.source === '待機' && formWithCoords.standbyInfo && formWithCoords.standbyInfo.locationName) {
+    // 新規保存後: 待機情報がある場合、待機記録と同期
+    if (result.entry && formWithCoords.standbyInfo && formWithCoords.standbyInfo.locationName) {
       const entry = result.entry;
       const standbyEntries = DataService.getStandbyEntries();
       const si = formWithCoords.standbyInfo;

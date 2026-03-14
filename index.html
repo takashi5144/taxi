@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.4</title>
+  <title>タクシー売上サポート v3.35.5</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.4',
+  VERSION: '3.35.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -18668,8 +18668,8 @@ window.RevenuePage = () => {
       }
     }
 
-    // 新規保存後: 配車方法が「待機」の場合、待機記録と同期
-    if (result.entry && result.entry.source === '待機' && formWithCoords.standbyInfo && formWithCoords.standbyInfo.locationName) {
+    // 新規保存後: 待機情報がある場合、待機記録と同期
+    if (result.entry && formWithCoords.standbyInfo && formWithCoords.standbyInfo.locationName) {
       const entry = result.entry;
       const standbyEntries = DataService.getStandbyEntries();
       const si = formWithCoords.standbyInfo;
@@ -27561,9 +27561,29 @@ window.DataManagePage = () => {
           return false;
         });
         if (matchingStandby) {
+          // 既存の待機記録を更新
           DataService.updateEntry(matchingStandby.id, {
             pickup: si.locationName, dropoff: si.locationName,
             pickupTime: si.startTime, dropoffTime: si.endTime, standbyInfo: si,
+            date: entry.date, weather: entry.weather || '',
+          });
+        } else {
+          // 対応する待機記録がない場合は新規作成
+          DataService.addEntry({
+            date: entry.date,
+            weather: entry.weather || '',
+            amount: '0',
+            noPassenger: true,
+            pickup: si.locationName,
+            pickupTime: si.startTime,
+            dropoff: si.locationName,
+            dropoffTime: si.endTime || '',
+            passengers: '0',
+            gender: '',
+            purpose: '待機',
+            source: '',
+            memo: '',
+            standbyInfo: si,
           });
         }
       }
