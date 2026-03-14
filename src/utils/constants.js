@@ -422,7 +422,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.9',
+  VERSION: '3.35.10',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -529,7 +529,7 @@ window.APP_CONSTANTS = {
   // 場所名エイリアス（逆ジオコーディング結果の自動置換）
   // キー: 元の住所に含まれる文字列（部分一致）、値: 置換後の名称
   PLACE_ALIASES: {
-    'タクシープール': '旭川駅前北口',
+    'タクシープール': '旭川駅北口',
     '見本林道路線': '三浦綾子記念館',
   },
 
@@ -537,8 +537,8 @@ window.APP_CONSTANTS = {
   // radius(m)以内の座標は全てこの名称に変換される
   // 近接する場所は小さいradiusで区別する
   KNOWN_PLACES: [
-    { name: '旭川駅前北口', lat: 43.763314, lng: 142.359065, radius: 50 },
-    { name: 'イオン旭川駅前店待機場', lat: 43.76455, lng: 142.35875, radius: 50 },
+    { name: '旭川駅北口', lat: 43.763314, lng: 142.359065, radius: 50 },
+    { name: 'イオンモール旭川駅前', lat: 43.76455, lng: 142.35875, radius: 50 },
     { name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
   ],
 
@@ -608,7 +608,7 @@ window.APP_CONSTANTS = {
       // 待機スポット定義（需要指数算出用）
       waitingSpots: [
         {
-          id: 'station', name: '旭川駅前', shortName: '駅前',
+          id: 'station', name: '旭川駅北口', shortName: '駅北口',
           lat: 43.7631, lng: 142.3581,
           hasOddDayRule: true, // 奇数日は待機不可
           // 24要素: 0時〜23時のベース需要(0-100) 平日

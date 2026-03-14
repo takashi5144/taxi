@@ -2632,7 +2632,7 @@ window.DataService = (() => {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     const cruisingAreas = locs && locs.cruisingAreas ? locs.cruisingAreas : [];
     const extraAreas = [
-      { id: 'station', name: '旭川駅前', shortName: '駅前', lat: 43.7631, lng: 142.3581, radius: 300 },
+      { id: 'station', name: '旭川駅北口', shortName: '駅北口', lat: 43.7631, lng: 142.3581, radius: 300 },
       { id: 'airport', name: '旭川空港', shortName: '空港', lat: 43.6708, lng: 142.4475, radius: 1000 },
       { id: 'zoo', name: '旭山動物園', shortName: '動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
     ];
@@ -3048,7 +3048,7 @@ window.DataService = (() => {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     const cruisingAreas = locs && locs.cruisingAreas ? locs.cruisingAreas : [];
     const extraAreas = [
-      { id: 'station', name: '旭川駅前', shortName: '駅前', lat: 43.7631, lng: 142.3581, radius: 300 },
+      { id: 'station', name: '旭川駅北口', shortName: '駅北口', lat: 43.7631, lng: 142.3581, radius: 300 },
       { id: 'airport', name: '旭川空港', shortName: '空港', lat: 43.6708, lng: 142.4475, radius: 1000 },
       { id: 'zoo', name: '旭山動物園', shortName: '動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
     ];
@@ -3185,7 +3185,7 @@ window.DataService = (() => {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     const cruisingAreas = locs && locs.cruisingAreas ? locs.cruisingAreas : [];
     const extraAreas = [
-      { id: 'station', name: '旭川駅前', lat: 43.7631, lng: 142.3581, radius: 300 },
+      { id: 'station', name: '旭川駅北口', lat: 43.7631, lng: 142.3581, radius: 300 },
       { id: 'airport', name: '旭川空港', lat: 43.6708, lng: 142.4475, radius: 1000 },
       { id: 'zoo', name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
     ];
