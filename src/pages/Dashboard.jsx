@@ -151,13 +151,16 @@ window.DashboardPage = () => {
       if (fetchId === weatherFetchIdRef.current) {
         setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
       }
-    }).catch(() => {});
+    }).catch(() => {
+      if (fetchId === weatherFetchIdRef.current) {
+        setWeatherImpact(DataService.getWeatherDemandImpact(null));
+      }
+    });
     return () => { weatherFetchIdRef.current++; };
   }, [refreshKey]);
   const dayShiftScore = useMemo(() => DataService.getDayShiftDemandScore(weatherImpact), [refreshKey, weatherImpact]);
   const timeline = useMemo(() => DataService.getDayShiftTimeline(weatherImpact), [refreshKey, weatherImpact]);
   const nextAction = useMemo(() => DataService.getNextOptimalAction(currentPosition, weatherImpact), [refreshKey, weatherImpact, currentPosition]);
-  const strategyData = useMemo(() => DataService.getStrategySimulation(new Date().getHours()), [refreshKey]);
   const [strategyHour, setStrategyHour] = useState(new Date().getHours());
   const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
   const slowPeriodRoutes = useMemo(() => DataService.getSlowPeriodCruisingRoutes(), [refreshKey, weatherImpact]);
@@ -307,16 +310,20 @@ window.DashboardPage = () => {
       const activeShift = shifts.find(s => !s.endTime);
       if (activeShift) {
         setShiftInfo({ active: true, startTime: activeShift.startTime });
+      } else {
+        setShiftInfo({ active: false, startTime: null });
       }
       const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       const activeBreak = breaks.find(b => !b.endTime);
       if (activeBreak) {
         setBreakInfo({ active: true, startTime: activeBreak.startTime });
+      } else {
+        setBreakInfo({ active: false, startTime: null });
       }
     } catch (e) {
       AppLogger.warn('シフト/休憩データの読み込みに失敗', e.message);
     }
-  }, []);
+  }, [refreshKey]);
 
   // 始業時間変更ハンドラ
   const handleStartTimeEdit = useCallback(() => {
@@ -379,15 +386,15 @@ window.DashboardPage = () => {
       if (activeShift) {
         activeShift.endTime = now.toISOString();
       }
-      // 休憩中なら終了させる
-      if (breakInfo.active) {
-        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-        const ab = breaks.find(b => !b.endTime);
-        if (ab) ab.endTime = now.toISOString();
+      // 休憩中なら終了させる（state/localStorage両方をチェック）
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const ab = breaks.find(b => !b.endTime);
+      if (ab) {
+        ab.endTime = now.toISOString();
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
         DataService.syncBreaksToCloud();
-        setBreakInfo({ active: false, startTime: null });
       }
+      setBreakInfo({ active: false, startTime: null });
       const newShift = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
       shifts.push(newShift);
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
@@ -401,20 +408,20 @@ window.DashboardPage = () => {
     } catch (e) {
       AppLogger.error('始業処理に失敗', e.message);
     }
-  }, [breakInfo.active, geo]);
+  }, [geo]);
 
   const handleShiftEnd = useCallback(() => {
     try {
       const now = new Date();
-      // 休憩中なら終了させる
-      if (breakInfo.active) {
-        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-        const ab = breaks.find(b => !b.endTime);
-        if (ab) ab.endTime = now.toISOString();
+      // 休憩中なら終了させる（state/localStorage両方をチェック）
+      const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+      const ab = breaks.find(b => !b.endTime);
+      if (ab) {
+        ab.endTime = now.toISOString();
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
         DataService.syncBreaksToCloud();
-        setBreakInfo({ active: false, startTime: null });
       }
+      setBreakInfo({ active: false, startTime: null });
       const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
       const activeShift = shifts.find(s => !s.endTime);
       if (activeShift) {
@@ -433,7 +440,7 @@ window.DashboardPage = () => {
     } catch (e) {
       AppLogger.error('終業処理に失敗', e.message);
     }
-  }, [breakInfo.active, geo]);
+  }, [geo]);
 
   const handleBreakStart = useCallback(() => {
     if (!shiftInfo.active) return;
@@ -1073,7 +1080,7 @@ window.DashboardPage = () => {
     // ============================================================
     // エリアレコメンド（今どこに行くべきか）
     // ============================================================
-    areaRecommendation && areaRecommendation.ranking.length >= 2 && React.createElement(Card, {
+    areaRecommendation && areaRecommendation.ranking.length >= 1 && React.createElement(Card, {
       style: {
         marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
         background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(59,130,246,0.08))',
@@ -2543,7 +2550,7 @@ window.DashboardPage = () => {
     // ============================================================
     // 待機場所パフォーマンス比較カード
     // ============================================================
-    standbyAnalysis && standbyAnalysis.locations.length > 0 && React.createElement(Card, {
+    standbyAnalysis && standbyAnalysis.locations.length > 0 && standbyAnalysis.recommendation && React.createElement(Card, {
       style: {
         marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
         background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(59,130,246,0.06))',
