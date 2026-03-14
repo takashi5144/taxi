@@ -108,9 +108,11 @@ window.MapProvider = ({ children }) => {
       }
     }
 
-    // 平滑化
+    // 平滑化（地図表示・GPSログ用）
     const smoothed = smoothPosition(rawLat, rawLng, rawAccuracy);
     const pos = { lat: smoothed.lat, lng: smoothed.lng };
+    // 生座標（住所解決用 — 平滑化するとずれるため）
+    const rawPos = { lat: rawLat, lng: rawLng };
 
     lastAcceptedRef.current = { lat: rawLat, lng: rawLng, time: now };
 
@@ -120,28 +122,28 @@ window.MapProvider = ({ children }) => {
     setHeading(position.coords.heading);
     setGpsError(null);
     if (window.GpsLogService) {
-      window.GpsLogService.maybeRecord(pos.lat, pos.lng, rawAccuracy, position.coords.speed);
+      window.GpsLogService.maybeRecord(rawPos.lat, rawPos.lng, rawAccuracy, position.coords.speed);
       // 待機状態を更新
       setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
     }
-    // 現在地名を更新（既知スポット→ランドマーク→住所の優先順位）
+    // 現在地名を更新（生座標を使用 — 平滑化座標だと住所がずれるため）
     const lookupId = Date.now();
     locationLookupRef.current = lookupId;
     // まず既知スポットを同期チェック
     const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace
-      ? TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng) : null;
+      ? TaxiApp.utils.matchKnownPlace(rawPos.lat, rawPos.lng) : null;
     if (knownPlace) {
       setCurrentLocationName(knownPlace);
       // 同期で確定したのでlookupIdを無効化（非同期結果に上書きされない）
       locationLookupRef.current = null;
     } else if (window.TaxiApp && TaxiApp.utils.findNearbyLandmark) {
-      // 非同期でランドマーク/住所を取得
-      TaxiApp.utils.findNearbyLandmark(pos.lat, pos.lng).then(name => {
+      // 非同期でランドマーク/住所を取得（生座標を使用）
+      TaxiApp.utils.findNearbyLandmark(rawPos.lat, rawPos.lng).then(name => {
         if (locationLookupRef.current !== lookupId) return; // 古い結果は無視
         if (name) {
           setCurrentLocationName(name);
         } else if (window.TaxiApp && TaxiApp.utils.reverseGeocode) {
-          TaxiApp.utils.reverseGeocode(pos.lat, pos.lng).then(addr => {
+          TaxiApp.utils.reverseGeocode(rawPos.lat, rawPos.lng).then(addr => {
             if (locationLookupRef.current !== lookupId) return;
             setCurrentLocationName(addr || null);
           }).catch(() => {});

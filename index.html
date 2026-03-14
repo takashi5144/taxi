@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.6</title>
+  <title>タクシー売上サポート v3.35.7</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1166,7 +1166,7 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
     const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
     if (knownPlace) return knownPlace;
 
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
 
     // メモリキャッシュ
     if (cache[key] !== undefined) return cache[key];
@@ -1214,7 +1214,7 @@ window.TaxiApp.utils.reverseGeocode = (() => {
     }
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
   }
-  function _roundKey(lat, lng) { return `${lat.toFixed(4)},${lng.toFixed(4)}`; }
+  function _roundKey(lat, lng) { return `${lat.toFixed(5)},${lng.toFixed(5)}`; }
 
   return async function reverseGeocode(lat, lng) {
     if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
@@ -1252,9 +1252,18 @@ window.TaxiApp.utils.reverseGeocode = (() => {
     _lastNominatimGeoCall = nowNom;
     try {
       const url = TaxiApp.utils.nominatimUrl(lat, lng);
-      const res = await fetch(url, { headers: { 'User-Agent': 'TaxiSalesSupport/3.24.0 (taxi-app)' } });
+      const res = await fetch(url, { headers: { 'User-Agent': 'TaxiSalesSupport/3.35 (taxi-app)' } });
       const data = await res.json();
-      const name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      let name = null;
+      if (data && data.address) {
+        const a = data.address;
+        const area = a.city || a.town || a.village || a.county || '';
+        const detail = [a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean).join(' ');
+        name = [area, detail].filter(Boolean).join(' ') || null;
+      }
+      if (!name) {
+        name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      }
       cache[key] = name;
       memCache = cache;
       _saveCache(cache);
@@ -1273,7 +1282,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.6',
+  VERSION: '3.35.7',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -11606,9 +11615,11 @@ window.MapProvider = ({ children }) => {
       }
     }
 
-    // 平滑化
+    // 平滑化（地図表示・GPSログ用）
     const smoothed = smoothPosition(rawLat, rawLng, rawAccuracy);
     const pos = { lat: smoothed.lat, lng: smoothed.lng };
+    // 生座標（住所解決用 — 平滑化するとずれるため）
+    const rawPos = { lat: rawLat, lng: rawLng };
 
     lastAcceptedRef.current = { lat: rawLat, lng: rawLng, time: now };
 
@@ -11618,28 +11629,28 @@ window.MapProvider = ({ children }) => {
     setHeading(position.coords.heading);
     setGpsError(null);
     if (window.GpsLogService) {
-      window.GpsLogService.maybeRecord(pos.lat, pos.lng, rawAccuracy, position.coords.speed);
+      window.GpsLogService.maybeRecord(rawPos.lat, rawPos.lng, rawAccuracy, position.coords.speed);
       // 待機状態を更新
       setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
     }
-    // 現在地名を更新（既知スポット→ランドマーク→住所の優先順位）
+    // 現在地名を更新（生座標を使用 — 平滑化座標だと住所がずれるため）
     const lookupId = Date.now();
     locationLookupRef.current = lookupId;
     // まず既知スポットを同期チェック
     const knownPlace = window.TaxiApp && TaxiApp.utils.matchKnownPlace
-      ? TaxiApp.utils.matchKnownPlace(pos.lat, pos.lng) : null;
+      ? TaxiApp.utils.matchKnownPlace(rawPos.lat, rawPos.lng) : null;
     if (knownPlace) {
       setCurrentLocationName(knownPlace);
       // 同期で確定したのでlookupIdを無効化（非同期結果に上書きされない）
       locationLookupRef.current = null;
     } else if (window.TaxiApp && TaxiApp.utils.findNearbyLandmark) {
-      // 非同期でランドマーク/住所を取得
-      TaxiApp.utils.findNearbyLandmark(pos.lat, pos.lng).then(name => {
+      // 非同期でランドマーク/住所を取得（生座標を使用）
+      TaxiApp.utils.findNearbyLandmark(rawPos.lat, rawPos.lng).then(name => {
         if (locationLookupRef.current !== lookupId) return; // 古い結果は無視
         if (name) {
           setCurrentLocationName(name);
         } else if (window.TaxiApp && TaxiApp.utils.reverseGeocode) {
-          TaxiApp.utils.reverseGeocode(pos.lat, pos.lng).then(addr => {
+          TaxiApp.utils.reverseGeocode(rawPos.lat, rawPos.lng).then(addr => {
             if (locationLookupRef.current !== lookupId) return;
             setCurrentLocationName(addr || null);
           }).catch(() => {});

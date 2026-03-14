@@ -306,7 +306,7 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
     const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
     if (knownPlace) return knownPlace;
 
-    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
 
     // メモリキャッシュ
     if (cache[key] !== undefined) return cache[key];
@@ -354,7 +354,7 @@ window.TaxiApp.utils.reverseGeocode = (() => {
     }
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
   }
-  function _roundKey(lat, lng) { return `${lat.toFixed(4)},${lng.toFixed(4)}`; }
+  function _roundKey(lat, lng) { return `${lat.toFixed(5)},${lng.toFixed(5)}`; }
 
   return async function reverseGeocode(lat, lng) {
     if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return null;
@@ -392,9 +392,18 @@ window.TaxiApp.utils.reverseGeocode = (() => {
     _lastNominatimGeoCall = nowNom;
     try {
       const url = TaxiApp.utils.nominatimUrl(lat, lng);
-      const res = await fetch(url, { headers: { 'User-Agent': 'TaxiSalesSupport/3.24.0 (taxi-app)' } });
+      const res = await fetch(url, { headers: { 'User-Agent': 'TaxiSalesSupport/3.35 (taxi-app)' } });
       const data = await res.json();
-      const name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      let name = null;
+      if (data && data.address) {
+        const a = data.address;
+        const area = a.city || a.town || a.village || a.county || '';
+        const detail = [a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean).join(' ');
+        name = [area, detail].filter(Boolean).join(' ') || null;
+      }
+      if (!name) {
+        name = data.display_name ? data.display_name.split(',').slice(0, 3).join(' ').trim() : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      }
       cache[key] = name;
       memCache = cache;
       _saveCache(cache);
@@ -413,7 +422,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.6',
+  VERSION: '3.35.7',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
