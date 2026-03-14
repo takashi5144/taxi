@@ -9,6 +9,41 @@ window.Header = () => {
   const [editingLocation, setEditingLocation] = useState(false);
   const dropdownRef = useRef(null);
 
+  // GPS非追跡時の待機時間（最後の売上記録からの経過）
+  const [idleElapsed, setIdleElapsed] = useState(null);
+  useEffect(() => {
+    if (standbyStatus) { setIdleElapsed(null); return; }
+    const calcIdle = () => {
+      try {
+        const entries = DataService.getEntries();
+        if (entries.length === 0) { setIdleElapsed(null); return; }
+        const today = new Date().toISOString().split('T')[0];
+        const todayEntries = entries.filter(e => e.date === today);
+        if (todayEntries.length === 0) { setIdleElapsed(null); return; }
+        // 最新の降車時刻を取得
+        let latestTime = null;
+        todayEntries.forEach(e => {
+          if (e.dropoffTime) {
+            const [h, m] = e.dropoffTime.split(':').map(Number);
+            const t = new Date(); t.setHours(h, m, 0, 0);
+            if (!latestTime || t > latestTime) latestTime = t;
+          }
+        });
+        if (!latestTime) { setIdleElapsed(null); return; }
+        const now = new Date();
+        const diffMs = now - latestTime;
+        if (diffMs < 0) { setIdleElapsed(null); return; }
+        const min = Math.floor(diffMs / 60000);
+        const sec = Math.floor((diffMs % 60000) / 1000);
+        const hhmm = String(latestTime.getHours()).padStart(2, '0') + ':' + String(latestTime.getMinutes()).padStart(2, '0');
+        setIdleElapsed({ min, sec, since: hhmm });
+      } catch { setIdleElapsed(null); }
+    };
+    calcIdle();
+    const timer = setInterval(calcIdle, 1000);
+    return () => clearInterval(timer);
+  }, [standbyStatus]);
+
   // 待機場所の選択肢を取得
   const locationOptions = (() => {
     const spots = [];
@@ -85,6 +120,32 @@ window.Header = () => {
           fontSize: '11px',
         },
       }, currentLocationName)
+    ),
+
+    // 待機時間（GPS非追跡時 — 最終降車からの経過）
+    !standbyStatus && idleElapsed && React.createElement('div', {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 12px',
+        borderRadius: '20px',
+        background: 'rgba(158,158,158,0.12)',
+        border: '1px solid rgba(158,158,158,0.25)',
+        fontSize: '12px',
+        color: '#bdbdbd',
+        fontWeight: 500,
+        flexShrink: 0,
+      },
+    },
+      React.createElement('span', {
+        className: 'material-icons-round',
+        style: { fontSize: '14px', flexShrink: 0 },
+      }, 'hourglass_empty'),
+      React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, idleElapsed.since + '〜'),
+      React.createElement('span', {
+        style: { fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: '12px', flexShrink: 0 },
+      }, idleElapsed.min + ':' + String(idleElapsed.sec).padStart(2, '0'))
     ),
 
     // 待機中インジケーター（GPS待機検出時に表示）
