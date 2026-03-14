@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.34.0</title>
+  <title>タクシー売上サポート v3.34.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1273,7 +1273,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.34.0',
+  VERSION: '3.34.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17771,44 +17771,6 @@ window.DashboardPage = () => {
             )
           );
         })
-      )
-    ),
-
-    // 累計情報
-    overallSummary.rideCount > 0 && React.createElement(Card, {
-      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
-    },
-      React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } },
-        '累計実績'
-      ),
-      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', textAlign: 'center' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-secondary)' } },
-            `¥${overallSummary.totalAmount.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.totalAmount / 1.1).toLocaleString()}`),
-          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税¥${(overallSummary.totalAmount - Math.floor(overallSummary.totalAmount / 1.1)).toLocaleString()}`),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上（税込）')
-        ),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
-            `${overallSummary.rideCount}回`
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計乗車')
-        ),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
-            `¥${overallSummary.dailyAvg.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.dailyAvg / 1.1).toLocaleString()}`),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上（税込）')
-        ),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
-            `${overallSummary.activeDays}日`
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '稼働日数')
-        )
       )
     ),
 

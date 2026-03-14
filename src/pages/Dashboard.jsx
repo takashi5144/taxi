@@ -3200,44 +3200,6 @@ window.DashboardPage = () => {
       )
     ),
 
-    // 累計情報
-    overallSummary.rideCount > 0 && React.createElement(Card, {
-      style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' },
-    },
-      React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: '8px' } },
-        '累計実績'
-      ),
-      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', textAlign: 'center' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-secondary)' } },
-            `¥${overallSummary.totalAmount.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.totalAmount / 1.1).toLocaleString()}`),
-          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税¥${(overallSummary.totalAmount - Math.floor(overallSummary.totalAmount / 1.1)).toLocaleString()}`),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計売上（税込）')
-        ),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
-            `${overallSummary.rideCount}回`
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '累計乗車')
-        ),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
-            `¥${overallSummary.dailyAvg.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(overallSummary.dailyAvg / 1.1).toLocaleString()}`),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '日平均売上（税込）')
-        ),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700 } },
-            `${overallSummary.activeDays}日`
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } }, '稼働日数')
-        )
-      )
-    ),
-
     // 最近の売上（本日分）
     todaySummary.entries.length > 0 && React.createElement(Card, {
       title: `本日の記録（${todaySummary.entries.length}件）`,
