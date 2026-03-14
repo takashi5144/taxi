@@ -1184,6 +1184,18 @@ window.DataManagePage = () => {
     } catch { return {}; }
   }, [refreshKey]);
   const trashEntries = useMemo(() => DataService.getTrash(), [refreshKey]);
+  // 待機場所の選択肢（登録済みスポット）
+  const standbyLocationOptions = useMemo(() => {
+    const spots = [];
+    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+    if (locs && locs.waitingSpots) {
+      locs.waitingSpots.forEach(s => { if (!spots.includes(s.name)) spots.push(s.name); });
+    }
+    if (APP_CONSTANTS.KNOWN_PLACES) {
+      APP_CONSTANTS.KNOWN_PLACES.forEach(p => { if (!spots.includes(p.name)) spots.push(p.name); });
+    }
+    return spots;
+  }, []);
   const [confirmTrashDelete, setConfirmTrashDelete] = useState(null);
   const [regeocoding, setRegeocoding] = useState(false);
   const [regeoProgress, setRegeoProgress] = useState('');
@@ -1640,7 +1652,7 @@ window.DataManagePage = () => {
   // 待機記録の手動追加
   const handleStandbyAdd = useCallback(() => {
     setStandbyAddErrors([]);
-    if (!standbyAddForm.location) { setStandbyAddErrors(['待機場所を入力してください']); return; }
+    if (!standbyAddForm.location) { setStandbyAddErrors(['待機場所を選択してください']); return; }
     if (!standbyAddForm.startTime) { setStandbyAddErrors(['開始時刻を入力してください']); return; }
     const form = {
       date: standbyAddForm.date,
@@ -1888,7 +1900,11 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { marginBottom: '8px', padding: '8px', borderRadius: '8px', background: 'rgba(255,167,38,0.06)', border: '1px solid rgba(255,167,38,0.2)' } },
           React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '4px', fontWeight: 600 } }, '待機情報'),
           React.createElement('div', { style: { marginBottom: '4px' } },
-            React.createElement('input', { type: 'text', value: editForm.standbyLocation || '', onChange: e => setEditForm(f => ({ ...f, standbyLocation: e.target.value })), style: { width: '100%', padding: '5px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '12px', boxSizing: 'border-box' }, placeholder: '待機場所' })
+            React.createElement('select', { value: editForm.standbyLocation || '', onChange: e => setEditForm(f => ({ ...f, standbyLocation: e.target.value })), style: { width: '100%', padding: '5px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '12px', boxSizing: 'border-box' } },
+              React.createElement('option', { value: '' }, '-- 待機場所を選択 --'),
+              ...standbyLocationOptions.map(name => React.createElement('option', { key: name, value: name }, name)),
+              editForm.standbyLocation && !standbyLocationOptions.includes(editForm.standbyLocation) ? React.createElement('option', { key: editForm.standbyLocation, value: editForm.standbyLocation }, editForm.standbyLocation) : null
+            )
           ),
           React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
             React.createElement('input', { type: 'time', value: editForm.standbyStartTime || '', onChange: e => setEditForm(f => ({ ...f, standbyStartTime: e.target.value })), style: { flex: 1, padding: '5px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark' } }),
@@ -2807,12 +2823,14 @@ window.DataManagePage = () => {
         // 待機場所
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機場所 *'),
-          React.createElement('input', {
-            type: 'text', value: standbyAddForm.location,
+          React.createElement('select', {
+            value: standbyAddForm.location,
             onChange: (e) => setStandbyAddForm(f => ({ ...f, location: e.target.value })),
             style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
-            placeholder: '例: 旭川駅',
-          })
+          },
+            React.createElement('option', { value: '' }, '-- 待機場所を選択 --'),
+            ...standbyLocationOptions.map(name => React.createElement('option', { key: name, value: name }, name))
+          )
         ),
         // 待機時間（開始〜終了）
         React.createElement('div', { style: { marginBottom: '8px' } },
@@ -2944,12 +2962,15 @@ window.DataManagePage = () => {
                 // 待機場所
                 React.createElement('div', { style: { marginBottom: '8px' } },
                   React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機場所'),
-                  React.createElement('input', {
-                    type: 'text', value: editForm.standbyLocation || '',
+                  React.createElement('select', {
+                    value: editForm.standbyLocation || '',
                     onChange: (ev) => setEditForm({ ...editForm, standbyLocation: ev.target.value, pickup: ev.target.value, dropoff: ev.target.value }),
                     style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' },
-                    placeholder: '例: 旭川駅',
-                  })
+                  },
+                    React.createElement('option', { value: '' }, '-- 待機場所を選択 --'),
+                    ...standbyLocationOptions.map(name => React.createElement('option', { key: name, value: name }, name)),
+                    editForm.standbyLocation && !standbyLocationOptions.includes(editForm.standbyLocation) ? React.createElement('option', { key: editForm.standbyLocation, value: editForm.standbyLocation }, editForm.standbyLocation) : null
+                  )
                 ),
                 // 待機時間（開始〜終了）
                 React.createElement('div', { style: { marginBottom: '8px' } },
