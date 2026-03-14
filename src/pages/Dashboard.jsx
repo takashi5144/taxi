@@ -40,7 +40,6 @@ window.DashboardPage = () => {
   }, []);
 
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
-  const overallSummary = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
 
   const hourlyRate = useMemo(() => {
     if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 1) {
@@ -209,7 +208,7 @@ window.DashboardPage = () => {
       }, '');
 
       // 今日の乗車済みか
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       const riddenToday = data.rides.some(e => e.date === todayStr);
 
       predictions.push({

@@ -1450,6 +1450,24 @@ window.DataManagePage = () => {
     } else if (tab === 'standby') {
       const standbyUpdates = { ...editForm, noPassenger: true, amount: 0, purpose: '待機' };
       result = DataService.updateEntry(editingId, standbyUpdates);
+      // 逆同期: 対応する売上記録のstandbyInfoを更新
+      if (result && result.success) {
+        const updatedStandby = result.entry || DataService._getRawEntries().find(e => e.id === editingId);
+        if (updatedStandby) {
+          const allEntries = DataService._getRawEntries();
+          allEntries.forEach(entry => {
+            if (!entry.noPassenger && entry.standbyInfo && entry.standbyInfo.standbyId === editingId) {
+              DataService.updateEntry(entry.id, {
+                standbyInfo: {
+                  ...entry.standbyInfo,
+                  locationName: updatedStandby.pickupLocation || updatedStandby.standbyInfo?.locationName || '',
+                  waitMinutes: updatedStandby.waitingTime || updatedStandby.standbyInfo?.waitMinutes || '',
+                }
+              });
+            }
+          });
+        }
+      }
     } else if (tab === 'rival') {
       result = DataService.updateRivalEntry(editingId, editForm);
     } else {

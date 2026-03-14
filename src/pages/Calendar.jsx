@@ -86,7 +86,7 @@ window.CalendarPage = () => {
       map[e.date].count += 1;
     });
     return map;
-  }, [currentMonth]);
+  }, [currentMonth, refreshKey]);
 
   // シフトデータ
   const shifts = useMemo(() => {

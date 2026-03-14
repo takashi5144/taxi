@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.7</title>
+  <title>タクシー売上サポート v3.35.8</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1282,7 +1282,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.7',
+  VERSION: '3.35.8',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -14888,7 +14888,6 @@ window.DashboardPage = () => {
   }, []);
 
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
-  const overallSummary = useMemo(() => DataService.getOverallSummary(), [refreshKey]);
 
   const hourlyRate = useMemo(() => {
     if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 1) {
@@ -15057,7 +15056,7 @@ window.DashboardPage = () => {
       }, '');
 
       // 今日の乗車済みか
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       const riddenToday = data.rides.some(e => e.date === todayStr);
 
       predictions.push({
@@ -22047,7 +22046,7 @@ window.CalendarPage = () => {
       map[e.date].count += 1;
     });
     return map;
-  }, [currentMonth]);
+  }, [currentMonth, refreshKey]);
 
   // シフトデータ
   const shifts = useMemo(() => {
@@ -27627,6 +27626,24 @@ window.DataManagePage = () => {
     } else if (tab === 'standby') {
       const standbyUpdates = { ...editForm, noPassenger: true, amount: 0, purpose: '待機' };
       result = DataService.updateEntry(editingId, standbyUpdates);
+      // 逆同期: 対応する売上記録のstandbyInfoを更新
+      if (result && result.success) {
+        const updatedStandby = result.entry || DataService._getRawEntries().find(e => e.id === editingId);
+        if (updatedStandby) {
+          const allEntries = DataService._getRawEntries();
+          allEntries.forEach(entry => {
+            if (!entry.noPassenger && entry.standbyInfo && entry.standbyInfo.standbyId === editingId) {
+              DataService.updateEntry(entry.id, {
+                standbyInfo: {
+                  ...entry.standbyInfo,
+                  locationName: updatedStandby.pickupLocation || updatedStandby.standbyInfo?.locationName || '',
+                  waitMinutes: updatedStandby.waitingTime || updatedStandby.standbyInfo?.waitMinutes || '',
+                }
+              });
+            }
+          });
+        }
+      }
     } else if (tab === 'rival') {
       result = DataService.updateRivalEntry(editingId, editForm);
     } else {
