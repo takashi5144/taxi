@@ -512,13 +512,6 @@ window.DashboardPage = () => {
   const monthEntries = allEntries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth));
   const monthTotal = monthEntries.reduce((sum, e) => sum + e.amount, 0);
 
-  const quickActions = [
-    { label: '地図を開く', icon: 'map', page: 'map', color: 'var(--color-primary)' },
-    { label: '売上を記録', icon: 'add_circle', page: 'revenue', color: 'var(--color-accent)' },
-    { label: '分析を見る', icon: 'analytics', page: 'analytics', color: 'var(--color-secondary)' },
-    { label: '開発者ツール', icon: 'code', page: 'dev', color: 'var(--color-warning)' },
-  ];
-
   return React.createElement('div', null,
     // タイトル
     React.createElement('h1', { className: 'page-title' },
@@ -3241,26 +3234,6 @@ window.DashboardPage = () => {
       }, 'すべての記録を見る')
     ),
 
-    // クイックアクション
-    React.createElement('h2', {
-      style: { fontSize: 'var(--font-size-lg)', marginBottom: 'var(--space-md)', fontWeight: 500 },
-    }, 'クイックアクション'),
-
-    React.createElement('div', { className: 'grid grid--4' },
-      quickActions.map((action, i) =>
-        React.createElement(Card, {
-          key: i,
-          onClick: () => navigate(action.page),
-          style: { textAlign: 'center', cursor: 'pointer', padding: 'var(--space-lg)' },
-        },
-          React.createElement('span', {
-            className: 'material-icons-round',
-            style: { fontSize: '36px', color: action.color, marginBottom: '8px' },
-          }, action.icon),
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, action.label)
-        )
-      )
-    )
   );
 };
 
