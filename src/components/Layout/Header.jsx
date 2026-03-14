@@ -9,40 +9,71 @@ window.Header = () => {
   const [editingLocation, setEditingLocation] = useState(false);
   const dropdownRef = useRef(null);
 
-  // GPS非追跡時の待機時間（最後の売上記録からの経過）
+  // GPS非追跡時の待機時間（最後の売上記録からの経過 or 手動設定）
   const [idleElapsed, setIdleElapsed] = useState(null);
+  const [manualIdleStart, setManualIdleStart] = useState(null); // 手動設定の開始時刻 'HH:MM'
+  const [editingIdleTime, setEditingIdleTime] = useState(false);
+  const [editIdleTimeValue, setEditIdleTimeValue] = useState('');
+  const idleEditRef = useRef(null);
+
   useEffect(() => {
     if (standbyStatus) { setIdleElapsed(null); return; }
     const calcIdle = () => {
       try {
-        const entries = DataService.getEntries();
-        if (entries.length === 0) { setIdleElapsed(null); return; }
-        const today = new Date().toISOString().split('T')[0];
-        const todayEntries = entries.filter(e => e.date === today);
-        if (todayEntries.length === 0) { setIdleElapsed(null); return; }
-        // 最新の降車時刻を取得
-        let latestTime = null;
-        todayEntries.forEach(e => {
-          if (e.dropoffTime) {
-            const [h, m] = e.dropoffTime.split(':').map(Number);
-            const t = new Date(); t.setHours(h, m, 0, 0);
-            if (!latestTime || t > latestTime) latestTime = t;
-          }
-        });
-        if (!latestTime) { setIdleElapsed(null); return; }
+        let baseTime = null;
+
+        // 手動設定がある場合はそれを優先
+        if (manualIdleStart) {
+          const [h, m] = manualIdleStart.split(':').map(Number);
+          baseTime = new Date(); baseTime.setHours(h, m, 0, 0);
+        } else {
+          // 自動: 最終降車時刻から
+          const entries = DataService.getEntries();
+          if (entries.length === 0) { setIdleElapsed(null); return; }
+          const today = new Date().toISOString().split('T')[0];
+          const todayEntries = entries.filter(e => e.date === today);
+          if (todayEntries.length === 0) { setIdleElapsed(null); return; }
+          todayEntries.forEach(e => {
+            if (e.dropoffTime) {
+              const [h, m] = e.dropoffTime.split(':').map(Number);
+              const t = new Date(); t.setHours(h, m, 0, 0);
+              if (!baseTime || t > baseTime) baseTime = t;
+            }
+          });
+        }
+        if (!baseTime) { setIdleElapsed(null); return; }
         const now = new Date();
-        const diffMs = now - latestTime;
+        const diffMs = now - baseTime;
         if (diffMs < 0) { setIdleElapsed(null); return; }
         const min = Math.floor(diffMs / 60000);
         const sec = Math.floor((diffMs % 60000) / 1000);
-        const hhmm = String(latestTime.getHours()).padStart(2, '0') + ':' + String(latestTime.getMinutes()).padStart(2, '0');
-        setIdleElapsed({ min, sec, since: hhmm });
+        const hhmm = String(baseTime.getHours()).padStart(2, '0') + ':' + String(baseTime.getMinutes()).padStart(2, '0');
+        setIdleElapsed({ min, sec, since: hhmm, isManual: !!manualIdleStart });
       } catch { setIdleElapsed(null); }
     };
     calcIdle();
     const timer = setInterval(calcIdle, 1000);
     return () => clearInterval(timer);
-  }, [standbyStatus]);
+  }, [standbyStatus, manualIdleStart]);
+
+  // 手動タイマー開始（記録がなくても表示）
+  const [showIdleManualStart, setShowIdleManualStart] = useState(false);
+
+  // idle編集エリア外クリックで閉じる
+  useEffect(() => {
+    if (!editingIdleTime) return;
+    const handler = (e) => {
+      if (idleEditRef.current && !idleEditRef.current.contains(e.target)) {
+        setEditingIdleTime(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [editingIdleTime]);
 
   // 待機場所の選択肢を取得
   const locationOptions = (() => {
@@ -122,30 +153,115 @@ window.Header = () => {
       }, currentLocationName)
     ),
 
-    // 待機時間（GPS非追跡時 — 最終降車からの経過）
+    // 待機時間（GPS非追跡時 — 最終降車からの経過 or 手動設定）
     !standbyStatus && idleElapsed && React.createElement('div', {
+      ref: idleEditRef,
       style: {
         display: 'flex',
         alignItems: 'center',
         gap: '6px',
         padding: '4px 12px',
         borderRadius: '20px',
-        background: 'rgba(158,158,158,0.12)',
-        border: '1px solid rgba(158,158,158,0.25)',
+        background: idleElapsed.isManual ? 'rgba(129,199,132,0.12)' : 'rgba(158,158,158,0.12)',
+        border: idleElapsed.isManual ? '1px solid rgba(129,199,132,0.3)' : '1px solid rgba(158,158,158,0.25)',
         fontSize: '12px',
-        color: '#bdbdbd',
+        color: idleElapsed.isManual ? '#81c784' : '#bdbdbd',
         fontWeight: 500,
         flexShrink: 0,
+        position: 'relative',
       },
     },
       React.createElement('span', {
         className: 'material-icons-round',
         style: { fontSize: '14px', flexShrink: 0 },
       }, 'hourglass_empty'),
-      React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, idleElapsed.since + '〜'),
+      // 開始時刻（タップで編集）
+      editingIdleTime
+        ? React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 },
+            onClick: (e) => e.stopPropagation(),
+          },
+            React.createElement('input', {
+              type: 'time',
+              value: editIdleTimeValue,
+              onChange: (e) => setEditIdleTimeValue(e.target.value),
+              onBlur: () => {
+                if (editIdleTimeValue) {
+                  setManualIdleStart(editIdleTimeValue);
+                }
+                setEditingIdleTime(false);
+              },
+              onKeyDown: (e) => {
+                if (e.key === 'Enter') {
+                  if (editIdleTimeValue) {
+                    setManualIdleStart(editIdleTimeValue);
+                  }
+                  setEditingIdleTime(false);
+                } else if (e.key === 'Escape') {
+                  setEditingIdleTime(false);
+                }
+              },
+              autoFocus: true,
+              style: {
+                width: '70px', padding: '2px 4px', borderRadius: '4px',
+                border: '1px solid rgba(129,199,132,0.5)', background: 'rgba(0,0,0,0.3)',
+                color: '#81c784', fontSize: '11px', colorScheme: 'dark',
+                outline: 'none',
+              },
+            }),
+            React.createElement('span', { style: { fontSize: '11px' } }, '〜')
+          )
+        : React.createElement('span', {
+            style: {
+              fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0,
+              cursor: 'pointer', borderBottom: '1px dashed rgba(158,158,158,0.5)',
+              whiteSpace: 'nowrap',
+            },
+            onClick: (e) => {
+              e.stopPropagation();
+              setEditIdleTimeValue(idleElapsed.since);
+              setEditingIdleTime(true);
+            },
+            title: 'タップして開始時刻を変更',
+          }, idleElapsed.since + '〜'),
       React.createElement('span', {
         style: { fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: '12px', flexShrink: 0 },
-      }, idleElapsed.min + ':' + String(idleElapsed.sec).padStart(2, '0'))
+      }, idleElapsed.min + ':' + String(idleElapsed.sec).padStart(2, '0')),
+      // 手動設定時はリセットボタン表示
+      idleElapsed.isManual && React.createElement('span', {
+        className: 'material-icons-round',
+        style: { fontSize: '14px', cursor: 'pointer', opacity: 0.7, flexShrink: 0, marginLeft: '2px' },
+        onClick: (e) => { e.stopPropagation(); setManualIdleStart(null); },
+        title: '自動に戻す',
+      }, 'close')
+    ),
+    // 手動タイマー開始ボタン（タイマー未表示時）
+    !standbyStatus && !idleElapsed && React.createElement('div', {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '4px 10px',
+        borderRadius: '20px',
+        background: 'rgba(158,158,158,0.08)',
+        border: '1px solid rgba(158,158,158,0.2)',
+        fontSize: '11px',
+        color: '#9e9e9e',
+        cursor: 'pointer',
+        flexShrink: 0,
+      },
+      onClick: () => {
+        const now = new Date();
+        const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        setManualIdleStart(hhmm);
+      },
+      title: '手動で待機タイマーを開始',
+    },
+      React.createElement('span', {
+        className: 'material-icons-round',
+        style: { fontSize: '14px' },
+      }, 'timer'),
+      React.createElement('span', null, '待機開始')
     ),
 
     // 待機中インジケーター（GPS待機検出時に表示）
