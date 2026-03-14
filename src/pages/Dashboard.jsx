@@ -9,6 +9,36 @@ window.DashboardPage = () => {
   // 日種別フィルタ: null=全て, 'weekday'=平日, 'holiday'=土日祝
   const [dayTypeFilter, setDayTypeFilter] = useState(null);
 
+  // セクション折りたたみ状態（localStorageで永続化）
+  const [collapsedSections, setCollapsedSections] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('dashboard_collapsed') || '{}');
+    } catch { return {}; }
+  });
+  const toggleSection = useCallback((key) => {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem('dashboard_collapsed', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  // 折りたたみヘッダーコンポーネント
+  const SectionHeader = useCallback(({ sectionKey, icon, title, iconColor, extra }) => {
+    const isCollapsed = collapsedSections[sectionKey];
+    return React.createElement('div', {
+      onClick: () => toggleSection(sectionKey),
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isCollapsed ? 0 : '12px', cursor: 'pointer', userSelect: 'none' },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: iconColor || 'var(--text-primary)' } }, icon),
+        React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, title),
+        extra
+      ),
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: 'var(--text-muted)', transition: 'transform 0.2s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' } }, 'expand_more')
+    );
+  }, [collapsedSections, toggleSection]);
+
   // DataServiceからリアルタイムデータを取得
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -46,7 +76,7 @@ window.DashboardPage = () => {
       return Math.round(todaySummary.totalAmount / (todaySummary.workMinutes / 60));
     }
     return null;
-  }, [refreshKey]);
+  }, [todaySummary]);
 
   const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
@@ -313,6 +343,7 @@ window.DashboardPage = () => {
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
         DataService.syncShiftsToCloud();
         setShiftInfo({ active: true, startTime: newStart.toISOString() });
+        setRefreshKey(k => k + 1);
         window.dispatchEvent(new CustomEvent('taxi-data-changed'));
         // 時間変更後、GPSが未稼働なら開始
         if (!geo.isTracking) geo.startTracking();
@@ -453,7 +484,7 @@ window.DashboardPage = () => {
     setDemandPlanLoading(true);
     const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, '旭川');
     if (result.success && result.data) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateString();
       AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
       window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'demand-plan' } }));
     }
@@ -508,9 +539,11 @@ window.DashboardPage = () => {
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
   const currentMonth = getLocalDateString().slice(0, 7);
-  const allEntries = useMemo(() => DataService.getEntries(), [refreshKey]);
-  const monthEntries = allEntries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth));
-  const monthTotal = monthEntries.reduce((sum, e) => sum + e.amount, 0);
+  const monthData = useMemo(() => {
+    const entries = DataService.getEntries();
+    const month = entries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth));
+    return { count: month.length, total: month.reduce((sum, e) => sum + e.amount, 0) };
+  }, [refreshKey, currentMonth]);
 
   return React.createElement('div', null,
     // タイトル
@@ -696,27 +729,35 @@ window.DashboardPage = () => {
       )
     ),
 
-    // GPS状態
-    React.createElement(Card, {
-      style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
-    },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
-        React.createElement('span', {
-          className: 'material-icons-round',
-          style: { fontSize: '24px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' },
-        }, isTracking ? 'gps_fixed' : 'gps_off'),
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } },
-            isTracking ? 'GPS追跡中' : 'GPS未接続'
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-            currentPosition
-              ? `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`
-              : '地図ページでGPSを有効にしてください'
-          )
+    // GPS状態（始業中はコンパクト表示）
+    shiftInfo.active
+      ? React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--space-sm)', padding: '6px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', color: 'var(--text-muted)' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' } }, isTracking ? 'gps_fixed' : 'gps_off'),
+          React.createElement('span', null, isTracking ? 'GPS追跡中' : 'GPS未接続'),
+          currentPosition && React.createElement('span', { style: { marginLeft: '4px' } }, `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`)
         )
-      )
-    ),
+      : React.createElement(Card, {
+          style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
+        },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '24px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' },
+            }, isTracking ? 'gps_fixed' : 'gps_off'),
+            React.createElement('div', null,
+              React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } },
+                isTracking ? 'GPS追跡中' : 'GPS未接続'
+              ),
+              React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
+                currentPosition
+                  ? `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`
+                  : '地図ページでGPSを有効にしてください'
+              )
+            )
+          )
+        ),
 
     // 日種別フィルタ切替
     React.createElement('div', {
@@ -987,7 +1028,7 @@ window.DashboardPage = () => {
           `Uber: ${todayUberEntries.length}件`
         ),
         React.createElement('span', { style: { color: 'var(--text-muted)' } },
-          `当月${monthEntries.length}件 ¥${monthTotal.toLocaleString()}`
+          `当月${monthData.count}件 ¥${monthData.total.toLocaleString()}`
         )
       )
     ),
@@ -1040,21 +1081,14 @@ window.DashboardPage = () => {
       },
     },
       // ヘッダー
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#10b981' } }, 'recommend'),
-          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, 'おすすめエリア')
-        ),
-        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, 'schedule'),
-          `${areaRecommendation.hour}時台 / ${areaRecommendation.isWeekend ? '休日' : '平日'}`
-        )
-      ),
-      React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' } },
+      React.createElement(SectionHeader, { sectionKey: 'area-recommend', icon: 'recommend', title: 'おすすめエリア', iconColor: '#10b981',
+        extra: React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' } }, `${areaRecommendation.hour}時台`)
+      }),
+      !collapsedSections['area-recommend'] && React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' } },
         `過去の実績(${areaRecommendation.totalEntries}件)から現在時間帯の効率を分析`
       ),
       // ランキング
-      ...areaRecommendation.ranking.slice(0, 5).map((area, i) => {
+      ...(!collapsedSections['area-recommend'] ? areaRecommendation.ranking.slice(0, 5) : []).map((area, i) => {
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
         const barColor = i === 0 ? '#10b981' : i === 1 ? '#3b82f6' : i === 2 ? '#f59e0b' : 'rgba(255,255,255,0.2)';
         const maxRph = areaRecommendation.ranking[0].revenuePerHour || 1;
@@ -1109,16 +1143,12 @@ window.DashboardPage = () => {
         border: '1px solid rgba(245,158,11,0.25)',
       },
     },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#f59e0b' } }, 'people'),
-          React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, '本日のリピーター予測')
-        ),
-        React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } },
+      React.createElement(SectionHeader, { sectionKey: 'repeater', icon: 'people', title: '本日のリピーター予測', iconColor: '#f59e0b',
+        extra: React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' } },
           ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()] + '曜日'
         )
-      ),
-      ...repeaterForecast.slice(0, 5).map((p, i) =>
+      }),
+      ...(!collapsedSections['repeater'] ? repeaterForecast.slice(0, 5) : []).map((p, i) =>
         React.createElement('div', {
           key: p.name,
           style: {
@@ -1208,12 +1238,8 @@ window.DashboardPage = () => {
         style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
       },
         // ヘッダー
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' } },
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: '#10b981' } }, 'schedule'),
-            React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '時間帯別 実車状況')
-          ),
-          // 切替ボタン
+        React.createElement(SectionHeader, { sectionKey: 'hourly-occupancy', icon: 'schedule', title: '時間帯別 実車状況', iconColor: '#10b981' }),
+        !collapsedSections['hourly-occupancy'] && React.createElement('div', { style: { display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' } },
           React.createElement('div', { style: { display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', padding: '2px' } },
             ...['month', 'all'].map(m =>
               React.createElement('button', {
@@ -1230,11 +1256,11 @@ window.DashboardPage = () => {
             )
           )
         ),
-        React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' } },
+        !collapsedSections['hourly-occupancy'] && React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' } },
           `${hourlyMode === 'month' ? '当月' : '全期間'} ${days}日間の1日平均`
         ),
         // 凡例
-        React.createElement('div', { style: { display: 'flex', gap: '12px', marginBottom: '8px', fontSize: '11px' } },
+        !collapsedSections['hourly-occupancy'] && React.createElement('div', { style: { display: 'flex', gap: '12px', marginBottom: '8px', fontSize: '11px' } },
           React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } },
             React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '2px', background: '#10b981' } }),
             React.createElement('span', { style: { color: 'var(--text-secondary)' } }, '実車')
@@ -1245,7 +1271,7 @@ window.DashboardPage = () => {
           )
         ),
         // グラフ（積み上げバー）
-        React.createElement('div', {
+        !collapsedSections['hourly-occupancy'] && React.createElement('div', {
           style: { display: 'flex', alignItems: 'flex-end', gap: '1px', height: '140px', padding: '0 2px' },
         },
           ...hours.map((h, i) =>
@@ -1279,7 +1305,7 @@ window.DashboardPage = () => {
           )
         ),
         // 時間ラベル
-        React.createElement('div', {
+        !collapsedSections['hourly-occupancy'] && React.createElement('div', {
           style: { display: 'flex', gap: '1px', padding: '3px 2px 0', marginTop: '1px' },
         },
           ...hours.map((h, i) =>
@@ -1290,7 +1316,7 @@ window.DashboardPage = () => {
           )
         ),
         // サマリー行
-        (() => {
+        !collapsedSections['hourly-occupancy'] && (() => {
           const totalWork = hours.reduce((s, h) => s + h.work, 0);
           const totalOccupied = hours.reduce((s, h) => s + h.occupied, 0);
           const rate = totalWork > 0 ? Math.round((totalOccupied / totalWork) * 100) : 0;
@@ -1325,12 +1351,9 @@ window.DashboardPage = () => {
       },
     },
       // ヘッダー
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: '#818cf8' } }, 'assessment'),
-        React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-sm)' } }, '本日のレポート')
-      ),
+      React.createElement(SectionHeader, { sectionKey: 'daily-report', icon: 'assessment', title: '本日のレポート', iconColor: '#818cf8' }),
       // メイン指標
-      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '14px' } },
+      !collapsedSections['daily-report'] && React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '14px' } },
         ...[
           { label: '時給', value: `¥${dailyReport.revenuePerHour.toLocaleString()}`, color: '#818cf8' },
           { label: '実車率', value: `${dailyReport.occupancyRate}%`, color: dailyReport.occupancyRate >= 50 ? '#10b981' : '#f59e0b' },
@@ -1343,7 +1366,7 @@ window.DashboardPage = () => {
         )
       ),
       // 過去比較
-      dailyReport.comparison.revenueVsPast !== null && React.createElement('div', {
+      !collapsedSections['daily-report'] && dailyReport.comparison.revenueVsPast !== null && React.createElement('div', {
         style: { display: 'flex', gap: '12px', marginBottom: '12px', fontSize: '11px', flexWrap: 'wrap' },
       },
         ...[
@@ -1365,7 +1388,7 @@ window.DashboardPage = () => {
         })
       ),
       // 配車方法別
-      dailyReport.sourceRanking.length >= 2 && React.createElement('div', {
+      !collapsedSections['daily-report'] && dailyReport.sourceRanking.length >= 2 && React.createElement('div', {
         style: { marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
       },
         React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' } }, '配車方法別'),
@@ -1388,7 +1411,7 @@ window.DashboardPage = () => {
         )
       ),
       // 改善ポイント
-      dailyReport.insights.length > 0 && React.createElement('div', null,
+      !collapsedSections['daily-report'] && dailyReport.insights.length > 0 && React.createElement('div', null,
         React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' } },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'lightbulb'),
           '改善ポイント'
@@ -1414,7 +1437,7 @@ window.DashboardPage = () => {
         )
       ),
       // 空車タイムライン（コンパクト版）
-      dailyReport.vacantGaps.length > 0 && React.createElement('div', {
+      !collapsedSections['daily-report'] && dailyReport.vacantGaps.length > 0 && React.createElement('div', {
         style: { marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' },
       },
         React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' } }, '空車タイムライン'),
@@ -1505,13 +1528,10 @@ window.DashboardPage = () => {
       },
     },
       // ヘッダー
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', color: '#10b981' } }, 'analytics'),
-        React.createElement('span', { style: { fontWeight: 700, fontSize: 'var(--font-size-md)' } }, '待機 vs 流し 効率比較')
-      ),
+      React.createElement(SectionHeader, { sectionKey: 'wait-vs-cruise', icon: 'analytics', title: '待機 vs 流し 効率比較', iconColor: '#10b981' }),
 
       // 比較テーブル
-      React.createElement('div', { style: { overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '12px' } },
+      !collapsedSections['wait-vs-cruise'] && React.createElement('div', { style: { overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', marginBottom: '12px' } },
         React.createElement('table', { style: { borderCollapse: 'collapse', fontSize: '11px', width: '100%' } },
           React.createElement('thead', null,
             React.createElement('tr', null,
@@ -1589,7 +1609,7 @@ window.DashboardPage = () => {
       ),
 
       // 推奨アクション
-      React.createElement('div', {
+      !collapsedSections['wait-vs-cruise'] && React.createElement('div', {
         style: {
           padding: '10px 12px', borderRadius: '8px',
           background: waitVsCruise.recommendationType === 'waiting' ? 'rgba(59,130,246,0.1)' : waitVsCruise.recommendationType === 'cruising' ? 'rgba(168,85,247,0.1)' : 'rgba(107,114,128,0.08)',
@@ -1606,7 +1626,7 @@ window.DashboardPage = () => {
       ),
 
       // 時間帯別ミニ棒グラフ（待機vs流し件数比較）
-      (() => {
+      !collapsedSections['wait-vs-cruise'] && (() => {
         const hours = waitVsCruise.hourlyComparison.filter(h => h.waitingCount > 0 || h.cruisingCount > 0);
         if (hours.length === 0) return null;
         const maxCount = Math.max(...hours.map(h => Math.max(h.waitingCount, h.cruisingCount)), 1);
