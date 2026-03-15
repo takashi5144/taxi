@@ -422,7 +422,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.17',
+  VERSION: '3.35.18',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -541,6 +541,7 @@ window.APP_CONSTANTS = {
     { name: 'イオンモール旭川駅前', lat: 43.76455, lng: 142.35875, radius: 50 },
     { name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
     { name: 'ローソン8条10丁目店', lat: 43.7730, lng: 142.3670, radius: 50 },
+    { name: 'OMO7旭川', lat: 43.7703, lng: 142.3646, radius: 50 },
   ],
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -675,6 +676,14 @@ window.APP_CONSTANTS = {
               { startMonth: 12, startDay: 30, endMonth: 1, endDay: 1, reason: '年末年始' },
             ],
           },
+        },
+        {
+          id: 'omo7', name: 'OMO7旭川', shortName: 'OMO7',
+          lat: 43.7703, lng: 142.3646,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,5,15,40,55,45,20,10,8,20,35,30,35,30,15,5,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,8,20,50,65,55,30,15,12,28,45,40,45,40,20,8,0,0],
+          peakBoost: { startHour: 9, endHour: 11, boost: 15 },
         },
         {
           id: 'lawson_8jo', name: 'ローソン8条10丁目店', shortName: 'ローソン8条',
