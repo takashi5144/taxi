@@ -1716,17 +1716,70 @@ window.RevenuePage = () => {
                 'ユーザー'
               )
             ),
-            // ユーザーON時に名前入力を表示
-            form.isRegisteredUser && React.createElement('div', { style: { marginTop: '8px' } },
-              React.createElement('input', {
-                className: 'form-input',
-                type: 'text',
-                placeholder: 'お客様の名前（任意）',
-                value: form.customerName,
-                onChange: (e) => setForm({ ...form, customerName: e.target.value }),
-                style: { fontSize: '14px' },
-              })
-            )
+            // ユーザーON時に登録済み顧客リスト + 名前入力を表示
+            form.isRegisteredUser && (() => {
+              const allEntries = DataService.getEntries();
+              const registered = allEntries.filter(e => e.isRegisteredUser && e.customerName);
+              const byName = {};
+              registered.forEach(e => {
+                const n = e.customerName;
+                if (!byName[n]) byName[n] = { count: 0, total: 0, lastDate: '', topArea: {}, lastPayment: 'cash' };
+                byName[n].count++;
+                byName[n].total += e.amount || 0;
+                const d = e.date || '';
+                if (d > byName[n].lastDate) byName[n].lastDate = d;
+                if (e.pickup) byName[n].topArea[e.pickup] = (byName[n].topArea[e.pickup] || 0) + 1;
+                byName[n].lastPayment = e.paymentMethod || 'cash';
+              });
+              const customers = Object.entries(byName)
+                .map(([name, d]) => {
+                  const topArea = Object.entries(d.topArea).sort((a, b) => b[1] - a[1])[0];
+                  return { name, count: d.count, total: d.total, lastDate: d.lastDate, topArea: topArea ? topArea[0] : '', lastPayment: d.lastPayment };
+                })
+                .sort((a, b) => b.count - a.count);
+              return React.createElement('div', { style: { marginTop: '8px' } },
+                // 登録済み顧客ボタン
+                customers.length > 0 && React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' } },
+                  ...customers.map(c => React.createElement('button', {
+                    key: c.name, type: 'button',
+                    onClick: () => setForm({ ...form, customerName: c.name, paymentMethod: 'cash' }),
+                    style: {
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                      padding: '6px 12px', borderRadius: '16px', cursor: 'pointer',
+                      fontSize: '12px', fontWeight: form.customerName === c.name ? 700 : 400,
+                      border: form.customerName === c.name ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.12)',
+                      background: form.customerName === c.name ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)',
+                      color: form.customerName === c.name ? '#f59e0b' : 'var(--text-secondary)',
+                      transition: 'all 0.15s ease',
+                    },
+                  },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'person'),
+                    c.name,
+                    React.createElement('span', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `${c.count}回`)
+                  ))
+                ),
+                // 選択中の顧客情報
+                form.customerName && byName[form.customerName] && React.createElement('div', {
+                  style: { padding: '8px 10px', borderRadius: '8px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: '8px', fontSize: '11px', color: 'var(--text-secondary)' },
+                },
+                  React.createElement('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } },
+                    React.createElement('span', null, `利用${byName[form.customerName].count}回`),
+                    React.createElement('span', null, `累計¥${byName[form.customerName].total.toLocaleString()}`),
+                    customers.find(c => c.name === form.customerName)?.topArea && React.createElement('span', null, `よく乗車: ${customers.find(c => c.name === form.customerName).topArea}`),
+                    React.createElement('span', null, `最終: ${byName[form.customerName].lastDate}`)
+                  )
+                ),
+                // 名前入力（新規 or 編集）
+                React.createElement('input', {
+                  className: 'form-input',
+                  type: 'text',
+                  placeholder: 'お客様の名前（選択 or 入力）',
+                  value: form.customerName,
+                  onChange: (e) => setForm({ ...form, customerName: e.target.value }),
+                  style: { fontSize: '14px' },
+                })
+              );
+            })()
           ),
 
           // メモ

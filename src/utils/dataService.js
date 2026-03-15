@@ -918,8 +918,8 @@ window.DataService = (() => {
   // ============================================================
   function getTodaySummary() {
     const entries = getEntries();
-    const today = toDateStr(new Date().toISOString());
-    const todayEntries = entries.filter(e => toDateStr(e.timestamp) === today);
+    const today = getLocalDateString();
+    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
 
     const totalAmount = todayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
     const rideCount = todayEntries.length;
