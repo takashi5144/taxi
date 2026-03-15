@@ -8,6 +8,8 @@ window.DashboardPage = () => {
 
   // 日種別フィルタ: null=全て, 'weekday'=平日, 'holiday'=土日祝
   const [dayTypeFilter, setDayTypeFilter] = useState(null);
+  // 支払方法カード展開: null or 'cash'|'uncollected'|'didi'|'uber'
+  const [expandedPayment, setExpandedPayment] = useState(null);
 
   // セクション折りたたみ状態（localStorageで永続化）
   const [collapsedSections, setCollapsedSections] = useState(() => {
@@ -836,99 +838,85 @@ window.DashboardPage = () => {
       ),
 
       // 現金・未収・DIDI決済・Uber 内訳
-      React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
-      },
-        // 現金
-        React.createElement('div', {
-          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(26,115,232,0.08)', border: '1px solid rgba(26,115,232,0.2)' },
+      ...(() => {
+        const payCards = [
+          { key: 'cash', label: '現金', icon: 'payments', entries: todayCashEntries, total: todayCash, color: 'var(--color-accent)', bg: 'rgba(26,115,232,0.08)', border: 'rgba(26,115,232,0.2)' },
+          { key: 'uncollected', label: '未収', icon: 'pending', entries: todayUncollectedEntries, total: todayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
+          { key: 'didi', label: 'DIDI決済', icon: 'smartphone', entries: todayDidiEntries, total: todayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
+          { key: 'uber', label: 'Uber', icon: 'hail', entries: todayUberEntries, total: todayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
+        ];
+        const gridEl = React.createElement('div', {
+          key: 'pay-grid',
+          style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
         },
-          React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)', fontWeight: 600, marginBottom: 6 },
+          ...payCards.map(c => React.createElement('div', {
+            key: c.key,
+            onClick: () => setExpandedPayment(expandedPayment === c.key ? null : c.key),
+            style: { padding: '10px', borderRadius: 'var(--border-radius)', background: c.bg, border: `1px solid ${c.border}`, cursor: 'pointer', userSelect: 'none', transition: 'box-shadow 0.2s', boxShadow: expandedPayment === c.key ? `0 0 0 2px ${c.border}` : 'none' },
           },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'payments'),
-            '現金'
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-accent)' } },
-            `¥${todayCash.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
-            `税抜: ¥${Math.floor(todayCash / 1.1).toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
-            `消費税: ¥${(todayCash - Math.floor(todayCash / 1.1)).toLocaleString()}`
-          )
-        ),
-        // 未収
-        React.createElement('div', {
-          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(229,57,53,0.08)', border: '1px solid rgba(229,57,53,0.2)' },
-        },
-          React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-error)', fontWeight: 600, marginBottom: 6 },
-          },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'pending'),
-            '未収'
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-error)' } },
-            `¥${todayUncollected.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
-            `税抜: ¥${Math.floor(todayUncollected / 1.1).toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
-            `消費税: ¥${(todayUncollected - Math.floor(todayUncollected / 1.1)).toLocaleString()}`
-          ),
-          todayCouponUncollected > 0 && React.createElement('div', {
-            style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
-          },
-            React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
-              `うちクーポン未収: ¥${todayCouponUncollected.toLocaleString()}`
+            React.createElement('div', {
+              style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', color: c.color, fontWeight: 600, marginBottom: 6 },
+            },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, c.icon),
+                c.label,
+                React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${c.entries.length}件`)
+              ),
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: 16, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: expandedPayment === c.key ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
+            ),
+            React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: c.color } },
+              `¥${c.total.toLocaleString()}`
+            ),
+            React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+              `税抜: ¥${Math.floor(c.total / 1.1).toLocaleString()}`
+            ),
+            React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+              `消費税: ¥${(c.total - Math.floor(c.total / 1.1)).toLocaleString()}`
+            ),
+            c.key === 'uncollected' && todayCouponUncollected > 0 && React.createElement('div', {
+              style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
+            },
+              React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
+                `うちクーポン未収: ¥${todayCouponUncollected.toLocaleString()}`
+              )
             )
-          )
-        ),
-        // DIDI決済
-        React.createElement('div', {
-          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.2)' },
+          ))
+        );
+        // 展開中の内訳リスト
+        const expandedCard = payCards.find(c => c.key === expandedPayment);
+        const detailEl = expandedCard && expandedCard.entries.length > 0 ? React.createElement('div', {
+          key: 'pay-detail',
+          style: { marginBottom: 'var(--space-sm)', borderRadius: 'var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: `1px solid ${expandedCard.border}`, overflow: 'hidden' },
         },
           React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)', fontWeight: 600, marginBottom: 6 },
+            style: { padding: '8px 12px', background: expandedCard.bg, fontSize: 12, fontWeight: 700, color: expandedCard.color, display: 'flex', alignItems: 'center', gap: 6 },
           },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'smartphone'),
-            'DIDI決済',
-            React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayDidiEntries.length}件`)
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 16 } }, 'receipt_long'),
+            `${expandedCard.label} 内訳 （${expandedCard.entries.length}件）`
           ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-warning)' } },
-            `¥${todayDidi.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
-            `税抜: ¥${Math.floor(todayDidi / 1.1).toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
-            `消費税: ¥${(todayDidi - Math.floor(todayDidi / 1.1)).toLocaleString()}`
-          )
-        ),
-        // Uber
-        React.createElement('div', {
-          style: { padding: '10px', borderRadius: 'var(--border-radius)', background: 'rgba(0,0,0,0.15)', border: '1px solid rgba(255,255,255,0.15)' },
-        },
-          React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#fff', fontWeight: 600, marginBottom: 6 },
-          },
-            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'hail'),
-            'Uber',
-            React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayUberEntries.length}件`)
-          ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#fff' } },
-            `¥${todayUber.toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
-            `税抜: ¥${Math.floor(todayUber / 1.1).toLocaleString()}`
-          ),
-          React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
-            `消費税: ¥${(todayUber - Math.floor(todayUber / 1.1)).toLocaleString()}`
-          )
-        )
-      ),
+          ...expandedCard.entries
+            .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''))
+            .map((e, i) => React.createElement('div', {
+              key: e.id || i,
+              style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+            },
+              React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', minWidth: 42 } }, e.pickupTime || '--:--'),
+              React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                React.createElement('div', { style: { fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                  (e.pickup || '?') + ' → ' + (e.dropoff || '?')
+                ),
+                (e.source || e.purpose) && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 1 } },
+                  [e.source, e.purpose].filter(Boolean).join(' / ')
+                )
+              ),
+              React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: expandedCard.color, whiteSpace: 'nowrap' } }, `¥${(e.amount || 0).toLocaleString()}`)
+            ))
+        ) : expandedCard && expandedCard.entries.length === 0 ? React.createElement('div', {
+          key: 'pay-detail',
+          style: { marginBottom: 'var(--space-sm)', padding: '16px', borderRadius: 'var(--border-radius)', background: 'rgba(255,255,255,0.03)', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' },
+        }, `${expandedCard.label}のデータはありません`) : null;
+        return [gridEl, detailEl].filter(Boolean);
+      })(),
 
       // 未収合計
       React.createElement('div', {
