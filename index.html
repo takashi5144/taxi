@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.20</title>
+  <title>タクシー売上サポート v3.35.21</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1282,7 +1282,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.20',
+  VERSION: '3.35.21',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -16009,11 +16009,15 @@ window.DashboardPage = () => {
         return [gridEl, detailEl].filter(Boolean);
       })(),
 
-      // 未収合計
+      // 未収合計（クリックで内訳展開）
       React.createElement('div', {
+        onClick: () => setExpandedPayment(expandedPayment === 'uncollected_total' ? null : 'uncollected_total'),
         style: {
-          padding: '12px', borderRadius: 'var(--border-radius)', marginBottom: 'var(--space-sm)',
+          padding: '12px', borderRadius: 'var(--border-radius)', marginBottom: expandedPayment === 'uncollected_total' ? 0 : 'var(--space-sm)',
           background: 'rgba(156,39,176,0.08)', border: '1px solid rgba(156,39,176,0.25)',
+          cursor: 'pointer', userSelect: 'none', transition: 'box-shadow 0.2s',
+          boxShadow: expandedPayment === 'uncollected_total' ? '0 0 0 2px rgba(156,39,176,0.25)' : 'none',
+          borderRadius: expandedPayment === 'uncollected_total' ? 'var(--border-radius) var(--border-radius) 0 0' : 'var(--border-radius)',
         },
       },
         React.createElement('div', {
@@ -16026,8 +16030,11 @@ window.DashboardPage = () => {
             '未収合計',
             React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayUncollectedTotalCount}件`)
           ),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ce93d8' } },
-            `¥${todayUncollectedTotal.toLocaleString()}`
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+            React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ce93d8' } },
+              `¥${todayUncollectedTotal.toLocaleString()}`
+            ),
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 16, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: expandedPayment === 'uncollected_total' ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
           )
         ),
         React.createElement('div', {
@@ -16041,6 +16048,43 @@ window.DashboardPage = () => {
           todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ¥${Math.abs(todayDiscountTicket.total).toLocaleString()}${todayDiscountTicket.sheets ? ` (${todayDiscountTicket.sheets}枚)` : ''}`)
         )
       ),
+      // 未収合計の内訳リスト
+      expandedPayment === 'uncollected_total' && (() => {
+        const allUncollected = [...todayUncollectedEntries, ...todayDidiEntries, ...todayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+        if (allUncollected.length === 0) return React.createElement('div', {
+          style: { marginBottom: 'var(--space-sm)', padding: '16px', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' },
+        }, '未収データはありません');
+        const payLabel = (e) => {
+          if (e.paymentMethod === 'didi') return 'DIDI';
+          if (e.paymentMethod === 'uber' || e.source === 'Uber') return 'Uber';
+          return '未収';
+        };
+        const payColor = (e) => {
+          if (e.paymentMethod === 'didi') return 'var(--color-warning)';
+          if (e.paymentMethod === 'uber' || e.source === 'Uber') return '#fff';
+          return 'var(--color-error)';
+        };
+        return React.createElement('div', {
+          style: { marginBottom: 'var(--space-sm)', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', overflow: 'hidden' },
+        },
+          ...allUncollected.map((e, i) => React.createElement('div', {
+            key: e.id || i,
+            style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+          },
+            React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', minWidth: 42 } }, e.pickupTime || '--:--'),
+            React.createElement('span', { style: { fontSize: 10, padding: '1px 6px', borderRadius: '4px', background: 'rgba(156,39,176,0.15)', color: payColor(e), fontWeight: 600, whiteSpace: 'nowrap' } }, payLabel(e)),
+            React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+              React.createElement('div', { style: { fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                (e.pickup || '?') + ' → ' + (e.dropoff || '?')
+              ),
+              (e.source || e.purpose) && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 1 } },
+                [e.source, e.purpose].filter(Boolean).join(' / ')
+              )
+            ),
+            React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: '#ce93d8', whiteSpace: 'nowrap' } }, `¥${(e.amount || 0).toLocaleString()}`)
+          ))
+        );
+      })(),
 
       // 割引内訳
       React.createElement('div', {
