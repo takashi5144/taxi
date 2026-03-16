@@ -59,20 +59,20 @@ window.Header = () => {
   // 手動タイマー開始（記録がなくても表示）
   const [showIdleManualStart, setShowIdleManualStart] = useState(false);
 
-  // 待機場所の選択肢を取得（APP_CONSTANTSは不変なので空依存配列）
-  const locationOptions = useMemo(() => {
-    const spots = [];
+  // 待機場所の選択肢を3カテゴリに分類
+  const locationCategories = useMemo(() => {
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
-    if (locs && locs.waitingSpots) {
-      locs.waitingSpots.forEach(s => spots.push(s.name));
-    }
-    if (APP_CONSTANTS.KNOWN_PLACES) {
-      APP_CONSTANTS.KNOWN_PLACES.forEach(p => {
-        if (!spots.includes(p.name)) spots.push(p.name);
-      });
-    }
-    return spots;
+    const spots = locs && locs.waitingSpots ? locs.waitingSpots : [];
+    const hospitalIds = ['asahikawa_medical', 'red_cross', 'kosei', 'shiritsu'];
+    const hotelIds = ['omo7', 'cabin', 'art_hotel', 'crescent', '9c_hotel', 'wing'];
+    const stationIds = ['station', 'aeon', 'lawson_8jo', 'asahiyama_zoo'];
+    return {
+      station: spots.filter(s => stationIds.includes(s.id)).map(s => s.name),
+      hospital: spots.filter(s => hospitalIds.includes(s.id)).map(s => s.name),
+      hotel: spots.filter(s => hotelIds.includes(s.id)).map(s => s.name),
+    };
   }, []);
+  const [expandedCategory, setExpandedCategory] = useState(null);
 
   // 外クリックで編集モードを閉じる（idle編集 + 待機場所ドロップダウンを統合）
   useEffect(() => {
@@ -83,6 +83,7 @@ window.Header = () => {
       }
       if (editingLocation && dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setEditingLocation(false);
+        setExpandedCategory(null);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -313,27 +314,87 @@ window.Header = () => {
           },
           onClick: (e) => e.stopPropagation(),
         },
-          ...locationOptions.map(name =>
+          // 駅・その他（直接表示）
+          ...locationCategories.station.map(name =>
             React.createElement('div', {
               key: name,
               style: {
-                padding: '8px 12px',
-                fontSize: '13px',
+                padding: '8px 12px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background 0.15s',
                 color: (standbyStatus.locationName === name) ? '#ffa726' : 'var(--text-primary)',
-                cursor: 'pointer',
                 background: (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent',
                 borderLeft: (standbyStatus.locationName === name) ? '3px solid #ffa726' : '3px solid transparent',
-                whiteSpace: 'nowrap',
-                transition: 'background 0.15s',
               },
               onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,167,38,0.1)'; },
               onMouseLeave: (e) => { e.currentTarget.style.background = (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent'; },
-              onClick: () => {
-                updateStandbyLocationName(name);
-                setEditingLocation(false);
-              },
+              onClick: () => { updateStandbyLocationName(name); setEditingLocation(false); },
             }, name)
-          )
+          ),
+          // 病院関係カテゴリ
+          React.createElement('div', {
+            key: 'cat-hospital',
+            style: {
+              padding: '8px 12px', fontSize: '13px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+              color: locationCategories.hospital.includes(standbyStatus.locationName) ? '#ffa726' : '#64b5f6',
+              background: expandedCategory === 'hospital' ? 'rgba(100,181,246,0.1)' : 'transparent',
+              borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '2px', paddingTop: '10px',
+            },
+            onClick: () => setExpandedCategory(expandedCategory === 'hospital' ? null : 'hospital'),
+          },
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'local_hospital'),
+              '病院関係'
+            ),
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', transition: 'transform 0.2s', transform: expandedCategory === 'hospital' ? 'rotate(180deg)' : 'none' } }, 'expand_more')
+          ),
+          // 病院サブリスト
+          ...(expandedCategory === 'hospital' ? locationCategories.hospital.map(name =>
+            React.createElement('div', {
+              key: name,
+              style: {
+                padding: '7px 12px 7px 36px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background 0.15s',
+                color: (standbyStatus.locationName === name) ? '#ffa726' : 'var(--text-primary)',
+                background: (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent',
+                borderLeft: (standbyStatus.locationName === name) ? '3px solid #ffa726' : '3px solid transparent',
+              },
+              onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,167,38,0.1)'; },
+              onMouseLeave: (e) => { e.currentTarget.style.background = (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent'; },
+              onClick: () => { updateStandbyLocationName(name); setEditingLocation(false); },
+            }, name)
+          ) : []),
+          // ホテル関係カテゴリ
+          React.createElement('div', {
+            key: 'cat-hotel',
+            style: {
+              padding: '8px 12px', fontSize: '13px', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+              color: locationCategories.hotel.includes(standbyStatus.locationName) ? '#ffa726' : '#ce93d8',
+              background: expandedCategory === 'hotel' ? 'rgba(206,147,216,0.1)' : 'transparent',
+              borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '2px', paddingTop: '10px',
+            },
+            onClick: () => setExpandedCategory(expandedCategory === 'hotel' ? null : 'hotel'),
+          },
+            React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'hotel'),
+              'ホテル関係'
+            ),
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px', transition: 'transform 0.2s', transform: expandedCategory === 'hotel' ? 'rotate(180deg)' : 'none' } }, 'expand_more')
+          ),
+          // ホテルサブリスト
+          ...(expandedCategory === 'hotel' ? locationCategories.hotel.map(name =>
+            React.createElement('div', {
+              key: name,
+              style: {
+                padding: '7px 12px 7px 36px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background 0.15s',
+                color: (standbyStatus.locationName === name) ? '#ffa726' : 'var(--text-primary)',
+                background: (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent',
+                borderLeft: (standbyStatus.locationName === name) ? '3px solid #ffa726' : '3px solid transparent',
+              },
+              onMouseEnter: (e) => { e.currentTarget.style.background = 'rgba(255,167,38,0.1)'; },
+              onMouseLeave: (e) => { e.currentTarget.style.background = (standbyStatus.locationName === name) ? 'rgba(255,167,38,0.15)' : 'transparent'; },
+              onClick: () => { updateStandbyLocationName(name); setEditingLocation(false); },
+            }, name)
+          ) : [])
         )
       ),
       // 時刻表示（開始時刻タップで編集可能）
