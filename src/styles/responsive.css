@@ -1,4 +1,4 @@
-/* タブレット */
+/* タブレット (1023px以下共通) */
 @media (max-width: 1023px) {
   .sidebar {
     transform: translateX(-100%);
@@ -26,6 +26,20 @@
 
   .grid--3 { grid-template-columns: repeat(2, 1fr); }
   .grid--4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* タブレット専用 (768px-1023px) */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .grid--2 { grid-template-columns: repeat(2, 1fr); }
+  .grid--3 { grid-template-columns: repeat(2, 1fr); }
+
+  .summary-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .card {
+    padding: var(--space-md);
+  }
 }
 
 /* モバイル (Android) */

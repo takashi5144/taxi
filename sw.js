@@ -1,6 +1,6 @@
 // sw.js - Service Worker（オフラインキャッシュ対応）
 // アプリはindex.html単体で動作するため、キャッシュ対象は最小限に絞る
-const CACHE_NAME = 'taxi-support-v3.35.22';
+const CACHE_NAME = 'taxi-support-v3.35.23';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -25,6 +25,26 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+// キャッシュエントリの最大有効期間（30日）
+const CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const CACHE_TIMESTAMP_HEADER = 'sw-cache-timestamp';
+
+// 古いキャッシュエントリを削除（30日超過分）
+async function cleanExpiredCacheEntries() {
+  const cache = await caches.open(CACHE_NAME);
+  const requests = await cache.keys();
+  const now = Date.now();
+  for (const request of requests) {
+    const response = await cache.match(request);
+    if (response) {
+      const cachedTime = response.headers.get(CACHE_TIMESTAMP_HEADER);
+      if (cachedTime && (now - Number(cachedTime)) > CACHE_MAX_AGE_MS) {
+        await cache.delete(request);
+      }
+    }
+  }
+}
+
 // アクティベート: 古いキャッシュを削除
 self.addEventListener('activate', (event) => {
   event.waitUntil(
@@ -34,7 +54,7 @@ self.addEventListener('activate', (event) => {
           .filter((key) => key !== CACHE_NAME)
           .map((key) => caches.delete(key))
       )
-    )
+    ).then(() => cleanExpiredCacheEntries())
   );
   self.clients.claim();
 });
@@ -61,10 +81,20 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        // 正常なレスポンスをキャッシュに保存
+        // 正常なレスポンスをキャッシュに保存（タイムスタンプ付き）
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          caches.open(CACHE_NAME).then(async (cache) => {
+            const body = await clone.arrayBuffer();
+            const headers = new Headers(clone.headers);
+            headers.set(CACHE_TIMESTAMP_HEADER, String(Date.now()));
+            const timestampedResponse = new Response(body, {
+              status: clone.status,
+              statusText: clone.statusText,
+              headers: headers,
+            });
+            cache.put(request, timestampedResponse);
+          });
         }
         return response;
       })

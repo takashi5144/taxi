@@ -407,7 +407,7 @@ window.TransitInfoPage = () => {
 
       // 個別取得ボタン群
       React.createElement('div', {
-        style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' },
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))', gap: '4px' },
       },
         categories.map(cat => {
           const catData = cat.key === 'demand' ? { result: demandSchedule.available, loading: demandLoading } : (data[cat.key] || {});

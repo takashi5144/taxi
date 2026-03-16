@@ -85,6 +85,41 @@ window.gm_authFailure = () => {
 };
 
 // ============================================================
+// ヒートマップグラデーション定数（レンダーごとの再生成を防止）
+// ============================================================
+const HEATMAP_GRADIENT_HOUR = [
+  'rgba(0,0,0,0)', 'rgba(0,200,83,0.15)', 'rgba(0,230,118,0.35)', 'rgba(76,175,80,0.5)',
+  'rgba(139,195,74,0.65)', 'rgba(205,220,57,0.78)', 'rgba(255,235,59,0.88)', 'rgba(255,152,0,0.95)', 'rgba(244,67,54,1)',
+];
+const HEATMAP_GRADIENTS = {
+  timeAware: [
+    'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
+    'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
+  ],
+  all: [
+    'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
+    'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
+  ],
+  transit: [
+    'rgba(0,0,0,0)', 'rgba(200,50,150,0.12)', 'rgba(236,72,153,0.3)', 'rgba(255,100,180,0.5)',
+    'rgba(255,140,200,0.65)', 'rgba(255,180,220,0.78)', 'rgba(255,100,150,0.88)', 'rgba(220,40,100,0.95)', 'rgba(180,20,60,1)',
+  ],
+  combined: [
+    'rgba(0,0,0,0)', 'rgba(80,40,180,0.12)', 'rgba(124,58,237,0.3)', 'rgba(140,80,255,0.5)',
+    'rgba(180,120,255,0.65)', 'rgba(220,180,255,0.75)', 'rgba(255,150,100,0.85)', 'rgba(255,80,40,0.93)', 'rgba(200,30,30,1)',
+  ],
+};
+const HEATMAP_GRADIENT_AI = [
+  'rgba(0, 0, 0, 0)',
+  'rgba(66, 133, 244, 0.3)',
+  'rgba(0, 200, 255, 0.5)',
+  'rgba(0, 230, 118, 0.6)',
+  'rgba(255, 235, 59, 0.7)',
+  'rgba(255, 152, 0, 0.85)',
+  'rgba(244, 67, 54, 1)',
+];
+
+// ============================================================
 // メインコンポーネント
 // ============================================================
 window.GoogleMapView = ({ fullscreen = false }) => {
@@ -342,37 +377,15 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         });
       } else if (heatmapMode === 'hourFilter') {
         // 時間帯指定モード
-        const hourGradient = [
-          'rgba(0,0,0,0)', 'rgba(0,200,83,0.15)', 'rgba(0,230,118,0.35)', 'rgba(76,175,80,0.5)',
-          'rgba(139,195,74,0.65)', 'rgba(205,220,57,0.78)', 'rgba(255,235,59,0.88)', 'rgba(255,152,0,0.95)', 'rgba(244,67,54,1)',
-        ];
         const result = DataService.getHeatmapDataByHour(heatmapHour);
-        renderLayer(result.points, hourGradient, result.stats);
+        renderLayer(result.points, HEATMAP_GRADIENT_HOUR, result.stats);
       } else {
         // 既存の同期モード
         const result = DataService.getSmartHeatmapData(heatmapMode);
         const points = result.points;
         setHeatmapStats(result.stats);
 
-        const gradients = {
-          timeAware: [
-            'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
-            'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
-          ],
-          all: [
-            'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
-            'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
-          ],
-          transit: [
-            'rgba(0,0,0,0)', 'rgba(200,50,150,0.12)', 'rgba(236,72,153,0.3)', 'rgba(255,100,180,0.5)',
-            'rgba(255,140,200,0.65)', 'rgba(255,180,220,0.78)', 'rgba(255,100,150,0.88)', 'rgba(220,40,100,0.95)', 'rgba(180,20,60,1)',
-          ],
-          combined: [
-            'rgba(0,0,0,0)', 'rgba(80,40,180,0.12)', 'rgba(124,58,237,0.3)', 'rgba(140,80,255,0.5)',
-            'rgba(180,120,255,0.65)', 'rgba(220,180,255,0.75)', 'rgba(255,150,100,0.85)', 'rgba(255,80,40,0.93)', 'rgba(200,30,30,1)',
-          ],
-        };
-        const gradient = gradients[heatmapMode] || gradients.all;
+        const gradient = HEATMAP_GRADIENTS[heatmapMode] || HEATMAP_GRADIENTS.all;
 
         if (points.length === 0) {
           const fallback = DataService.getHeatmapData();
@@ -452,15 +465,7 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             map: map,
             radius: 25,
             opacity: 0.6,
-            gradient: [
-              'rgba(0, 0, 0, 0)',
-              'rgba(66, 133, 244, 0.3)',
-              'rgba(0, 200, 255, 0.5)',
-              'rgba(0, 230, 118, 0.6)',
-              'rgba(255, 235, 59, 0.7)',
-              'rgba(255, 152, 0, 0.85)',
-              'rgba(244, 67, 54, 1)',
-            ],
+            gradient: HEATMAP_GRADIENT_AI,
           });
           const info = LightGBMService.getModelInfo(aiModelRef.current);
           AppLogger.info(`AI需要予測: ${points.length}グリッド表示, ${info.nTrees}本の木, 基準値¥${info.basePrediction}`);
@@ -737,19 +742,9 @@ window.GoogleMapView = ({ fullscreen = false }) => {
               const z = map.getZoom() || 13;
               const metersPerPx = 156543.03 * Math.cos((map.getCenter().lat() || 43.77) * Math.PI / 180) / Math.pow(2, z);
               const radius = Math.max(10, Math.round(350 / metersPerPx));
-              const grads = {
-                timeAware: [
-                  'rgba(0,0,0,0)', 'rgba(30,100,230,0.15)', 'rgba(30,160,255,0.35)', 'rgba(0,200,150,0.5)',
-                  'rgba(140,230,60,0.65)', 'rgba(255,220,30,0.78)', 'rgba(255,150,0,0.88)', 'rgba(240,60,40,0.95)', 'rgba(180,20,20,1)',
-                ],
-                all: [
-                  'rgba(0,0,0,0)', 'rgba(0,100,255,0.15)', 'rgba(0,180,255,0.4)', 'rgba(0,210,120,0.55)',
-                  'rgba(180,230,50,0.7)', 'rgba(255,220,30,0.8)', 'rgba(255,160,0,0.88)', 'rgba(255,80,20,0.94)', 'rgba(220,30,30,1)',
-                ],
-              };
               heatmapLayerRef.current = new google.maps.visualization.HeatmapLayer({
                 data: heatData, map: map, radius: radius, opacity: 0.85, dissipating: true, maxIntensity: 8,
-                gradient: grads[heatmapMode] || grads.all,
+                gradient: HEATMAP_GRADIENTS[heatmapMode] || HEATMAP_GRADIENTS.all,
               });
             }
           } else if (heatmapLayerRef.current) {

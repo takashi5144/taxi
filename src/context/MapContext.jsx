@@ -190,6 +190,14 @@ window.MapProvider = ({ children }) => {
     AppLogger.info('GPS追跡を停止');
   }, []);
 
+  // Ref で最新の関数/状態を保持（useEffect内で安定参照するため）
+  const startTrackingRef = useRef(startTracking);
+  startTrackingRef.current = startTracking;
+  const stopTrackingRef = useRef(stopTracking);
+  stopTrackingRef.current = stopTracking;
+  const isTrackingRef = useRef(isTracking);
+  isTrackingRef.current = isTracking;
+
   // 待機中の経過時間をリアルタイム更新（10秒間隔）
   useEffect(() => {
     if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
@@ -204,13 +212,14 @@ window.MapProvider = ({ children }) => {
   }, [isTracking]);
 
   // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
+  // startTrackingRef経由で呼び出すことで依存配列を空にし、無限ループを防止
   useEffect(() => {
     let shifts = [];
     try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
     const activeShift = shifts.find(s => !s.endTime);
     if ('geolocation' in navigator && !watchIdRef.current && activeShift) {
       AppLogger.info('GPS追跡を自動開始（始業中）');
-      startTracking();
+      startTrackingRef.current();
     }
     return () => {
       // アプリ全体アンマウント時のクリーンアップ
@@ -220,16 +229,7 @@ window.MapProvider = ({ children }) => {
       }
       if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
     };
-  }, [startTracking]);
-
-  // 設定画面の基本勤務時間による自動始業/終業 + GPS追跡
-  // MapProviderはアプリ全体を包むので、どのページにいても動作する
-  const startTrackingRef = useRef(startTracking);
-  startTrackingRef.current = startTracking;
-  const stopTrackingRef = useRef(stopTracking);
-  stopTrackingRef.current = stopTracking;
-  const isTrackingRef = useRef(isTracking);
-  isTrackingRef.current = isTracking;
+  }, []);
 
   useEffect(() => {
     let lastFiredMinute = '';

@@ -15,11 +15,20 @@ window.RivalRidePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsInfo, setGpsInfo] = useState(null);
+  const [gpsElapsed, setGpsElapsed] = useState(0);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
   const locationFetched = useRef(false);
   const formRef = useRef(form);
   useEffect(() => { formRef.current = form; }, [form]);
+
+  // GPS取得中の経過秒数カウンター
+  useEffect(() => {
+    if (!gpsLoading) { setGpsElapsed(0); return; }
+    setGpsElapsed(0);
+    const id = setInterval(() => setGpsElapsed(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [gpsLoading]);
 
   const { apiKey } = useAppContext();
 
@@ -110,7 +119,7 @@ window.RivalRidePage = () => {
       setForm({ date: getLocalDateString(), time: getNowTime(), weather: cur.weather, location: '', locationCoords: null, memo: '' });
       setGpsInfo(null);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 4000);
       setRefreshKey(k => k + 1);
     }
   };
@@ -246,7 +255,7 @@ window.RivalRidePage = () => {
     setForm({ date: getLocalDateString(), time: getNowTime(), weather: form.weather, location: '', locationCoords: null, memo: '' });
     setGpsInfo(null);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 4000);
     setRefreshKey(k => k + 1);
   };
 
@@ -461,7 +470,7 @@ window.RivalRidePage = () => {
               '乗車場所 *',
               gpsLoading && React.createElement('span', {
                 style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: '400', animation: 'pulse 1.5s ease-in-out infinite' },
-              }, '取得中...'),
+              }, 'GPS取得中... (' + gpsElapsed + '秒)'),
               !gpsLoading && form.location && React.createElement('span', {
                 style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
               }, 'GPS取得済')

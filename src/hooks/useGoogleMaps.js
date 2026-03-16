@@ -1,7 +1,7 @@
 (function() {
 // useGoogleMaps.js - Google Maps API管理フック
 //
-// GoogleMap.jsx内のローダーロジックをフックとして公開し、
+// GoogleMap.jsx内のシングルトンローダー (window._gmapLoader) を再利用し、
 // 複数コンポーネントからGoogle Maps APIの状態を参照可能にする。
 
 window.useGoogleMaps = () => {
@@ -11,7 +11,7 @@ window.useGoogleMaps = () => {
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Google Maps API をロード
+  // Google Maps API をロード（window._gmapLoader に委譲）
   const loadApi = useCallback(() => {
     if (!apiKey) {
       setError(null);
@@ -25,38 +25,24 @@ window.useGoogleMaps = () => {
       return;
     }
 
-    setIsLoading(true);
-
-    // 既存のスクリプトがあるかチェック
-    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
-    if (existingScript) {
-      // ロード完了を待つ
-      const check = setInterval(() => {
-        if (window.google && window.google.maps) {
-          clearInterval(check);
-          setIsLoaded(true);
-          setIsLoading(false);
-          setError(null);
-        }
-      }, 100);
+    if (!window._gmapLoader) {
+      setError('Google Maps ローダーが見つかりません。');
+      AppLogger.error('window._gmapLoader が未定義です');
       return;
     }
 
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&language=ja&region=JP&libraries=places`;
-    script.async = true;
-    script.onload = () => {
+    setIsLoading(true);
+
+    window._gmapLoader.load(apiKey).then(() => {
       setIsLoaded(true);
       setIsLoading(false);
       setError(null);
-      AppLogger.info('Google Maps API ロード完了 (useGoogleMaps)');
-    };
-    script.onerror = () => {
+      AppLogger.info('Google Maps API ロード完了 (useGoogleMaps via _gmapLoader)');
+    }).catch((err) => {
       setError('Google Maps API の読み込みに失敗しました。APIキーを確認してください。');
       setIsLoading(false);
-      AppLogger.error('Google Maps API ロード失敗 (useGoogleMaps)');
-    };
-    document.head.appendChild(script);
+      AppLogger.error('Google Maps API ロード失敗 (useGoogleMaps via _gmapLoader): ' + (err && err.message));
+    });
   }, [apiKey]);
 
   useEffect(() => {

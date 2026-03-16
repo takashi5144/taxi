@@ -397,11 +397,15 @@ window.CalendarPage = () => {
         const isSelected = d.dateStr === selectedDate;
         return createElement('div', {
           key: d.dateStr,
+          role: 'button',
+          tabIndex: 0,
+          'aria-label': d.dateStr + (d.revenue > 0 ? ' 売上' + d.revenue + '円' : ''),
           onClick: () => setSelectedDate(d.dateStr === selectedDate ? null : d.dateStr),
+          onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedDate(d.dateStr === selectedDate ? null : d.dateStr); } },
           style: {
             background: isSelected ? 'rgba(33,150,243,0.15)' : isToday ? 'rgba(0,200,83,0.08)' : 'var(--bg-card)',
             padding: '4px 2px',
-            minHeight: 54,
+            minHeight: 62,
             cursor: 'pointer',
             position: 'relative',
             borderLeft: isToday ? '3px solid var(--color-accent)' : 'none',
@@ -430,10 +434,11 @@ window.CalendarPage = () => {
           // 勤務時間（実働）
           (d.workMin - d.breakMin) > 0 && createElement('div', {
             style: {
-              fontSize: 9,
+              fontSize: 8,
               color: 'var(--text-muted)',
               textAlign: 'center',
-              lineHeight: 1.2,
+              lineHeight: 1.1,
+              opacity: 0.8,
             }
           }, (() => {
             const net = d.workMin - d.breakMin;

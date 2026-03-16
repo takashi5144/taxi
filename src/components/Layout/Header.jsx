@@ -1,7 +1,7 @@
 (function() {
 // Header.jsx - ヘッダーナビゲーション
 window.Header = () => {
-  const { useState, useRef, useEffect } = React;
+  const { useState, useRef, useEffect, useMemo } = React;
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
   const { standbyStatus, updateStandbyStartTime, updateStandbyLocationName, currentLocationName, isTracking } = useMapContext();
   const [editingStartTime, setEditingStartTime] = useState(false);
@@ -59,24 +59,8 @@ window.Header = () => {
   // 手動タイマー開始（記録がなくても表示）
   const [showIdleManualStart, setShowIdleManualStart] = useState(false);
 
-  // idle編集エリア外クリックで閉じる
-  useEffect(() => {
-    if (!editingIdleTime) return;
-    const handler = (e) => {
-      if (idleEditRef.current && !idleEditRef.current.contains(e.target)) {
-        setEditingIdleTime(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    document.addEventListener('touchstart', handler);
-    return () => {
-      document.removeEventListener('mousedown', handler);
-      document.removeEventListener('touchstart', handler);
-    };
-  }, [editingIdleTime]);
-
-  // 待機場所の選択肢を取得
-  const locationOptions = (() => {
+  // 待機場所の選択肢を取得（APP_CONSTANTSは不変なので空依存配列）
+  const locationOptions = useMemo(() => {
     const spots = [];
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     if (locs && locs.waitingSpots) {
@@ -88,13 +72,16 @@ window.Header = () => {
       });
     }
     return spots;
-  })();
+  }, []);
 
-  // ドロップダウン外クリックで閉じる
+  // 外クリックで編集モードを閉じる（idle編集 + 待機場所ドロップダウンを統合）
   useEffect(() => {
-    if (!editingLocation) return;
+    if (!editingIdleTime && !editingLocation) return;
     const handler = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+      if (editingIdleTime && idleEditRef.current && !idleEditRef.current.contains(e.target)) {
+        setEditingIdleTime(false);
+      }
+      if (editingLocation && dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setEditingLocation(false);
       }
     };
@@ -104,7 +91,7 @@ window.Header = () => {
       document.removeEventListener('mousedown', handler);
       document.removeEventListener('touchstart', handler);
     };
-  }, [editingLocation]);
+  }, [editingIdleTime, editingLocation]);
 
   return React.createElement('header', { className: 'header' },
     // メニュートグル（モバイル）

@@ -35,5 +35,10 @@
       "purpose": "maskable"
     }
   ],
-  "categories": ["business", "utilities"]
+  "categories": ["business", "utilities"],
+  "shortcuts": [
+    { "name": "売上記録", "url": "./?page=revenue", "icon": "./icons/icon-192.png" },
+    { "name": "地図", "url": "./?page=map", "icon": "./icons/icon-192.png" },
+    { "name": "データ管理", "url": "./?page=data", "icon": "./icons/icon-192.png" }
+  ]
 }

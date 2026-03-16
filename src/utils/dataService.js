@@ -148,11 +148,17 @@ window.DataService = (() => {
   let _rivalCacheRaw = null;
   let _gatheringCache = null;
   let _gatheringCacheRaw = null;
+  let _rawEntriesCache = null;
+  let _rawEntriesCacheKey = null;
 
   // 全エントリ（空車含む）を生データとして取得（内部CRUD用）
+  // キャッシュ付き: localStorageの値が変わらなければJSON.parseをスキップ
   function _getRawEntries() {
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
+      if (saved === _rawEntriesCacheKey && _rawEntriesCache !== null) {
+        return _rawEntriesCache.map(e => Object.assign({}, e));
+      }
       const entries = saved ? JSON.parse(saved) : [];
       entries.forEach(e => {
         if (e.date) {
@@ -161,7 +167,9 @@ window.DataService = (() => {
           e.holiday = info.holiday || '';
         }
       });
-      return entries;
+      _rawEntriesCacheKey = saved;
+      _rawEntriesCache = entries;
+      return entries.map(e => Object.assign({}, e));
     } catch {
       return [];
     }
@@ -214,6 +222,41 @@ window.DataService = (() => {
     });
   }
 
+  // 90日より古いログデータを削除してlocalStorage容量を確保する
+  function _cleanOldDataForQuota() {
+    let freed = false;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+    // GPSログ（localStorage内の古いキー）を削除
+    const keysToCheck = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      keysToCheck.push(localStorage.key(i));
+    }
+    for (const key of keysToCheck) {
+      if (key && key.match(/^gps_log_\d{4}-\d{2}-\d{2}$/) && key.slice(8) < cutoffStr) {
+        localStorage.removeItem(key);
+        freed = true;
+      }
+    }
+
+    // rival/gathering の90日以上古いエントリを削減
+    try {
+      const rivalKey = APP_CONSTANTS.STORAGE_KEYS.RIVAL_DATA;
+      if (rivalKey) {
+        const rivals = JSON.parse(localStorage.getItem(rivalKey) || '[]');
+        const filtered = rivals.filter(e => !e.date || e.date >= cutoffStr);
+        if (filtered.length < rivals.length) {
+          localStorage.setItem(rivalKey, JSON.stringify(filtered));
+          freed = true;
+        }
+      }
+    } catch (_) { /* ignore */ }
+
+    return freed;
+  }
+
   function saveEntries(entries) {
     try {
       const sorted = _sortByDateTimeDesc([...entries], 'date', 'dropoffTime');
@@ -221,10 +264,31 @@ window.DataService = (() => {
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, json);
       _entriesCacheRaw = json;
       _entriesCache = sorted.filter(e => !e.noPassenger);
+      _rawEntriesCache = null;
+      _rawEntriesCacheKey = null;
       return true;
     } catch (e) {
       if (e.name === 'QuotaExceededError') {
-        AppLogger.error('ストレージ容量が不足しています。不要なデータを削除してください。');
+        // 古いデータを削除して容量を確保し、再試行
+        AppLogger.warn('ストレージ容量不足: 古いデータを削除して再試行します...');
+        const cleaned = _cleanOldDataForQuota();
+        if (cleaned) {
+          try {
+            const sorted = _sortByDateTimeDesc([...entries], 'date', 'dropoffTime');
+            const json = JSON.stringify(sorted);
+            localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA, json);
+            _entriesCacheRaw = json;
+            _entriesCache = sorted.filter(e => !e.noPassenger);
+            _rawEntriesCache = null;
+            _rawEntriesCacheKey = null;
+            AppLogger.info('古いデータ削除後、保存に成功しました');
+            return true;
+          } catch (retryErr) {
+            AppLogger.error('ストレージ容量が不足しています。設定画面から不要なデータを手動で削除してください。');
+            return false;
+          }
+        }
+        AppLogger.error('ストレージ容量が不足しています。設定画面から不要なデータを手動で削除してください。');
       } else {
         AppLogger.error('売上データの保存に失敗しました', e.message);
       }
@@ -545,11 +609,25 @@ window.DataService = (() => {
             } else {
               resolve({ success: false, message: 'ファイル形式が正しくありません' }); return;
             }
+            // インポートデータのバリデーション
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            const timeRegex = /^\d{2}:\d{2}$/;
+            let skippedCount = 0;
+            const validEntries = entries.filter(entry => {
+              if (typeof entry.amount !== 'number' || !isFinite(entry.amount) || entry.amount < 0) { skippedCount++; return false; }
+              if (typeof entry.date !== 'string' || !dateRegex.test(entry.date)) { skippedCount++; return false; }
+              if (entry.pickupTime && (typeof entry.pickupTime !== 'string' || !timeRegex.test(entry.pickupTime))) { skippedCount++; return false; }
+              if (entry.dropoffTime && (typeof entry.dropoffTime !== 'string' || !timeRegex.test(entry.dropoffTime))) { skippedCount++; return false; }
+              return true;
+            });
+            if (skippedCount > 0) {
+              AppLogger.info(`インポート: ${skippedCount}件のデータがバリデーションで除外されました`);
+            }
             // 既存データとマージ（IDで重複排除 + サニタイズ）
             const existing = _getRawEntries();
             const existingIds = new Set(existing.map(e => e.id));
             let newCount = 0;
-            entries.forEach(entry => {
+            validEntries.forEach(entry => {
               const sanitized = _sanitizeEntry(entry);
               if (!existingIds.has(sanitized.id) && sanitized.amount > 0) {
                 existing.push(sanitized);
@@ -681,12 +759,23 @@ window.DataService = (() => {
     if (!cloudEntries || cloudEntries.length === 0) return { merged: 0 };
 
     const local = type === 'revenue' ? _getRawEntries() : type === 'gathering' ? getGatheringMemos() : getRivalEntries();
-    const localIds = new Set(local.map(e => e.id));
+    const localById = new Map(local.map(e => [e.id, e]));
     let merged = 0;
     cloudEntries.forEach(entry => {
-      if (!localIds.has(entry.id)) {
+      const existing = localById.get(entry.id);
+      if (!existing) {
+        // ローカルに存在しない → 追加
         local.push(entry);
+        localById.set(entry.id, entry);
         merged++;
+      } else {
+        // 両方に存在 → timestampが新しい方を採用
+        const cloudTs = entry.timestamp || entry.updatedAt || '';
+        const localTs = existing.timestamp || existing.updatedAt || '';
+        if (cloudTs > localTs) {
+          Object.assign(existing, entry);
+          merged++;
+        }
       }
     });
     if (merged > 0) {
@@ -781,8 +870,17 @@ window.DataService = (() => {
     if (!cloudStatus || typeof cloudStatus !== 'object') return { merged: false };
 
     const local = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS) || '{}');
-    // クラウドのデータをローカルにマージ（クラウド側を優先、ローカルのみのキーは保持）
-    const merged = { ...local, ...cloudStatus };
+    // タイムスタンプベースのマージ: ローカルが新しければローカルを保持
+    const localUpdated = local.updatedAt || local.lastModified || '';
+    const cloudUpdated = cloudStatus.updatedAt || cloudStatus.lastModified || '';
+    let merged;
+    if (localUpdated && cloudUpdated && localUpdated > cloudUpdated) {
+      // ローカルの方が新しい → ローカルを基準にクラウドのみのキーを補完
+      merged = { ...cloudStatus, ...local };
+    } else {
+      // クラウドが新しい or タイムスタンプなし → クラウド優先（従来動作）
+      merged = { ...local, ...cloudStatus };
+    }
     const changed = JSON.stringify(merged) !== JSON.stringify(local);
     if (changed) {
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.WORK_STATUS, JSON.stringify(merged));

@@ -16,6 +16,8 @@ window.GpsLogService = (() => {
   let _db = null;
   let _flushTimer = null;
   let _lastKnownPosition = null; // 最新GPS座標（天気予報API用）
+  let _lastRecordedPos = null;   // 重複記録抑制用: 直前に記録した座標
+  const MIN_MOVE_METERS = 5;     // この距離以上動かないと記録しない
 
   // --- 天気キャッシュ ---
   const WEATHER_POLL_MS = 300000; // 5分間隔で天気取得
@@ -152,8 +154,9 @@ window.GpsLogService = (() => {
 
   // --- メモリバッファ → IndexedDBフラッシュ ---
   let _flushing = false;
+  const MAX_FLUSH_RETRIES = 2;
   async function _flush() {
-    if (_flushing) return; // 再入防止
+    if (_flushing) return; // 再入防止（ロックフラグ）
     const dates = Object.keys(_buffer);
     if (dates.length === 0) return;
     _flushing = true;
@@ -162,16 +165,33 @@ window.GpsLogService = (() => {
     for (const d of dates) {
       snapshot[d] = _buffer[d].slice();
     }
-    _buffer = {};
+    // スナップショット分のみバッファから除去（flush中に追加された新規エントリは保持）
+    for (const d of dates) {
+      if (_buffer[d]) {
+        _buffer[d] = _buffer[d].slice(snapshot[d].length);
+        if (_buffer[d].length === 0) delete _buffer[d];
+      }
+    }
     try {
       for (const dateStr of Object.keys(snapshot)) {
-        try {
-          const existing = (await _idbGet(dateStr)) || [];
-          await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
-        } catch (e) {
-          // フラッシュ失敗時はバッファに戻す（新規追加分と結合）
+        let success = false;
+        for (let attempt = 0; attempt <= MAX_FLUSH_RETRIES; attempt++) {
+          try {
+            const existing = (await _idbGet(dateStr)) || [];
+            await _idbPut(dateStr, existing.concat(snapshot[dateStr]));
+            success = true;
+            break;
+          } catch (e) {
+            if (attempt < MAX_FLUSH_RETRIES) {
+              await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+            }
+          }
+        }
+        if (!success) {
+          // 全リトライ失敗時はバッファに戻す（新規追加分の前に挿入）
           if (!_buffer[dateStr]) _buffer[dateStr] = [];
           _buffer[dateStr] = snapshot[dateStr].concat(_buffer[dateStr]);
+          if (window.AppLogger) AppLogger.warn('GPSログflush失敗(リトライ超過): ' + dateStr);
         }
       }
     } finally {
@@ -518,12 +538,26 @@ window.GpsLogService = (() => {
     if (accuracy != null && (isNaN(accuracy) || accuracy > 500)) return false; // 精度500m超は破棄
 
     _lastRecordTime = now;
+    const roundedLat = Math.round(lat * 1e6) / 1e6;
+    const roundedLng = Math.round(lng * 1e6) / 1e6;
+
+    // 停車中の重複ポイント抑制: 前回記録地点から5m以内なら記録スキップ
+    if (_lastRecordedPos !== null) {
+      const dist = _haversine(_lastRecordedPos.lat, _lastRecordedPos.lng, roundedLat, roundedLng);
+      if (dist < MIN_MOVE_METERS) {
+        // 動いていないので記録しないが、待機検出は継続する
+        _rtDetectStandby(roundedLat, roundedLng, now);
+        return false;
+      }
+    }
+    _lastRecordedPos = { lat: roundedLat, lng: roundedLng };
+
     const dateStr = _todayStr();
     if (!_buffer[dateStr]) _buffer[dateStr] = [];
     _buffer[dateStr].push({
       t: new Date(now).toISOString(),
-      lat: Math.round(lat * 1e6) / 1e6,
-      lng: Math.round(lng * 1e6) / 1e6,
+      lat: roundedLat,
+      lng: roundedLng,
       acc: accuracy != null ? Math.round(accuracy) : null,
       spd: speed != null ? Math.round(speed * 10) / 10 : null,
       w: _weatherCache ? _weatherCache.w : null,
@@ -531,7 +565,7 @@ window.GpsLogService = (() => {
     });
 
     // リアルタイム待機検出
-    _rtDetectStandby(Math.round(lat * 1e6) / 1e6, Math.round(lng * 1e6) / 1e6, now);
+    _rtDetectStandby(roundedLat, roundedLng, now);
 
     return true;
   }

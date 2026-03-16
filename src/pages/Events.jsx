@@ -171,7 +171,7 @@ window.EventsPage = () => {
     });
     setGpsInfo(null);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 4000);
     setRefreshKey(k => k + 1);
   };
 
