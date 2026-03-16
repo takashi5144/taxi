@@ -281,7 +281,7 @@ window.CalendarPage = () => {
       }, '給料予想額'),
       createElement('span', {
         style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
-      }, `¥${Math.round(monthlySummary.totalRevenue * 0.5).toLocaleString()}`)
+      }, `¥${Math.round(monthlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`)
     ),
 
     // 残り勤務日数・1日平均売上
