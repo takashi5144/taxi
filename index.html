@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.23</title>
+  <title>タクシー売上サポート v3.35.24</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.23',
+  VERSION: '3.35.24',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1416,6 +1416,11 @@ window.APP_CONSTANTS = {
     { name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
     { name: 'ローソン8条10丁目店', lat: 43.7730, lng: 142.3670, radius: 50 },
     { name: 'OMO7旭川', lat: 43.7703, lng: 142.3646, radius: 50 },
+    { name: 'プレミアホテルCABIN旭川', lat: 43.7658, lng: 142.3586, radius: 50 },
+    { name: 'アートホテル旭川', lat: 43.7730, lng: 142.3604, radius: 50 },
+    { name: 'ホテルクレッセント旭川', lat: 43.7698, lng: 142.3624, radius: 50 },
+    { name: '9Cホテル旭川', lat: 43.7672, lng: 142.3588, radius: 50 },
+    { name: 'ホテルウイング旭川', lat: 43.7665, lng: 142.3575, radius: 50 },
   ],
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -1558,6 +1563,46 @@ window.APP_CONSTANTS = {
           basePatternWeekday: [0,0,0,0,0,0,0,5,15,40,55,45,20,10,8,20,35,30,35,30,15,5,0,0],
           basePatternWeekend: [0,0,0,0,0,0,0,8,20,50,65,55,30,15,12,28,45,40,45,40,20,8,0,0],
           peakBoost: { startHour: 9, endHour: 11, boost: 15 },
+        },
+        {
+          id: 'cabin', name: 'プレミアホテルCABIN旭川', shortName: 'CABIN',
+          lat: 43.7658, lng: 142.3586,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,5,15,40,55,45,20,10,8,20,35,30,35,30,15,5,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,8,20,50,65,55,30,15,12,28,45,40,45,40,20,8,0,0],
+          peakBoost: { startHour: 9, endHour: 11, boost: 12 },
+        },
+        {
+          id: 'art_hotel', name: 'アートホテル旭川', shortName: 'アートホテル',
+          lat: 43.7730, lng: 142.3604,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,5,15,45,60,50,25,12,10,22,38,32,38,32,18,8,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,8,22,55,70,60,35,18,15,30,48,42,48,42,22,10,0,0],
+          peakBoost: { startHour: 9, endHour: 11, boost: 18 },
+        },
+        {
+          id: 'crescent', name: 'ホテルクレッセント旭川', shortName: 'クレッセント',
+          lat: 43.7698, lng: 142.3624,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,5,12,35,50,40,18,10,8,18,30,28,32,28,14,5,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,8,18,45,60,50,28,15,12,25,40,38,42,38,18,8,0,0],
+          peakBoost: { startHour: 9, endHour: 11, boost: 12 },
+        },
+        {
+          id: '9c_hotel', name: '9Cホテル旭川', shortName: '9C',
+          lat: 43.7672, lng: 142.3588,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,4,10,30,42,35,15,8,6,15,25,22,28,22,12,4,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,6,15,40,52,45,22,12,10,22,35,30,38,30,15,6,0,0],
+          peakBoost: { startHour: 9, endHour: 11, boost: 10 },
+        },
+        {
+          id: 'wing', name: 'ホテルウイング旭川', shortName: 'ウイング',
+          lat: 43.7665, lng: 142.3575,
+          hasOddDayRule: false,
+          basePatternWeekday: [0,0,0,0,0,0,0,4,10,30,42,35,15,8,6,15,25,22,28,22,12,4,0,0],
+          basePatternWeekend: [0,0,0,0,0,0,0,6,15,40,52,45,22,12,10,22,35,30,38,30,15,6,0,0],
+          peakBoost: { startHour: 9, endHour: 11, boost: 10 },
         },
         {
           id: 'lawson_8jo', name: 'ローソン8条10丁目店', shortName: 'ローソン8条',
