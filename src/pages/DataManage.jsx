@@ -2257,6 +2257,10 @@ window.DataManagePage = () => {
               entry.customerName || 'ユーザー'
             ),
             entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
+          ),
+          !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '2px' } },
+            React.createElement('span', { style: { padding: '1px 5px', borderRadius: '3px', fontWeight: 600, background: entry.paymentMethod === 'uncollected' ? 'rgba(239,68,68,0.15)' : entry.paymentMethod === 'didi' ? 'rgba(255,152,0,0.15)' : entry.paymentMethod === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(76,175,80,0.15)', color: entry.paymentMethod === 'uncollected' ? '#ef5350' : entry.paymentMethod === 'didi' ? '#ffb74d' : entry.paymentMethod === 'uber' ? '#fff' : '#66bb6a' } }, entry.paymentMethod === 'cash' ? '現金' : entry.paymentMethod === 'didi' ? 'DIDI' : entry.paymentMethod === 'uber' ? 'Uber' : entry.paymentMethod === 'uncollected' ? '未収' : '現金'),
+            entry.discounts && entry.discounts.length > 0 && entry.discounts.map((d, di) => React.createElement('span', { key: di, style: { padding: '1px 5px', borderRadius: '3px', fontWeight: 600, background: 'rgba(156,39,176,0.15)', color: '#ce93d8' } }, d.type === 'disability' ? '♿障害者割引' : d.type === 'longDistance' ? '🛣遠距離割引' : d.type === 'coupon' ? '🎟クーポン' : d.type === 'ticket' ? '🎫チケット' : d.type))
           )
         ),
         React.createElement('div', { style: { marginRight: '8px', whiteSpace: 'nowrap', textAlign: 'right' } },
