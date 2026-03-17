@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.33</title>
+  <title>タクシー売上サポート v3.35.34</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.33',
+  VERSION: '3.35.34',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2678,7 +2678,71 @@ window.DataService = (() => {
     }
   }
 
+  // 旧フォーマットのクーポンデータを新フォーマットに移行
+  // 旧: amount = meter - discountAmount（couponAmountは引かれていない）
+  // 新: amount = meter - discountAmount - couponAmount + クーポンサブエントリ生成
+  let _migrationDone = false;
+  function _migrateCouponEntries() {
+    if (_migrationDone) return;
+    _migrationDone = true;
+    try {
+      const entries = _getRawEntries();
+      let changed = false;
+      const newEntries = [];
+      entries.forEach(e => {
+        if (e.couponAmount > 0 && !_isCouponSub(e)) {
+          // クーポンサブエントリが存在するか確認
+          const hasSub = entries.some(s =>
+            s.id !== e.id && _isCouponSub(s) && s.date === e.date && s.pickup === e.pickup && s.pickupTime === e.pickupTime
+          );
+          if (!hasSub) {
+            // 旧フォーマット: amountからcouponAmountを引いてサブエントリを作成
+            AppLogger.info('クーポンデータ移行: ' + e.id + ' amount ' + e.amount + ' -> ' + (e.amount - e.couponAmount));
+            e.amount = e.amount - e.couponAmount;
+            changed = true;
+            newEntries.push({
+              id: e.id + '_coupon_migrated',
+              amount: e.couponAmount,
+              date: e.date,
+              dayOfWeek: e.dayOfWeek || '',
+              holiday: e.holiday || '',
+              weather: e.weather || '',
+              temperature: e.temperature != null ? e.temperature : null,
+              pickup: e.pickup || '',
+              pickupTime: e.pickupTime || '',
+              dropoff: e.dropoff || '',
+              dropoffTime: e.dropoffTime || '',
+              passengers: '', gender: '', purpose: '',
+              memo: 'クーポン未収（移行データ）',
+              source: e.source || '',
+              pickupCoords: e.pickupCoords || null,
+              dropoffCoords: e.dropoffCoords || null,
+              pickupLandmark: e.pickupLandmark || '',
+              dropoffLandmark: e.dropoffLandmark || '',
+              noPassenger: false,
+              paymentMethod: 'uncollected',
+              discounts: [],
+              discountAmount: 0,
+              discountType: '',
+              couponAmount: 0,
+              waitingTime: '',
+              timestamp: e.timestamp,
+            });
+          }
+        }
+      });
+      if (changed) {
+        const allEntries = [...entries, ...newEntries];
+        saveEntries(allEntries);
+        AppLogger.info('クーポンデータ移行完了: ' + newEntries.length + '件のサブエントリを作成');
+      }
+    } catch (err) {
+      AppLogger.warn('クーポンデータ移行エラー: ' + err.message);
+    }
+  }
+
   function getEntries() {
+    _migrateCouponEntries();
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
       if (saved === _entriesCacheRaw && _entriesCache !== null) return _entriesCache;

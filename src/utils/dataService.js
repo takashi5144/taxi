@@ -180,7 +180,71 @@ window.DataService = (() => {
     }
   }
 
+  // 旧フォーマットのクーポンデータを新フォーマットに移行
+  // 旧: amount = meter - discountAmount（couponAmountは引かれていない）
+  // 新: amount = meter - discountAmount - couponAmount + クーポンサブエントリ生成
+  let _migrationDone = false;
+  function _migrateCouponEntries() {
+    if (_migrationDone) return;
+    _migrationDone = true;
+    try {
+      const entries = _getRawEntries();
+      let changed = false;
+      const newEntries = [];
+      entries.forEach(e => {
+        if (e.couponAmount > 0 && !_isCouponSub(e)) {
+          // クーポンサブエントリが存在するか確認
+          const hasSub = entries.some(s =>
+            s.id !== e.id && _isCouponSub(s) && s.date === e.date && s.pickup === e.pickup && s.pickupTime === e.pickupTime
+          );
+          if (!hasSub) {
+            // 旧フォーマット: amountからcouponAmountを引いてサブエントリを作成
+            AppLogger.info('クーポンデータ移行: ' + e.id + ' amount ' + e.amount + ' -> ' + (e.amount - e.couponAmount));
+            e.amount = e.amount - e.couponAmount;
+            changed = true;
+            newEntries.push({
+              id: e.id + '_coupon_migrated',
+              amount: e.couponAmount,
+              date: e.date,
+              dayOfWeek: e.dayOfWeek || '',
+              holiday: e.holiday || '',
+              weather: e.weather || '',
+              temperature: e.temperature != null ? e.temperature : null,
+              pickup: e.pickup || '',
+              pickupTime: e.pickupTime || '',
+              dropoff: e.dropoff || '',
+              dropoffTime: e.dropoffTime || '',
+              passengers: '', gender: '', purpose: '',
+              memo: 'クーポン未収（移行データ）',
+              source: e.source || '',
+              pickupCoords: e.pickupCoords || null,
+              dropoffCoords: e.dropoffCoords || null,
+              pickupLandmark: e.pickupLandmark || '',
+              dropoffLandmark: e.dropoffLandmark || '',
+              noPassenger: false,
+              paymentMethod: 'uncollected',
+              discounts: [],
+              discountAmount: 0,
+              discountType: '',
+              couponAmount: 0,
+              waitingTime: '',
+              timestamp: e.timestamp,
+            });
+          }
+        }
+      });
+      if (changed) {
+        const allEntries = [...entries, ...newEntries];
+        saveEntries(allEntries);
+        AppLogger.info('クーポンデータ移行完了: ' + newEntries.length + '件のサブエントリを作成');
+      }
+    } catch (err) {
+      AppLogger.warn('クーポンデータ移行エラー: ' + err.message);
+    }
+  }
+
   function getEntries() {
+    _migrateCouponEntries();
     try {
       const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.REVENUE_DATA);
       if (saved === _entriesCacheRaw && _entriesCache !== null) return _entriesCache;
