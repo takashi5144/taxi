@@ -151,6 +151,11 @@ window.DataService = (() => {
   let _rawEntriesCache = null;
   let _rawEntriesCacheKey = null;
 
+  // クーポン未収サブエントリ判定（メイン売上とは別に自動生成されるエントリ）
+  const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+  // メーター金額（amount + discountAmount + couponAmount）
+  const _meterAmount = (e) => (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+
   // 全エントリ（空車含む）を生データとして取得（内部CRUD用）
   // キャッシュ付き: localStorageの値が変わらなければJSON.parseをスキップ
   function _getRawEntries() {
@@ -186,6 +191,11 @@ window.DataService = (() => {
     } catch {
       return [];
     }
+  }
+
+  // 分析用エントリ取得（クーポンサブエントリ除外）
+  function _getAnalyticsEntries(dayType) {
+    return _filterByDayType(getEntries(), dayType).filter(e => !_isCouponSub(e));
   }
 
   // 空車記録のみ取得（待機を除く）
@@ -1019,8 +1029,7 @@ window.DataService = (() => {
     const today = getLocalDateString();
     const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
 
-    const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
-    const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
+    const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);
     const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
@@ -1064,9 +1073,8 @@ window.DataService = (() => {
   // 全期間サマリー
   // ============================================================
   function getOverallSummary(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
-    const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
-    const totalAmount = entries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
+    const entries = _getAnalyticsEntries(dayType);
+    const totalAmount = entries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);
     const rideCount = entries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
@@ -1088,7 +1096,7 @@ window.DataService = (() => {
   // 日別集計（Analytics用）
   // ============================================================
   function getDailyBreakdown(days = 30, dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const result = {};
 
     // 過去N日分の枠を作る
@@ -1102,7 +1110,7 @@ window.DataService = (() => {
     entries.forEach(e => {
       const key = e.date || toDateStr(e.timestamp);
       if (result[key]) {
-        result[key].amount += e.amount || 0;
+        result[key].amount += _meterAmount(e);
         result[key].count += 1;
       }
     });
@@ -1114,14 +1122,14 @@ window.DataService = (() => {
   // 曜日別集計（Analytics用）
   // ============================================================
   function getDayOfWeekBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const days = ['日', '月', '火', '水', '木', '金', '土'];
     const result = days.map((name, i) => ({ name, index: i, amount: 0, count: 0, avg: 0 }));
 
     entries.forEach(e => {
       const dateStr = e.date || toDateStr(e.timestamp);
       const idx = dateStr ? new Date(dateStr + 'T00:00:00').getDay() : getDayOfWeekIndex(e.timestamp);
-      result[idx].amount += e.amount || 0;
+      result[idx].amount += _meterAmount(e);
       result[idx].count += 1;
     });
 
@@ -1136,7 +1144,7 @@ window.DataService = (() => {
   // 時間帯別集計（Analytics用）
   // ============================================================
   function getHourlyBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const result = [];
 
     for (let h = 0; h < 24; h++) {
@@ -1147,7 +1155,7 @@ window.DataService = (() => {
       const time = e.dropoffTime || e.pickupTime || '';
       const h = time ? parseInt(time.split(':')[0], 10) : toHour(e.timestamp);
       if (h >= 0 && h < 24) {
-        result[h].amount += e.amount || 0;
+        result[h].amount += _meterAmount(e);
         result[h].count += 1;
       }
     });
@@ -1163,7 +1171,7 @@ window.DataService = (() => {
   // エリア別集計（乗車地・降車地の頻度）
   // ============================================================
   function getAreaBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const alias = TaxiApp.utils.applyPlaceAlias;
     const pickups = {};
     const dropoffs = {};
@@ -1173,13 +1181,13 @@ window.DataService = (() => {
         const p = alias(e.pickup);
         pickups[p] = (pickups[p] || { name: p, count: 0, amount: 0 });
         pickups[p].count += 1;
-        pickups[p].amount += e.amount || 0;
+        pickups[p].amount += _meterAmount(e);
       }
       if (e.dropoff) {
         const d = alias(e.dropoff);
         dropoffs[d] = (dropoffs[d] || { name: d, count: 0, amount: 0 });
         dropoffs[d].count += 1;
-        dropoffs[d].amount += e.amount || 0;
+        dropoffs[d].amount += _meterAmount(e);
       }
     });
 
@@ -1193,14 +1201,14 @@ window.DataService = (() => {
   // 天候別集計
   // ============================================================
   function getWeatherBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const weathers = ['晴れ', '曇り', '雨', '雪', '未設定'];
     const result = {};
     weathers.forEach(w => { result[w] = { name: w, amount: 0, count: 0, avg: 0 }; });
 
     entries.forEach(e => {
       const w = e.weather && weathers.includes(e.weather) ? e.weather : '未設定';
-      result[w].amount += e.amount || 0;
+      result[w].amount += _meterAmount(e);
       result[w].count += 1;
     });
 
@@ -1215,14 +1223,14 @@ window.DataService = (() => {
   // 配車方法別集計
   // ============================================================
   function getSourceBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const sources = ['Go', 'Uber', 'DIDI', '電話', '流し', '未設定'];
     const result = {};
     sources.forEach(s => { result[s] = { name: s, amount: 0, count: 0, avg: 0 }; });
 
     entries.forEach(e => {
       const s = e.source && sources.includes(e.source) ? e.source : '未設定';
-      result[s].amount += e.amount || 0;
+      result[s].amount += _meterAmount(e);
       result[s].count += 1;
     });
 
@@ -1237,14 +1245,14 @@ window.DataService = (() => {
   // 用途別集計
   // ============================================================
   function getPurposeBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ', '未設定'];
     const result = {};
     purposes.forEach(p => { result[p] = { name: p, amount: 0, count: 0, avg: 0 }; });
 
     entries.forEach(e => {
       const p = e.purpose && purposes.includes(e.purpose) ? e.purpose : '未設定';
-      result[p].amount += e.amount || 0;
+      result[p].amount += _meterAmount(e);
       result[p].count += 1;
     });
 
@@ -1259,7 +1267,7 @@ window.DataService = (() => {
   // 用途×曜日×日種別（平日/休日/大型連休）クロス分析
   // ============================================================
   function getPurposeDayAnalysis(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const purposes = ['通勤', '通院', '買物', '観光', '出張', '送迎', '空港', '飲食', 'パチンコ'];
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -1291,7 +1299,7 @@ window.DataService = (() => {
       const dow = e.dayOfWeek || JapaneseHolidays.getDayOfWeek(dateStr);
       if (dow && matrix[p][dow]) {
         matrix[p][dow].count += 1;
-        matrix[p][dow].amount += e.amount || 0;
+        matrix[p][dow].amount += _meterAmount(e);
       }
 
       if (!dateDayTypeMap[dateStr]) {
@@ -1299,7 +1307,7 @@ window.DataService = (() => {
       }
       const dayType = dateDayTypeMap[dateStr];
       typeMatrix[p][dayType].count += 1;
-      typeMatrix[p][dayType].amount += e.amount || 0;
+      typeMatrix[p][dayType].amount += _meterAmount(e);
 
       dateSet.add(dateStr);
     });
@@ -1373,7 +1381,7 @@ window.DataService = (() => {
   // エリア×時間帯クロス集計
   // ============================================================
   function getAreaTimeBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const _alias = TaxiApp.utils.applyPlaceAlias;
     const areaMap = {};
 
@@ -1386,13 +1394,13 @@ window.DataService = (() => {
         areaMap[area] = { area, hours: {}, totalCount: 0, totalAmount: 0 };
       }
       areaMap[area].totalCount += 1;
-      areaMap[area].totalAmount += e.amount || 0;
+      areaMap[area].totalAmount += _meterAmount(e);
 
       if (!areaMap[area].hours[hour]) {
         areaMap[area].hours[hour] = { hour, count: 0, amount: 0 };
       }
       areaMap[area].hours[hour].count += 1;
-      areaMap[area].hours[hour].amount += e.amount || 0;
+      areaMap[area].hours[hour].amount += _meterAmount(e);
     });
 
     return Object.values(areaMap)
@@ -1410,7 +1418,7 @@ window.DataService = (() => {
   // 客単価分析
   // ============================================================
   function getUnitPriceAnalysis(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
 
     const byDow = {};
@@ -1477,7 +1485,7 @@ window.DataService = (() => {
     const currentDow = getDayOfWeek(now.toISOString());
     const currentDowIndex = now.getDay();
 
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
 
     // 現在の時間帯で売上が高いエリアTOP3
     const alias = TaxiApp.utils.applyPlaceAlias;
@@ -1487,7 +1495,7 @@ window.DataService = (() => {
       if (hr === currentHour && e.pickup) {
         const name = alias(e.pickup);
         if (!areaByHour[name]) areaByHour[name] = { name, amount: 0, count: 0 };
-        areaByHour[name].amount += e.amount || 0;
+        areaByHour[name].amount += _meterAmount(e);
         areaByHour[name].count += 1;
       }
     });
@@ -1504,7 +1512,7 @@ window.DataService = (() => {
       const dow = getDayOfWeekIndex(e.timestamp);
       if (dow === currentDowIndex) {
         const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
-        hourByDow[hr].total += e.amount || 0;
+        hourByDow[hr].total += _meterAmount(e);
         hourByDow[hr].count += 1;
       }
     });
@@ -1517,7 +1525,7 @@ window.DataService = (() => {
       const dow = getDayOfWeekIndex(e.timestamp);
       const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : toHour(e.timestamp);
       if (dow === currentDowIndex && hr === currentHour) {
-        estTotal += e.amount || 0;
+        estTotal += _meterAmount(e);
         estCount += 1;
       }
     });
@@ -1535,7 +1543,7 @@ window.DataService = (() => {
   // 配車方法×エリア×単価ランク クロス分析
   // ============================================================
   function getSourceAreaPriceBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const sources = ['Go', 'Uber', 'DIDI', '電話', '流し'];
     const priceTiers = [
       { key: 'short', label: '¥1,000以下', min: 0, max: 1000 },
@@ -1780,7 +1788,7 @@ window.DataService = (() => {
   // 週別集計
   // ============================================================
   function getWeeklyBreakdown(weeks = 12, dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const result = {};
 
     for (let i = weeks - 1; i >= 0; i--) {
@@ -1793,7 +1801,7 @@ window.DataService = (() => {
     entries.forEach(e => {
       const key = getWeekStart(new Date(e.timestamp));
       if (result[key]) {
-        result[key].amount += e.amount || 0;
+        result[key].amount += _meterAmount(e);
         result[key].count += 1;
       }
     });
@@ -1805,7 +1813,7 @@ window.DataService = (() => {
   // 月別集計
   // ============================================================
   function getMonthlyBreakdown(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const result = {};
 
     entries.forEach(e => {
@@ -1813,7 +1821,7 @@ window.DataService = (() => {
       if (!result[key]) {
         result[key] = { month: key, amount: 0, count: 0 };
       }
-      result[key].amount += e.amount || 0;
+      result[key].amount += _meterAmount(e);
       result[key].count += 1;
     });
 
@@ -2717,7 +2725,7 @@ window.DataService = (() => {
   function getDailyReport() {
     const entries = getEntries();
     const today = toDateStr(new Date().toISOString());
-    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today && !e.noPassenger && e.amount > 0);
+    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today && !e.noPassenger && e.amount > 0 && !_isCouponSub(e));
     if (todayEntries.length < 2) return null;
 
     // 過去データ（直近30日、今日以外）
@@ -2725,7 +2733,7 @@ window.DataService = (() => {
     const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const pastEntries = entries.filter(e => {
       const d = e.date || toDateStr(e.timestamp);
-      return d !== today && d >= toDateStr(thirtyDaysAgo.toISOString()) && !e.noPassenger && e.amount > 0;
+      return d !== today && d >= toDateStr(thirtyDaysAgo.toISOString()) && !e.noPassenger && e.amount > 0 && !_isCouponSub(e);
     });
 
     // エリア定義
@@ -2750,7 +2758,7 @@ window.DataService = (() => {
     }
 
     // 本日実績
-    const totalRevenue = todayEntries.reduce((s, e) => s + e.amount, 0);
+    const totalRevenue = todayEntries.reduce((s, e) => s + _meterAmount(e), 0);
     const rideCount = todayEntries.length;
     const avgFare = Math.round(totalRevenue / rideCount);
 
@@ -2775,9 +2783,9 @@ window.DataService = (() => {
     // 過去平均値
     const pastDays = new Set(pastEntries.map(e => e.date || toDateStr(e.timestamp)));
     const pastDayCount = pastDays.size || 1;
-    const pastAvgRevenue = Math.round(pastEntries.reduce((s, e) => s + e.amount, 0) / pastDayCount);
+    const pastAvgRevenue = Math.round(pastEntries.reduce((s, e) => s + _meterAmount(e), 0) / pastDayCount);
     const pastAvgRides = Math.round(pastEntries.length / pastDayCount);
-    const pastAvgFare = pastEntries.length > 0 ? Math.round(pastEntries.reduce((s, e) => s + e.amount, 0) / pastEntries.length) : 0;
+    const pastAvgFare = pastEntries.length > 0 ? Math.round(pastEntries.reduce((s, e) => s + _meterAmount(e), 0) / pastEntries.length) : 0;
 
     // 時間帯別の空車分析（改善ポイント特定）
     const insights = [];
@@ -2820,14 +2828,15 @@ window.DataService = (() => {
     });
 
     // 高単価乗車の特定
-    const highFare = sorted.filter(e => e.amount >= avgFare * 1.8);
+    const highFare = sorted.filter(e => _meterAmount(e) >= avgFare * 1.8);
     highFare.forEach(e => {
+      const meter = _meterAmount(e);
       const area = e.pickupCoords ? coordToAreaName(e.pickupCoords.lat, e.pickupCoords.lng) : null;
       insights.push({
         type: 'high_fare',
         icon: 'trending_up',
         color: '#10b981',
-        text: `${e.pickupTime} ${area || e.pickup || ''}発 ¥${e.amount.toLocaleString()}（平均の${Math.round(e.amount / avgFare * 100)}%）`,
+        text: `${e.pickupTime} ${area || e.pickup || ''}発 ¥${meter.toLocaleString()}（平均の${Math.round(meter / avgFare * 100)}%）`,
         suggestion: `${e.source || ''}${e.purpose ? '（' + e.purpose + '）' : ''} この時間帯のこのエリアは高単価`,
       });
     });
@@ -2836,7 +2845,7 @@ window.DataService = (() => {
     const lowStreak = [];
     let streak = 0;
     sorted.forEach(e => {
-      if (e.amount < avgFare * 0.6) { streak++; }
+      if (_meterAmount(e) < avgFare * 0.6) { streak++; }
       else { if (streak >= 3) lowStreak.push({ count: streak, lastTime: e.pickupTime }); streak = 0; }
     });
     if (streak >= 3) lowStreak.push({ count: streak, lastTime: sorted[sorted.length - 1].dropoffTime });
@@ -2856,7 +2865,7 @@ window.DataService = (() => {
       const src = e.source || '不明';
       if (!sourceStats[src]) sourceStats[src] = { count: 0, total: 0, trips: [] };
       sourceStats[src].count++;
-      sourceStats[src].total += e.amount;
+      sourceStats[src].total += _meterAmount(e);
     });
     const sourceRanking = Object.entries(sourceStats)
       .map(([src, s]) => ({ source: src, count: s.count, avg: Math.round(s.total / s.count) }))
@@ -3576,7 +3585,7 @@ window.DataService = (() => {
   }
 
   function getTopPickupAreasForNow(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const now = new Date();
     const currentHour = now.getHours();
     const currentDow = ['日','月','火','水','木','金','土'][now.getDay()];
@@ -3590,7 +3599,7 @@ window.DataService = (() => {
       if (e.dayOfWeek !== currentDow) return;
       const name = alias(e.pickup);
       if (!areas[name]) areas[name] = { name, total: 0, count: 0 };
-      areas[name].total += e.amount;
+      areas[name].total += _meterAmount(e);
       areas[name].count += 1;
     });
     // 奇数日は駅前エリアを除外
@@ -3613,7 +3622,7 @@ window.DataService = (() => {
     const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const monthAmount = entries
       .filter(e => (e.date || toDateStr(e.timestamp)).startsWith(monthKey))
-      .reduce((s, e) => s + (e.amount || 0), 0);
+      .reduce((s, e) => s + _meterAmount(e), 0);
     const monthDays = new Set(
       entries
         .filter(e => (e.date || toDateStr(e.timestamp)).startsWith(monthKey))
@@ -3713,7 +3722,7 @@ window.DataService = (() => {
       cell.lat += e.pickupCoords.lat;
       cell.lng += e.pickupCoords.lng;
       cell.count += 1;
-      cell.totalAmount += e.amount;
+      cell.totalAmount += _meterAmount(e);
 
       // 機能2: 時間減衰
       const entryDate = e.date || (e.timestamp ? e.timestamp.slice(0, 10) : '');
@@ -3893,7 +3902,7 @@ window.DataService = (() => {
       const name = e.pickup || `${e.pickupCoords.lat.toFixed(4)},${e.pickupCoords.lng.toFixed(4)}`;
       if (!nearbyPickups[name]) nearbyPickups[name] = { name, count: 0, totalAmount: 0, coords: e.pickupCoords };
       nearbyPickups[name].count++;
-      nearbyPickups[name].totalAmount += e.amount || 0;
+      nearbyPickups[name].totalAmount += _meterAmount(e);
     });
 
     const history = Object.values(nearbyPickups)
@@ -5086,7 +5095,7 @@ window.DataService = (() => {
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       spots.forEach(spot => {
         if (_matchSpot(spot.id, e.pickup, e.pickupCoords, spot)) {
-          historyBySpot[spot.id][hour].total += (e.amount || 0);
+          historyBySpot[spot.id][hour].total += _meterAmount(e);
           historyBySpot[spot.id][hour].count += 1;
         }
       });
@@ -5346,7 +5355,7 @@ window.DataService = (() => {
       if (isNaN(hour) || hour < 0 || hour > 23) return;
       areas.forEach(area => {
         if (_matchesArea(area, e.pickup, e.pickupCoords)) {
-          historyByArea[area.id][hour].total += (e.amount || 0);
+          historyByArea[area.id][hour].total += _meterAmount(e);
           historyByArea[area.id][hour].count += 1;
         }
       });
@@ -6169,7 +6178,7 @@ window.DataService = (() => {
   // 待機 vs 流し 効率比較分析
   // ============================================================
   function getWaitingVsCruisingEfficiency(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const locs = APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
     const waitingSpots = locs.waitingSpots || [];
     const alias = TaxiApp.utils.applyPlaceAlias;
@@ -6225,7 +6234,7 @@ window.DataService = (() => {
 
     function summarize(rides) {
       if (rides.length === 0) return { count: 0, totalRevenue: 0, avgFare: 0, avgVacantMin: null, hourlyRevenue: 0, topSpots: [] };
-      const totalRevenue = rides.reduce((s, e) => s + (e.amount || 0), 0);
+      const totalRevenue = rides.reduce((s, e) => s + _meterAmount(e), 0);
       const avgFare = Math.round(totalRevenue / rides.length);
       const withVacant = rides.filter(e => e.vacantMin !== null);
       const avgVacantMin = withVacant.length > 0
@@ -6250,7 +6259,7 @@ window.DataService = (() => {
         const name = e.pickup ? alias(e.pickup) : '不明';
         if (!spotMap[name]) spotMap[name] = { name, count: 0, total: 0 };
         spotMap[name].count++;
-        spotMap[name].total += e.amount || 0;
+        spotMap[name].total += _meterAmount(e);
       });
       const topSpots = Object.values(spotMap)
         .sort((a, b) => b.count - a.count).slice(0, 3)
@@ -6300,9 +6309,9 @@ window.DataService = (() => {
       hourlyComparison.push({
         hour: h,
         waitingCount: wR.length,
-        waitingAvg: wR.length > 0 ? Math.round(wR.reduce((s, e) => s + (e.amount || 0), 0) / wR.length) : 0,
+        waitingAvg: wR.length > 0 ? Math.round(wR.reduce((s, e) => s + _meterAmount(e), 0) / wR.length) : 0,
         cruisingCount: cR.length,
-        cruisingAvg: cR.length > 0 ? Math.round(cR.reduce((s, e) => s + (e.amount || 0), 0) / cR.length) : 0,
+        cruisingAvg: cR.length > 0 ? Math.round(cR.reduce((s, e) => s + _meterAmount(e), 0) / cR.length) : 0,
       });
     }
 
@@ -6421,7 +6430,7 @@ window.DataService = (() => {
   function getShiftProductivity(dayType) {
     let shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
     const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     // シフト自体も日種別でフィルタ
     if (dayType) {
       shifts = shifts.filter(s => {
@@ -6464,7 +6473,7 @@ window.DataService = (() => {
         const t = new Date(e.timestamp);
         return t >= start && t <= end;
       });
-      const totalAmount = shiftEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+      const totalAmount = shiftEntries.reduce((sum, e) => sum + _meterAmount(e), 0);
       const rideCount = shiftEntries.length;
       const hourlyRate = actualMinutes > 0 ? Math.round(totalAmount / (actualMinutes / 60)) : 0;
       const avgPrice = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
@@ -6507,7 +6516,7 @@ window.DataService = (() => {
   // 天気×売上相関
   // ============================================================
   function getWeatherRevenueCorrelation(dayType) {
-    const entries = _filterByDayType(getEntries(), dayType);
+    const entries = _getAnalyticsEntries(dayType);
     const weathers = ['晴れ', '曇り', '雨', '雪'];
     const byWeather = {};
     weathers.forEach(w => { byWeather[w] = { name: w, totalAmount: 0, totalRides: 0, days: new Set() }; });
@@ -6515,7 +6524,7 @@ window.DataService = (() => {
     entries.forEach(e => {
       const w = e.weather && weathers.includes(e.weather) ? e.weather : null;
       if (!w) return;
-      byWeather[w].totalAmount += (e.amount || 0);
+      byWeather[w].totalAmount += _meterAmount(e);
       byWeather[w].totalRides += 1;
       byWeather[w].days.add(e.date || toDateStr(e.timestamp));
     });
@@ -6573,7 +6582,7 @@ window.DataService = (() => {
         }
         if (matched) {
           loc.matchedRides += 1;
-          loc.matchedAmount += (e.amount || 0);
+          loc.matchedAmount += _meterAmount(e);
         }
       });
     });

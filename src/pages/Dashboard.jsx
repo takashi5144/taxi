@@ -203,7 +203,7 @@ window.DashboardPage = () => {
       if (!byName[name]) byName[name] = { rides: [], days: {}, hours: {}, areas: {}, totalAmount: 0 };
       const u = byName[name];
       u.rides.push(e);
-      u.totalAmount += e.amount || 0;
+      u.totalAmount += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
       const dow = e.dayOfWeek || '';
       if (dow) u.days[dow] = (u.days[dow] || 0) + 1;
       if (e.pickupTime) {
@@ -557,8 +557,9 @@ window.DashboardPage = () => {
   const currentMonth = getLocalDateString().slice(0, 7);
   const monthData = useMemo(() => {
     const entries = DataService.getEntries();
-    const month = entries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth));
-    return { count: month.length, total: month.reduce((sum, e) => sum + e.amount, 0) };
+    const _isCpnSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+    const month = entries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth) && !_isCpnSub(e));
+    return { count: month.length, total: month.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0) };
   }, [refreshKey, currentMonth]);
 
   return React.createElement('div', null,
