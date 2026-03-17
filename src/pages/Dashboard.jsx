@@ -550,8 +550,8 @@ window.DashboardPage = () => {
   const todayDiscountLongDistance = getDiscountByType(todayEntries, 'longDistance');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + Math.abs(todayDiscountCoupon.total) + Math.abs(todayDiscountTicket.total);
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountCoupon.count + todayDiscountTicket.count;
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber;
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length;
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
   const currentMonth = getLocalDateString().slice(0, 7);
@@ -972,11 +972,9 @@ window.DashboardPage = () => {
           style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
         },
           React.createElement('span', null, `未収: ${todayUncollectedEntries.length}件 ¥${todayUncollected.toLocaleString()}`),
-          React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
-          React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
-          React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 ¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
-          todayDiscountCoupon.count > 0 && React.createElement('span', null, `クーポン: ¥${Math.abs(todayDiscountCoupon.total).toLocaleString()}${todayDiscountCoupon.sheets ? ` (${todayDiscountCoupon.sheets}枚)` : ''}`),
-          todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ¥${Math.abs(todayDiscountTicket.total).toLocaleString()}${todayDiscountTicket.sheets ? ` (${todayDiscountTicket.sheets}枚)` : ''}`)
+          todayDidiEntries.length > 0 && React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
+          todayUberEntries.length > 0 && React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
+          todayCouponUncollected > 0 && React.createElement('span', null, `うちクーポン: ¥${todayCouponUncollected.toLocaleString()}`)
         )
       ),
       // 未収合計の内訳リスト
