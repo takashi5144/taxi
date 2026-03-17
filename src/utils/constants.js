@@ -422,7 +422,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.34',
+  VERSION: '3.35.35',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -537,16 +537,21 @@ window.APP_CONSTANTS = {
   // radius(m)以内の座標は全てこの名称に変換される
   // 近接する場所は小さいradiusで区別する
   KNOWN_PLACES: [
-    { name: '旭川駅北口', lat: 43.763314, lng: 142.359065, radius: 50 },
-    { name: 'イオンモール旭川駅前', lat: 43.76455, lng: 142.35875, radius: 50 },
-    { name: '旭山動物園', lat: 43.7688, lng: 142.4849, radius: 500 },
+    { name: '旭川駅北口', lat: 43.763314, lng: 142.359065, radius: 100 },
+    { name: 'イオンモール旭川駅前', lat: 43.76455, lng: 142.35875, radius: 100 },
+    { name: '旭山動物園', lat: 43.7710, lng: 142.4855, radius: 1000 },
     { name: 'ローソン8条10丁目店', lat: 43.7730, lng: 142.3670, radius: 50 },
-    { name: 'OMO7旭川', lat: 43.7703, lng: 142.3646, radius: 50 },
-    { name: 'プレミアホテルCABIN旭川', lat: 43.7658, lng: 142.3586, radius: 50 },
-    { name: 'アートホテル旭川', lat: 43.7730, lng: 142.3604, radius: 50 },
-    { name: 'ホテルクレッセント旭川', lat: 43.7698, lng: 142.3624, radius: 50 },
-    { name: '9Cホテル旭川', lat: 43.7672, lng: 142.3588, radius: 50 },
-    { name: 'ホテルウイング旭川', lat: 43.7665, lng: 142.3575, radius: 50 },
+    { name: 'OMO7旭川', lat: 43.7703, lng: 142.3646, radius: 80 },
+    { name: 'プレミアホテルCABIN旭川', lat: 43.7658, lng: 142.3586, radius: 80 },
+    { name: 'アートホテル旭川', lat: 43.7730, lng: 142.3604, radius: 80 },
+    { name: 'ホテルクレッセント旭川', lat: 43.7698, lng: 142.3624, radius: 80 },
+    { name: '9Cホテル旭川', lat: 43.7672, lng: 142.3588, radius: 80 },
+    { name: 'ホテルウイング旭川', lat: 43.7665, lng: 142.3575, radius: 80 },
+    // 病院
+    { name: '旭川医科大学病院', lat: 43.7306, lng: 142.3857, radius: 300 },
+    { name: '旭川赤十字病院', lat: 43.7580, lng: 142.3720, radius: 200 },
+    { name: '市立旭川病院', lat: 43.7710, lng: 142.3650, radius: 200 },
+    { name: '旭川厚生病院', lat: 43.7650, lng: 142.3490, radius: 200 },
   ],
 
   // 旭川市の主要ロケーション（駅・病院）
@@ -657,7 +662,7 @@ window.APP_CONSTANTS = {
         },
         {
           id: 'asahiyama_zoo', name: '旭山動物園', shortName: '動物園',
-          lat: 43.7688, lng: 142.4849,
+          lat: 43.7710, lng: 142.4855,
           hasOddDayRule: false,
           // 夏期（9:30-17:15）用パターン — 閉園前15-17時がピーク
           basePatternWeekday: [0,0,0,0,0,0,0,0,0,20,35,40,35,30,40,55,60,45,0,0,0,0,0,0],
