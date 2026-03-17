@@ -82,7 +82,7 @@ window.CalendarPage = () => {
     entries.forEach(e => {
       if (!e.date) return;
       if (!map[e.date]) map[e.date] = { total: 0, count: 0 };
-      map[e.date].total += (e.amount || 0);
+      map[e.date].total += (e.amount || 0) + (e.discountAmount || 0);
       map[e.date].count += 1;
     });
     return map;

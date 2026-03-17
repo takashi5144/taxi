@@ -511,7 +511,8 @@ window.DashboardPage = () => {
 
   // 本日の売上合計用データ（Revenue.jsxから移動）
   const todayEntries = todaySummary.entries || [];
-  const todayTotal = todayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+  // 売上合計 = 各エントリのamount + 割引額（障害者割等）を含む（メーター金額ベース）
+  const todayTotal = todayEntries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
   const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
   const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
   const todayDidiEntries = todayEntries.filter(e => e.paymentMethod === 'didi');
@@ -837,19 +838,21 @@ window.DashboardPage = () => {
         )
       ),
 
-      // 現金・未収・DIDI決済・Uber 内訳
+      // 現金・未収・DIDI決済・Uber・割引 内訳
       ...(() => {
+        const todayDiscountEntries = todayEntries.filter(e => (e.discountAmount || 0) > 0);
         const payCards = [
           { key: 'cash', label: '現金', icon: 'payments', entries: todayCashEntries, total: todayCash, color: 'var(--color-accent)', bg: 'rgba(26,115,232,0.08)', border: 'rgba(26,115,232,0.2)' },
           { key: 'uncollected', label: '未収', icon: 'pending', entries: todayUncollectedEntries, total: todayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
           { key: 'didi', label: 'DIDI決済', icon: 'smartphone', entries: todayDidiEntries, total: todayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
           { key: 'uber', label: 'Uber', icon: 'hail', entries: todayUberEntries, total: todayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
+          { key: 'discount', label: '割引', icon: 'discount', entries: todayDiscountEntries, total: todayDiscount, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)', isDiscount: true },
         ];
         const gridEl = React.createElement('div', {
           key: 'pay-grid',
           style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
         },
-          ...payCards.map(c => React.createElement('div', {
+          ...payCards.filter(c => !c.isDiscount || c.total > 0).map(c => React.createElement('div', {
             key: c.key,
             onClick: () => setExpandedPayment(expandedPayment === c.key ? null : c.key),
             style: { padding: '10px', borderRadius: 'var(--border-radius)', background: c.bg, border: `1px solid ${c.border}`, cursor: 'pointer', userSelect: 'none', transition: 'box-shadow 0.2s', boxShadow: expandedPayment === c.key ? `0 0 0 2px ${c.border}` : 'none' },
@@ -867,11 +870,17 @@ window.DashboardPage = () => {
             React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: c.color } },
               `¥${c.total.toLocaleString()}`
             ),
-            React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+            !c.isDiscount && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
               `税抜: ¥${Math.floor(c.total / 1.1).toLocaleString()}`
             ),
-            React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+            !c.isDiscount && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
               `消費税: ¥${(c.total - Math.floor(c.total / 1.1)).toLocaleString()}`
+            ),
+            c.isDiscount && todayDiscountEntries.length > 0 && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 4 } },
+              [
+                todayDiscountDisability.count > 0 && `障害者割 ${todayDiscountDisability.count}件 ¥${todayDiscountDisability.total.toLocaleString()}`,
+                todayDiscountLongDistance.count > 0 && `遠距離割 ${todayDiscountLongDistance.count}件 ¥${todayDiscountLongDistance.total.toLocaleString()}`,
+              ].filter(Boolean).join(' / ') || '割引詳細'
             ),
             c.key === 'uncollected' && todayCouponUncollected > 0 && React.createElement('div', {
               style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
@@ -909,7 +918,14 @@ window.DashboardPage = () => {
                   [e.source, e.purpose].filter(Boolean).join(' / ')
                 )
               ),
-              React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: expandedCard.color, whiteSpace: 'nowrap' } }, `¥${(e.amount || 0).toLocaleString()}`)
+              React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: expandedCard.color, whiteSpace: 'nowrap' } },
+                expandedCard.isDiscount
+                  ? `¥${(e.discountAmount || 0).toLocaleString()}`
+                  : `¥${(e.amount || 0).toLocaleString()}`
+              ),
+              expandedCard.isDiscount && e.discountType && React.createElement('span', { style: { fontSize: 9, color: 'var(--text-muted)', marginLeft: 4 } },
+                e.discountType.split(',').map(t => ({ disability: '障害者', longDistance: '遠距離' })[t] || t).join('/')
+              )
             ))
         ) : expandedCard && expandedCard.entries.length === 0 ? React.createElement('div', {
           key: 'pay-detail',
