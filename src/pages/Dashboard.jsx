@@ -1074,7 +1074,7 @@ window.DashboardPage = () => {
         style: { display: 'flex', justifyContent: 'center', gap: '12px', padding: '8px 0', borderTop: '1px solid var(--border-color)', fontSize: 'var(--font-size-xs)' },
       },
         React.createElement('span', { style: { color: 'var(--text-secondary)', fontWeight: 600 } },
-          `本日: ${todayEntries.length}件`
+          `本日: ${todayEntries.filter(e => !isCouponSubEntry(e)).length}件`
         ),
         React.createElement('span', { style: { color: 'var(--color-accent)' } },
           `現金: ${todayCashEntries.length}件`
