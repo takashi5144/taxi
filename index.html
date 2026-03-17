@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.28</title>
+  <title>タクシー売上サポート v3.35.29</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.28',
+  VERSION: '3.35.29',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3517,7 +3517,8 @@ window.DataService = (() => {
     const today = getLocalDateString();
     const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
 
-    const totalAmount = todayEntries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
+    const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+    const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
     const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
@@ -3562,7 +3563,8 @@ window.DataService = (() => {
   // ============================================================
   function getOverallSummary(dayType) {
     const entries = _filterByDayType(getEntries(), dayType);
-    const totalAmount = entries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
+    const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+    const totalAmount = entries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
     const rideCount = entries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
@@ -9090,6 +9092,7 @@ window.DataService = (() => {
   return {
     // データ取得
     getEntries,
+    getRawEntries: _getRawEntries,
     getVacantEntries,
     getStandbyEntries,
     saveEntries,
@@ -15822,8 +15825,14 @@ window.DashboardPage = () => {
 
   // 本日の売上合計用データ（Revenue.jsxから移動）
   const todayEntries = todaySummary.entries || [];
-  // 売上合計 = 各エントリのamount + 割引額（障害者割等）を含む（メーター金額ベース）
-  const todayTotal = todayEntries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
+  // クーポン別エントリ（自動生成）を識別
+  const isCouponSubEntry = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+  // 売上合計 = amount + discountAmount + couponAmount（メーター金額ベース）
+  // クーポン別エントリは除外（couponAmountで既に加算するため二重計上防止）
+  const todayTotal = todayEntries.reduce((sum, e) => {
+    if (isCouponSubEntry(e)) return sum; // クーポン別エントリは除外
+    return sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+  }, 0);
   const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
   const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
   const todayDidiEntries = todayEntries.filter(e => e.paymentMethod === 'didi');
@@ -15832,7 +15841,7 @@ window.DashboardPage = () => {
   const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayDidi = todayDidiEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayUber = todayUberEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayDiscount = todayEntries.reduce((sum, e) => sum + (e.discountAmount || 0), 0);
+  const todayDiscount = todayEntries.reduce((sum, e) => isCouponSubEntry(e) ? sum : sum + (e.discountAmount || 0), 0);
   const getDiscountByType = (entries, dtype) => {
     let total = 0, count = 0, sheets = 0;
     entries.forEach(e => {
@@ -19473,7 +19482,7 @@ window.RevenuePage = () => {
     // クーポン未収エントリの管理（既存のクーポンエントリを検索・更新/作成/削除）
     if (result.entry) {
       const couponEntryId = editingId + '_coupon';
-      const allEntries = DataService._getRawEntries ? DataService._getRawEntries() : [];
+      const allEntries = DataService.getRawEntries ? DataService.getRawEntries() : [];
       const existingCoupon = allEntries.find(ce => ce.id === couponEntryId || (ce.memo && ce.memo.includes('クーポン未収') && ce.date === result.entry.date && ce.pickup === result.entry.pickup));
       if (couponAmount > 0) {
         const couponData = {
@@ -22650,7 +22659,9 @@ window.CalendarPage = () => {
     entries.forEach(e => {
       if (!e.date) return;
       if (!map[e.date]) map[e.date] = { total: 0, count: 0 };
-      map[e.date].total += (e.amount || 0) + (e.discountAmount || 0);
+      // クーポン別エントリは除外（couponAmountで加算するため二重計上防止）
+      if (e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収')) return;
+      map[e.date].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
       map[e.date].count += 1;
     });
     return map;

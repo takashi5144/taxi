@@ -1019,7 +1019,8 @@ window.DataService = (() => {
     const today = getLocalDateString();
     const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
 
-    const totalAmount = todayEntries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
+    const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+    const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
     const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
@@ -1064,7 +1065,8 @@ window.DataService = (() => {
   // ============================================================
   function getOverallSummary(dayType) {
     const entries = _filterByDayType(getEntries(), dayType);
-    const totalAmount = entries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
+    const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+    const totalAmount = entries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
     const rideCount = entries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
@@ -6592,6 +6594,7 @@ window.DataService = (() => {
   return {
     // データ取得
     getEntries,
+    getRawEntries: _getRawEntries,
     getVacantEntries,
     getStandbyEntries,
     saveEntries,

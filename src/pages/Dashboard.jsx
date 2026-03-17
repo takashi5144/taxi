@@ -511,8 +511,14 @@ window.DashboardPage = () => {
 
   // 本日の売上合計用データ（Revenue.jsxから移動）
   const todayEntries = todaySummary.entries || [];
-  // 売上合計 = 各エントリのamount + 割引額（障害者割等）を含む（メーター金額ベース）
-  const todayTotal = todayEntries.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0), 0);
+  // クーポン別エントリ（自動生成）を識別
+  const isCouponSubEntry = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+  // 売上合計 = amount + discountAmount + couponAmount（メーター金額ベース）
+  // クーポン別エントリは除外（couponAmountで既に加算するため二重計上防止）
+  const todayTotal = todayEntries.reduce((sum, e) => {
+    if (isCouponSubEntry(e)) return sum; // クーポン別エントリは除外
+    return sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+  }, 0);
   const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
   const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
   const todayDidiEntries = todayEntries.filter(e => e.paymentMethod === 'didi');
@@ -521,7 +527,7 @@ window.DashboardPage = () => {
   const todayUncollected = todayUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayDidi = todayDidiEntries.reduce((sum, e) => sum + e.amount, 0);
   const todayUber = todayUberEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayDiscount = todayEntries.reduce((sum, e) => sum + (e.discountAmount || 0), 0);
+  const todayDiscount = todayEntries.reduce((sum, e) => isCouponSubEntry(e) ? sum : sum + (e.discountAmount || 0), 0);
   const getDiscountByType = (entries, dtype) => {
     let total = 0, count = 0, sheets = 0;
     entries.forEach(e => {

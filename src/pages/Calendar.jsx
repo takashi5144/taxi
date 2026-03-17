@@ -82,7 +82,9 @@ window.CalendarPage = () => {
     entries.forEach(e => {
       if (!e.date) return;
       if (!map[e.date]) map[e.date] = { total: 0, count: 0 };
-      map[e.date].total += (e.amount || 0) + (e.discountAmount || 0);
+      // クーポン別エントリは除外（couponAmountで加算するため二重計上防止）
+      if (e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収')) return;
+      map[e.date].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
       map[e.date].count += 1;
     });
     return map;

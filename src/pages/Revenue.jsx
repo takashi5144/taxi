@@ -793,7 +793,7 @@ window.RevenuePage = () => {
     // クーポン未収エントリの管理（既存のクーポンエントリを検索・更新/作成/削除）
     if (result.entry) {
       const couponEntryId = editingId + '_coupon';
-      const allEntries = DataService._getRawEntries ? DataService._getRawEntries() : [];
+      const allEntries = DataService.getRawEntries ? DataService.getRawEntries() : [];
       const existingCoupon = allEntries.find(ce => ce.id === couponEntryId || (ce.memo && ce.memo.includes('クーポン未収') && ce.date === result.entry.date && ce.pickup === result.entry.pickup));
       if (couponAmount > 0) {
         const couponData = {
