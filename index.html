@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.36</title>
+  <title>タクシー売上サポート v3.35.37</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.36',
+  VERSION: '3.35.37',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -19086,7 +19086,7 @@ window.RevenuePage = () => {
     const marker = new google.maps.Marker({ map, position: center, visible: false });
     mapPickerMarkerRef.current = marker;
 
-    // GPS走行履歴をポリラインとピンで表示
+    // GPS走行履歴を道路に沿ったルートで表示
     const _showGpsHistory = async () => {
       if (!window.GpsLogService) return;
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -19096,11 +19096,65 @@ window.RevenuePage = () => {
         const path = log.filter(e => e.lat && e.lng).map(e => ({ lat: e.lat, lng: e.lng }));
         if (path.length === 0) return;
 
-        // ポリライン描画
-        new google.maps.Polyline({
-          path, map, strokeColor: '#4285F4', strokeOpacity: 0.7, strokeWeight: 3,
-          icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2, strokeColor: '#4285F4' }, offset: '100%', repeat: '200px' }],
-        });
+        // Directions Serviceで道路に沿ったルートを表示
+        const directionsService = new google.maps.DirectionsService();
+        // GPSポイントをサンプリング（Directions APIはwaypoint最大25個制限）
+        const MAX_WAYPOINTS = 23;
+        const _samplePoints = (pts, maxWp) => {
+          if (pts.length <= maxWp + 2) return { origin: pts[0], destination: pts[pts.length - 1], waypoints: pts.slice(1, -1).map(p => ({ location: p, stopover: false })) };
+          const step = (pts.length - 2) / (maxWp);
+          const wps = [];
+          for (let i = 0; i < maxWp; i++) {
+            const idx = Math.round(1 + i * step);
+            if (idx > 0 && idx < pts.length - 1) wps.push({ location: pts[idx], stopover: false });
+          }
+          return { origin: pts[0], destination: pts[pts.length - 1], waypoints: wps };
+        };
+
+        // ルートをセグメントに分割して表示（25個制限対策）
+        const SEGMENT_SIZE = 25;
+        const segments = [];
+        for (let i = 0; i < path.length - 1; i += SEGMENT_SIZE - 1) {
+          const seg = path.slice(i, Math.min(i + SEGMENT_SIZE, path.length));
+          if (seg.length >= 2) segments.push(seg);
+        }
+
+        const bounds = new google.maps.LatLngBounds();
+        let routeDrawn = false;
+
+        for (const seg of segments) {
+          const sampled = _samplePoints(seg, MAX_WAYPOINTS);
+          try {
+            const result = await new Promise((resolve, reject) => {
+              directionsService.route({
+                origin: sampled.origin,
+                destination: sampled.destination,
+                waypoints: sampled.waypoints,
+                travelMode: google.maps.TravelMode.DRIVING,
+                optimizeWaypoints: false,
+              }, (res, status) => {
+                if (status === 'OK') resolve(res);
+                else reject(new Error(status));
+              });
+            });
+            // ルートのポリラインを描画
+            const routePath = result.routes[0].overview_path;
+            new google.maps.Polyline({
+              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4,
+              icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.5, strokeColor: '#fff', strokeOpacity: 0.9 }, offset: '100%', repeat: '300px' }],
+            });
+            routePath.forEach(p => bounds.extend(p));
+            routeDrawn = true;
+          } catch (dirErr) {
+            // Directions失敗時は直線フォールバック
+            AppLogger.warn('Directions API失敗、直線表示にフォールバック: ' + dirErr.message);
+            new google.maps.Polyline({
+              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3,
+            });
+            seg.forEach(p => bounds.extend(p));
+            routeDrawn = true;
+          }
+        }
 
         // イベント（乗車/降車）ピンを表示
         for (const entry of log) {
@@ -19113,16 +19167,17 @@ window.RevenuePage = () => {
                 strokeColor: '#fff', strokeWeight: 1.5 },
               title: `${isPickup ? '乗車' : '降車'} ${entry.t || ''}`,
             });
+            bounds.extend({ lat: entry.lat, lng: entry.lng });
           }
         }
 
-        // 履歴の範囲にフィット（現在地より優先）
-        const bounds = new google.maps.LatLngBounds();
-        path.forEach(p => bounds.extend(p));
-        map.fitBounds(bounds, 40);
-        AppLogger.info(`地図ピッカー: GPS履歴${path.length}件を表示`);
+        // 履歴の範囲にフィット
+        if (routeDrawn) {
+          map.fitBounds(bounds, 40);
+        }
+        AppLogger.info('地図ピッカー: GPS履歴' + path.length + '件をルート表示');
       } catch (err) {
-        AppLogger.warn(`GPS履歴表示失敗: ${err.message || err}`);
+        AppLogger.warn('GPS履歴表示失敗: ' + (err.message || err));
       }
     };
 
