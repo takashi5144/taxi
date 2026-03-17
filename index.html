@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.35.30</title>
+  <title>タクシー売上サポート v3.35.31</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.35.30',
+  VERSION: '3.35.31',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3519,7 +3519,7 @@ window.DataService = (() => {
 
     const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
-    const rideCount = todayEntries.filter(e => !_isCouponSub(e)).length;
+    const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
     // 稼働時間の計算（シフト始業〜終業の合計 − 休憩時間、未終業は現在時刻まで）
@@ -3565,7 +3565,7 @@ window.DataService = (() => {
     const entries = _filterByDayType(getEntries(), dayType);
     const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
     const totalAmount = entries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
-    const rideCount = entries.filter(e => !_isCouponSub(e)).length;
+    const rideCount = entries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
     // 日数計算
@@ -16388,7 +16388,7 @@ window.DashboardPage = () => {
         style: { display: 'flex', justifyContent: 'center', gap: '12px', padding: '8px 0', borderTop: '1px solid var(--border-color)', fontSize: 'var(--font-size-xs)' },
       },
         React.createElement('span', { style: { color: 'var(--text-secondary)', fontWeight: 600 } },
-          `本日: ${todayEntries.filter(e => !isCouponSubEntry(e)).length}件`
+          `本日: ${todayEntries.length}件`
         ),
         React.createElement('span', { style: { color: 'var(--color-accent)' } },
           `現金: ${todayCashEntries.length}件`

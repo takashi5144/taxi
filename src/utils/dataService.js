@@ -1021,7 +1021,7 @@ window.DataService = (() => {
 
     const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
-    const rideCount = todayEntries.filter(e => !_isCouponSub(e)).length;
+    const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
     // 稼働時間の計算（シフト始業〜終業の合計 − 休憩時間、未終業は現在時刻まで）
@@ -1067,7 +1067,7 @@ window.DataService = (() => {
     const entries = _filterByDayType(getEntries(), dayType);
     const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
     const totalAmount = entries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0);
-    const rideCount = entries.filter(e => !_isCouponSub(e)).length;
+    const rideCount = entries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
     // 日数計算
