@@ -761,14 +761,16 @@ window.RevenuePage = () => {
       return item;
     });
     const discountAmount = discounts.filter(dd => dd.type !== 'ticket' && dd.type !== 'coupon').reduce((sum, dd) => sum + dd.amount, 0);
+    const couponAmount = discounts.filter(dd => dd.type === 'coupon').reduce((sum, dd) => sum + dd.amount, 0);
     const discountType = discounts.map(dd => dd.type).join(',');
 
     const updates = {
       ...editForm,
-      amount: (parseInt(editForm.amount) || 0) - discountAmount,
-      discounts,
+      amount: (parseInt(editForm.amount) || 0) - discountAmount - couponAmount,
+      discounts: discounts.filter(dd => dd.type !== 'coupon'),
       discountAmount,
       discountType,
+      couponAmount,
       pickupCoords: editForm.pickupCoords || null,
       dropoffCoords: editForm.dropoffCoords || null,
       pickupLandmark: editForm.pickupLandmark || null,
@@ -780,12 +782,45 @@ window.RevenuePage = () => {
       } : null,
     };
     delete updates.discounts; // 一旦削除してからセット
-    updates.discounts = discounts;
+    updates.discounts = discounts.filter(dd => dd.type !== 'coupon');
 
     const result = DataService.updateEntry(editingId, updates);
     if (!result || !result.success) {
       setEditErrors((result && result.errors) || ['保存に失敗しました']);
       return;
+    }
+
+    // クーポン未収エントリの管理（既存のクーポンエントリを検索・更新/作成/削除）
+    if (result.entry) {
+      const couponEntryId = editingId + '_coupon';
+      const allEntries = DataService._getRawEntries ? DataService._getRawEntries() : [];
+      const existingCoupon = allEntries.find(ce => ce.id === couponEntryId || (ce.memo && ce.memo.includes('クーポン未収') && ce.date === result.entry.date && ce.pickup === result.entry.pickup));
+      if (couponAmount > 0) {
+        const couponData = {
+          amount: couponAmount,
+          date: result.entry.date,
+          dayOfWeek: result.entry.dayOfWeek,
+          holiday: result.entry.holiday || '',
+          weather: result.entry.weather || '',
+          pickup: result.entry.pickup || '',
+          pickupTime: result.entry.pickupTime || '',
+          dropoff: result.entry.dropoff || '',
+          dropoffTime: result.entry.dropoffTime || '',
+          passengers: '', gender: '', purpose: '',
+          memo: `クーポン未収（¥${couponAmount.toLocaleString()}）`,
+          source: result.entry.source || '',
+          noPassenger: false,
+          paymentMethod: 'uncollected',
+          discounts: [], discountAmount: 0, discountType: '', couponAmount: 0,
+        };
+        if (existingCoupon) {
+          DataService.updateEntry(existingCoupon.id, couponData);
+        } else {
+          DataService.addEntry({ ...couponData, amount: String(couponAmount), discounts: {} });
+        }
+      } else if (existingCoupon) {
+        DataService.deleteEntry(existingCoupon.id);
+      }
     }
 
     // 編集後: GPSログの乗車/降車イベントも更新
