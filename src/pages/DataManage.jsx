@@ -1151,6 +1151,9 @@ window.DataManagePage = () => {
   const [standbyAddErrors, setStandbyAddErrors] = useState([]);
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const [expandedCouponId, setExpandedCouponId] = useState(null); // クーポン詳細展開中のエントリID
+  const [asahikawaSubTab, setAsahikawaSubTab] = useState('annual'); // annual | monthly | accommodation | notes
+  const [asahikawaEditId, setAsahikawaEditId] = useState(null);
+  const [asahikawaAddForm, setAsahikawaAddForm] = useState({});
   const [addCoords, setAddCoords] = useState({ pickupCoords: null, dropoffCoords: null });
   const mapPickerRef = React.useRef(null);
   const mapPickerInstanceRef = React.useRef(null);
@@ -1170,6 +1173,7 @@ window.DataManagePage = () => {
     { id: 'transit', label: '交通情報', icon: 'directions_transit' },
     { id: 'gps', label: 'GPS記録', icon: 'location_on' },
     { id: 'gps-analysis', label: 'GPS分析', icon: 'analytics' },
+    { id: 'asahikawa', label: '旭川市データ', icon: 'location_city' },
     { id: 'trash', label: 'ゴミ箱', icon: 'delete_outline' },
   ];
 
@@ -3375,6 +3379,262 @@ window.DataManagePage = () => {
 
     // === GPS分析タブ ===
     tab === 'gps-analysis' && React.createElement(GpsAnalysisTab, { refreshKey }),
+
+    // === 旭川市データタブ ===
+    tab === 'asahikawa' && window.AsahikawaData && (() => {
+      const data = AsahikawaData.getAll();
+      const comparison = AsahikawaData.getAnnualComparison();
+      const monthlyAvgAll = AsahikawaData.getMonthlyAverage(false);
+      const monthlyAvgExCovid = AsahikawaData.getMonthlyAverage(true);
+
+      const subTabs = [
+        { id: 'annual', label: '年度別', icon: 'calendar_today' },
+        { id: 'monthly', label: '月別', icon: 'date_range' },
+        { id: 'accommodation', label: '宿泊', icon: 'hotel' },
+        { id: 'notes', label: 'メモ・編集', icon: 'edit_note' },
+      ];
+
+      return React.createElement(React.Fragment, null,
+        // サブタブ
+        React.createElement('div', { style: { display: 'flex', gap: '4px', marginBottom: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '3px' } },
+          ...subTabs.map(t => React.createElement('button', {
+            key: t.id, onClick: () => setAsahikawaSubTab(t.id),
+            style: { flex: 1, padding: '7px 4px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', background: asahikawaSubTab === t.id ? 'rgba(26,115,232,0.2)' : 'transparent', color: asahikawaSubTab === t.id ? 'var(--color-primary-light)' : 'var(--text-muted)' },
+          }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, t.icon), t.label))
+        ),
+
+        // コロナ込み/抜き比較サマリ
+        React.createElement(Card, { title: '年間平均 観光入込客数（千人）', style: { marginBottom: 'var(--space-md)' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' } },
+            React.createElement('div', { style: { padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', textAlign: 'center' } },
+              React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, `全期間平均（${comparison.yearCount}年）`),
+              React.createElement('div', { style: { fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' } }, `${comparison.allYearsAvg.toLocaleString()}`)
+            ),
+            React.createElement('div', { style: { padding: '12px', borderRadius: '10px', background: 'rgba(76,175,80,0.08)', textAlign: 'center' } },
+              React.createElement('div', { style: { fontSize: '11px', color: '#66bb6a', marginBottom: '4px' } }, `コロナ除外（${comparison.exCovidYearCount}年）`),
+              React.createElement('div', { style: { fontSize: '20px', fontWeight: 700, color: '#4caf50' } }, `${comparison.exCovidAvg.toLocaleString()}`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `コロナ影響: -${comparison.covidImpact}%`)
+            )
+          )
+        ),
+
+        // === 年度別タブ ===
+        asahikawaSubTab === 'annual' && React.createElement(Card, { title: '年度別 観光入込客数' },
+          React.createElement('div', { style: { overflowX: 'auto' } },
+            React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+              React.createElement('thead', null,
+                React.createElement('tr', { style: { borderBottom: '2px solid rgba(255,255,255,0.1)' } },
+                  ...['年度', '総数(千人)', '上期', '下期', '前年比'].map((h, i) =>
+                    React.createElement('th', { key: i, style: { padding: '6px 4px', textAlign: i === 0 ? 'left' : 'right', color: 'var(--text-muted)', fontWeight: 500 } }, h)
+                  )
+                )
+              ),
+              React.createElement('tbody', null,
+                ...(data.annualVisitors || []).map((a, i) => {
+                  const isCovid = a.fy === 2021 || a.fy === 2022;
+                  return React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.04)', background: isCovid ? 'rgba(244,67,54,0.06)' : 'transparent' } },
+                    React.createElement('td', { style: { padding: '6px 4px', fontWeight: 600 } }, `${a.label}(${a.fy})`),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', fontWeight: 700, color: 'var(--color-secondary)' } }, a.total.toLocaleString()),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.firstHalf.toLocaleString()),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.secondHalf.toLocaleString()),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', color: a.yoy >= 100 ? '#4caf50' : '#f44336', fontWeight: 600 } }, `${a.yoy}%`)
+                  );
+                })
+              )
+            )
+          )
+        ),
+
+        // === 月別タブ ===
+        asahikawaSubTab === 'monthly' && React.createElement(React.Fragment, null,
+          // 月別平均比較
+          React.createElement(Card, { title: '月別平均（コロナ込み vs コロナ除外）', style: { marginBottom: 'var(--space-md)' } },
+            React.createElement('div', { style: { overflowX: 'auto' } },
+              React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+                React.createElement('thead', null,
+                  React.createElement('tr', { style: { borderBottom: '2px solid rgba(255,255,255,0.1)' } },
+                    ...['月', '観光客(込)', '観光客(除)', '宿泊(込)', '宿泊(除)', '外国人(込)', '外国人(除)', 'N'].map((h, i) =>
+                      React.createElement('th', { key: i, style: { padding: '5px 3px', textAlign: i === 0 ? 'left' : 'right', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' } }, h)
+                    )
+                  )
+                ),
+                React.createElement('tbody', null,
+                  ...monthlyAvgAll.map((m, i) => {
+                    const ex = monthlyAvgExCovid[i];
+                    return React.createElement('tr', { key: m.month, style: { borderBottom: '1px solid rgba(255,255,255,0.04)' } },
+                      React.createElement('td', { style: { padding: '5px 3px', fontWeight: 600 } }, `${m.month}月`),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right' } }, m.avgVisitors),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right', color: '#4caf50', fontWeight: 600 } }, ex.avgVisitors),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right' } }, m.avgAccommodation),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right', color: '#4caf50' } }, ex.avgAccommodation),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right' } }, m.avgForeign),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right', color: '#4caf50' } }, ex.avgForeign),
+                      React.createElement('td', { style: { padding: '5px 3px', textAlign: 'right', color: 'var(--text-muted)' } }, m.sampleCount)
+                    );
+                  })
+                )
+              )
+            )
+          ),
+          // 月別生データ
+          React.createElement(Card, { title: '月別 詳細データ' },
+            React.createElement('div', { style: { overflowX: 'auto' } },
+              React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+                React.createElement('thead', null,
+                  React.createElement('tr', { style: { borderBottom: '2px solid rgba(255,255,255,0.1)' } },
+                    ...['年', '月', '観光客(千人)', '宿泊(千人泊)', '外国人宿泊'].map((h, i) =>
+                      React.createElement('th', { key: i, style: { padding: '5px 4px', textAlign: i < 2 ? 'left' : 'right', color: 'var(--text-muted)', fontWeight: 500 } }, h)
+                    )
+                  )
+                ),
+                React.createElement('tbody', null,
+                  ...(data.monthlyData || []).map((m, i) => React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.04)' } },
+                    React.createElement('td', { style: { padding: '5px 4px' } }, m.fy),
+                    React.createElement('td', { style: { padding: '5px 4px' } }, `${m.month}月`),
+                    React.createElement('td', { style: { padding: '5px 4px', textAlign: 'right', fontWeight: 600 } }, m.visitors),
+                    React.createElement('td', { style: { padding: '5px 4px', textAlign: 'right' } }, m.accommodation),
+                    React.createElement('td', { style: { padding: '5px 4px', textAlign: 'right', color: m.foreign > 20 ? '#4caf50' : 'var(--text-secondary)' } }, m.foreign)
+                  ))
+                )
+              )
+            )
+          )
+        ),
+
+        // === 宿泊タブ ===
+        asahikawaSubTab === 'accommodation' && React.createElement(React.Fragment, null,
+          React.createElement(Card, { title: '年度別 宿泊延数（千人泊）', style: { marginBottom: 'var(--space-md)' } },
+            React.createElement('div', { style: { overflowX: 'auto' } },
+              React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+                React.createElement('thead', null,
+                  React.createElement('tr', { style: { borderBottom: '2px solid rgba(255,255,255,0.1)' } },
+                    ...['年度', '合計', '日本人', '外国人', '外国人比率'].map((h, i) =>
+                      React.createElement('th', { key: i, style: { padding: '6px 4px', textAlign: i === 0 ? 'left' : 'right', color: 'var(--text-muted)', fontWeight: 500 } }, h)
+                    )
+                  )
+                ),
+                React.createElement('tbody', null,
+                  ...(data.annualAccommodation || []).map((a, i) => React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.04)' } },
+                    React.createElement('td', { style: { padding: '6px 4px', fontWeight: 600 } }, a.fy),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', fontWeight: 700 } }, a.total.toLocaleString()),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', color: '#4fc3f7' } }, a.domestic.toLocaleString()),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', color: '#ff9800' } }, a.foreign.toLocaleString()),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', fontWeight: 600, color: a.foreignPct >= 20 ? '#4caf50' : 'var(--text-secondary)' } }, `${a.foreignPct}%`)
+                  ))
+                )
+              )
+            )
+          ),
+          // 宿泊施設情報
+          data.hotelInfo && React.createElement(Card, { title: '宿泊施設情報' },
+            React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.8 } },
+              React.createElement('div', null, `施設数: ${data.hotelInfo.totalFacilities}施設`),
+              React.createElement('div', null, `客室数: ${data.hotelInfo.totalRooms.toLocaleString()}室`),
+              React.createElement('div', null, `外国人宿泊比率(2017): ${data.hotelInfo.foreignGuestRatio2017}%`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' } }, data.hotelInfo.notes)
+            )
+          ),
+          // 外国人国別
+          (data.foreignByCountry || []).length > 0 && React.createElement(Card, { title: '外国人宿泊 国別内訳（千人泊）', style: { marginTop: 'var(--space-md)' } },
+            React.createElement('div', { style: { overflowX: 'auto' } },
+              React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+                React.createElement('thead', null,
+                  React.createElement('tr', { style: { borderBottom: '2px solid rgba(255,255,255,0.1)' } },
+                    ...['年度', '中国', '韓国', '台湾', '香港', 'タイ'].map((h, i) =>
+                      React.createElement('th', { key: i, style: { padding: '6px 4px', textAlign: i === 0 ? 'left' : 'right', color: 'var(--text-muted)' } }, h)
+                    )
+                  )
+                ),
+                React.createElement('tbody', null,
+                  ...(data.foreignByCountry || []).map((a, i) => React.createElement('tr', { key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.04)' } },
+                    React.createElement('td', { style: { padding: '6px 4px', fontWeight: 600 } }, a.fy),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.china),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.korea),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.taiwan),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.hongkong),
+                    React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.thailand)
+                  ))
+                )
+              )
+            )
+          )
+        ),
+
+        // === メモ・編集タブ ===
+        asahikawaSubTab === 'notes' && React.createElement(React.Fragment, null,
+          // エクスポート・インポート・リセット
+          React.createElement(Card, { title: 'データ管理', style: { marginBottom: 'var(--space-md)' } },
+            React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+              React.createElement('button', {
+                onClick: () => {
+                  const json = AsahikawaData.exportJSON();
+                  const blob = new Blob([json], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a'); a.href = url; a.download = `asahikawa_data_${getLocalDateString()}.json`; a.click(); URL.revokeObjectURL(url);
+                },
+                style: { padding: '8px 16px', borderRadius: '8px', border: '1px solid rgba(26,115,232,0.3)', background: 'rgba(26,115,232,0.1)', color: 'var(--color-primary-light)', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'download'), 'JSON出力'),
+              React.createElement('label', {
+                style: { padding: '8px 16px', borderRadius: '8px', border: '1px solid rgba(76,175,80,0.3)', background: 'rgba(76,175,80,0.1)', color: '#4caf50', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+              },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'upload'),
+                'JSON読込',
+                React.createElement('input', {
+                  type: 'file', accept: '.json', style: { display: 'none' },
+                  onChange: (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      if (AsahikawaData.importJSON(ev.target.result)) { setRefreshKey(k => k + 1); alert('インポート完了'); }
+                      else alert('インポート失敗');
+                    };
+                    reader.readAsText(file);
+                    e.target.value = '';
+                  },
+                })
+              ),
+              React.createElement('button', {
+                onClick: () => { if (confirm('デフォルトデータにリセットしますか？')) { AsahikawaData.resetToDefault(); setRefreshKey(k => k + 1); } },
+                style: { padding: '8px 16px', borderRadius: '8px', border: '1px solid rgba(244,67,54,0.3)', background: 'rgba(244,67,54,0.1)', color: '#f44336', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'restart_alt'), 'リセット')
+            ),
+            React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' } }, `最終更新: ${data.lastUpdated}`)
+          ),
+          // カスタムメモ
+          React.createElement(Card, { title: 'カスタムメモ' },
+            React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px' } },
+              React.createElement('input', {
+                type: 'text', placeholder: 'メモを追加...',
+                value: asahikawaAddForm.note || '',
+                onChange: (e) => setAsahikawaAddForm(f => ({ ...f, note: e.target.value })),
+                style: { flex: 1, padding: '8px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '12px' },
+              }),
+              React.createElement('button', {
+                onClick: () => {
+                  if (asahikawaAddForm.note) { AsahikawaData.addNote(asahikawaAddForm.note); setAsahikawaAddForm({}); setRefreshKey(k => k + 1); }
+                },
+                style: { padding: '8px 12px', borderRadius: '8px', border: 'none', background: 'var(--color-primary)', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 },
+              }, '追加')
+            ),
+            (data.customNotes || []).length === 0 && React.createElement('div', { style: { color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', padding: '16px' } }, 'メモなし'),
+            ...(data.customNotes || []).map(n => React.createElement('div', {
+              key: n.id,
+              style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+            },
+              React.createElement('div', { style: { flex: 1, fontSize: '12px' } },
+                React.createElement('div', null, n.text),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, new Date(n.createdAt).toLocaleString('ja-JP'))
+              ),
+              React.createElement('button', {
+                onClick: () => { AsahikawaData.deleteNote(n.id); setRefreshKey(k => k + 1); },
+                style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' },
+              }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'delete_outline'))
+            ))
+          )
+        )
+      );
+    })(),
 
     // === ゴミ箱タブ ===
     tab === 'trash' && React.createElement(React.Fragment, null,

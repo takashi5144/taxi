@@ -14,6 +14,7 @@
     "src/utils/dataService.js",
     "src/utils/demandNotificationService.js",
     "src/utils/geminiService.js",
+    "src/utils/asahikawaData.js",
     "src/utils/gpsLogService.js",
     "src/context/LogContext.jsx",
     "src/context/MapContext.jsx",
