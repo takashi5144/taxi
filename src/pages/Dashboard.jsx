@@ -1014,6 +1014,10 @@ window.DashboardPage = () => {
               ),
               (e.source || e.purpose) && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 1 } },
                 [e.source, e.purpose].filter(Boolean).join(' / ')
+              ),
+              e.couponParentId && React.createElement('div', { style: { fontSize: 9, color: '#a78bfa', marginTop: 1, display: 'flex', alignItems: 'center', gap: '2px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
+                'クーポン分離（元の売上と対）'
               )
             ),
             React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: '#ce93d8', whiteSpace: 'nowrap' } }, `¥${(e.amount || 0).toLocaleString()}`)

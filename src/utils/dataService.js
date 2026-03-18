@@ -204,6 +204,7 @@ window.DataService = (() => {
             changed = true;
             newEntries.push({
               id: e.id + '_coupon_migrated',
+              couponParentId: e.id,
               amount: e.couponAmount,
               date: e.date,
               dayOfWeek: e.dayOfWeek || '',
@@ -237,6 +238,26 @@ window.DataService = (() => {
         const allEntries = [...entries, ...newEntries];
         saveEntries(allEntries);
         AppLogger.info('クーポンデータ移行完了: ' + newEntries.length + '件のサブエントリを作成');
+      }
+      // 既存クーポンサブエントリにcouponParentIdが未設定なら自動付与
+      const allData = changed ? [...entries, ...newEntries] : entries;
+      let linkedCount = 0;
+      allData.forEach(sub => {
+        if (_isCouponSub(sub) && !sub.couponParentId) {
+          // 同日・同乗車地・同乗車時刻でcouponAmount>0のメインエントリを探す
+          const parent = allData.find(p =>
+            p.id !== sub.id && !_isCouponSub(p) && p.couponAmount > 0 &&
+            p.date === sub.date && p.pickup === sub.pickup && p.pickupTime === sub.pickupTime
+          );
+          if (parent) {
+            sub.couponParentId = parent.id;
+            linkedCount++;
+          }
+        }
+      });
+      if (linkedCount > 0) {
+        saveEntries(allData);
+        AppLogger.info('クーポン紐付け修復: ' + linkedCount + '件');
       }
     } catch (err) {
       AppLogger.warn('クーポンデータ移行エラー: ' + err.message);
@@ -2051,11 +2072,12 @@ window.DataService = (() => {
 
     entries.unshift(entry);
 
-    // クーポン分は別エントリとして未収で記録
+    // クーポン分は別エントリとして未収で記録（parentIdで紐付け）
     let couponEntry = null;
     if (_couponAmt > 0) {
       couponEntry = {
         id: Date.now() + '_coupon_' + Math.random().toString(36).substr(2, 5),
+        couponParentId: entry.id,
         amount: _couponAmt,
         date: entryDate,
         dayOfWeek: dateInfo.dayOfWeek,

@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.37.2</title>
+  <title>タクシー売上サポート v3.37.3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.37.2',
+  VERSION: '3.37.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2707,6 +2707,7 @@ window.DataService = (() => {
             changed = true;
             newEntries.push({
               id: e.id + '_coupon_migrated',
+              couponParentId: e.id,
               amount: e.couponAmount,
               date: e.date,
               dayOfWeek: e.dayOfWeek || '',
@@ -2740,6 +2741,26 @@ window.DataService = (() => {
         const allEntries = [...entries, ...newEntries];
         saveEntries(allEntries);
         AppLogger.info('クーポンデータ移行完了: ' + newEntries.length + '件のサブエントリを作成');
+      }
+      // 既存クーポンサブエントリにcouponParentIdが未設定なら自動付与
+      const allData = changed ? [...entries, ...newEntries] : entries;
+      let linkedCount = 0;
+      allData.forEach(sub => {
+        if (_isCouponSub(sub) && !sub.couponParentId) {
+          // 同日・同乗車地・同乗車時刻でcouponAmount>0のメインエントリを探す
+          const parent = allData.find(p =>
+            p.id !== sub.id && !_isCouponSub(p) && p.couponAmount > 0 &&
+            p.date === sub.date && p.pickup === sub.pickup && p.pickupTime === sub.pickupTime
+          );
+          if (parent) {
+            sub.couponParentId = parent.id;
+            linkedCount++;
+          }
+        }
+      });
+      if (linkedCount > 0) {
+        saveEntries(allData);
+        AppLogger.info('クーポン紐付け修復: ' + linkedCount + '件');
       }
     } catch (err) {
       AppLogger.warn('クーポンデータ移行エラー: ' + err.message);
@@ -4554,11 +4575,12 @@ window.DataService = (() => {
 
     entries.unshift(entry);
 
-    // クーポン分は別エントリとして未収で記録
+    // クーポン分は別エントリとして未収で記録（parentIdで紐付け）
     let couponEntry = null;
     if (_couponAmt > 0) {
       couponEntry = {
         id: Date.now() + '_coupon_' + Math.random().toString(36).substr(2, 5),
+        couponParentId: entry.id,
         amount: _couponAmt,
         date: entryDate,
         dayOfWeek: dateInfo.dayOfWeek,
@@ -17074,6 +17096,10 @@ window.DashboardPage = () => {
               ),
               (e.source || e.purpose) && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 1 } },
                 [e.source, e.purpose].filter(Boolean).join(' / ')
+              ),
+              e.couponParentId && React.createElement('div', { style: { fontSize: 9, color: '#a78bfa', marginTop: 1, display: 'flex', alignItems: 'center', gap: '2px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
+                'クーポン分離（元の売上と対）'
               )
             ),
             React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: '#ce93d8', whiteSpace: 'nowrap' } }, `¥${(e.amount || 0).toLocaleString()}`)
@@ -30692,7 +30718,15 @@ window.DataManagePage = () => {
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'person'),
               entry.customerName || 'ユーザー'
             ),
-            entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
+            entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`),
+            entry.couponParentId && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.2)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
+              'クーポン分離'
+            ),
+            !entry.couponParentId && entry.couponAmount > 0 && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
+              `クーポン¥${entry.couponAmount.toLocaleString()}分離済`
+            )
           ),
           !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '2px' } },
             React.createElement('span', { style: { padding: '1px 5px', borderRadius: '3px', fontWeight: 600, background: entry.paymentMethod === 'uncollected' ? 'rgba(239,68,68,0.15)' : entry.paymentMethod === 'didi' ? 'rgba(255,152,0,0.15)' : entry.paymentMethod === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(76,175,80,0.15)', color: entry.paymentMethod === 'uncollected' ? '#ef5350' : entry.paymentMethod === 'didi' ? '#ffb74d' : entry.paymentMethod === 'uber' ? '#fff' : '#66bb6a' } }, entry.paymentMethod === 'cash' ? '現金' : entry.paymentMethod === 'didi' ? 'DIDI' : entry.paymentMethod === 'uber' ? 'Uber' : entry.paymentMethod === 'uncollected' ? '未収' : '現金'),

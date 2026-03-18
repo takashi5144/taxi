@@ -2256,7 +2256,15 @@ window.DataManagePage = () => {
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'person'),
               entry.customerName || 'ユーザー'
             ),
-            entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`)
+            entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`),
+            entry.couponParentId && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.2)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
+              'クーポン分離'
+            ),
+            !entry.couponParentId && entry.couponAmount > 0 && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
+              `クーポン¥${entry.couponAmount.toLocaleString()}分離済`
+            )
           ),
           !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '2px' } },
             React.createElement('span', { style: { padding: '1px 5px', borderRadius: '3px', fontWeight: 600, background: entry.paymentMethod === 'uncollected' ? 'rgba(239,68,68,0.15)' : entry.paymentMethod === 'didi' ? 'rgba(255,152,0,0.15)' : entry.paymentMethod === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(76,175,80,0.15)', color: entry.paymentMethod === 'uncollected' ? '#ef5350' : entry.paymentMethod === 'didi' ? '#ffb74d' : entry.paymentMethod === 'uber' ? '#fff' : '#66bb6a' } }, entry.paymentMethod === 'cash' ? '現金' : entry.paymentMethod === 'didi' ? 'DIDI' : entry.paymentMethod === 'uber' ? 'Uber' : entry.paymentMethod === 'uncollected' ? '未収' : '現金'),
