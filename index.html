@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.36.0</title>
+  <title>タクシー売上サポート v3.37.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.36.0',
+  VERSION: '3.37.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -9273,6 +9273,380 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 実車率・天候タブ用 統合分析（既存データフル活用）
+  // ============================================================
+
+  /** エリア別 実車率・売上効率 */
+  function getAreaOccupancyAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const areaMap = {};
+    entries.forEach(e => {
+      const area = e.pickup || '不明';
+      if (!areaMap[area]) areaMap[area] = { area, rides: 0, totalAmount: 0, totalDuration: 0, weathers: {}, hours: {}, days: new Set() };
+      const m = areaMap[area];
+      m.rides++;
+      m.totalAmount += _meterAmount(e);
+      m.days.add(e.date || toDateStr(e.timestamp));
+      // 乗車時間(分)
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 180) m.totalDuration += dur;
+      }
+      if (e.weather) m.weathers[e.weather] = (m.weathers[e.weather] || 0) + 1;
+      if (e.pickupTime) {
+        const h = parseInt(e.pickupTime.split(':')[0], 10);
+        if (!isNaN(h)) m.hours[h] = (m.hours[h] || 0) + 1;
+      }
+    });
+    return Object.values(areaMap)
+      .filter(a => a.rides >= 2)
+      .map(a => ({
+        area: a.area, rides: a.rides,
+        avgFare: Math.round(a.totalAmount / a.rides),
+        totalAmount: a.totalAmount,
+        avgDuration: a.rides > 0 && a.totalDuration > 0 ? Math.round(a.totalDuration / a.rides) : 0,
+        ridesPerDay: a.days.size > 0 ? Math.round(a.rides / a.days.size * 10) / 10 : 0,
+        dayCount: a.days.size,
+        topWeather: Object.entries(a.weathers).sort((x, y) => y[1] - x[1])[0]?.[0] || '-',
+        peakHour: Object.entries(a.hours).sort((x, y) => y[1] - x[1])[0]?.[0] || '-',
+        hourlyRevenue: a.totalDuration > 0 ? Math.round(a.totalAmount / a.totalDuration * 60) : 0,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 20);
+  }
+
+  /** 配車元別 効率分析（流し/待機/DIDI/電話等） */
+  function getSourceEfficiencyAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const srcMap = {};
+    entries.forEach(e => {
+      const src = e.source || '未設定';
+      if (!srcMap[src]) srcMap[src] = { source: src, rides: 0, totalAmount: 0, totalDuration: 0, weathers: {}, days: new Set(), waitTimes: [] };
+      const m = srcMap[src];
+      m.rides++;
+      m.totalAmount += _meterAmount(e);
+      m.days.add(e.date || toDateStr(e.timestamp));
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 180) m.totalDuration += dur;
+      }
+      if (e.weather) m.weathers[e.weather] = (m.weathers[e.weather] || 0) + 1;
+      if (e.waitingTime) {
+        const wt = parseInt(e.waitingTime, 10);
+        if (!isNaN(wt) && wt > 0) m.waitTimes.push(wt);
+      }
+    });
+    return Object.values(srcMap)
+      .filter(s => s.rides >= 1)
+      .map(s => ({
+        source: s.source, rides: s.rides,
+        avgFare: Math.round(s.totalAmount / s.rides),
+        totalAmount: s.totalAmount,
+        avgDuration: s.rides > 0 && s.totalDuration > 0 ? Math.round(s.totalDuration / s.rides) : 0,
+        hourlyRevenue: s.totalDuration > 0 ? Math.round(s.totalAmount / s.totalDuration * 60) : 0,
+        ridesPerDay: s.days.size > 0 ? Math.round(s.rides / s.days.size * 10) / 10 : 0,
+        sharePercent: entries.length > 0 ? Math.round(s.rides / entries.length * 1000) / 10 : 0,
+        avgWaitTime: s.waitTimes.length > 0 ? Math.round(s.waitTimes.reduce((a, b) => a + b, 0) / s.waitTimes.length) : 0,
+        weatherBreakdown: Object.entries(s.weathers).sort((a, b) => b[1] - a[1]).map(([w, c]) => ({ weather: w, count: c })),
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /** 曜日×天候 クロス分析 */
+  function getDayWeatherCrossAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    const dows = ['月', '火', '水', '木', '金', '土', '日'];
+    const matrix = {};
+    dows.forEach(d => {
+      matrix[d] = {};
+      weathers.forEach(w => { matrix[d][w] = { totalAmount: 0, count: 0, days: new Set() }; });
+    });
+    entries.forEach(e => {
+      const dow = e.dayOfWeek;
+      const w = e.weather;
+      if (!dow || !w || !dows.includes(dow) || !weathers.includes(w)) return;
+      matrix[dow][w].totalAmount += _meterAmount(e);
+      matrix[dow][w].count++;
+      matrix[dow][w].days.add(e.date || toDateStr(e.timestamp));
+    });
+    // フラット配列で返す
+    const cells = [];
+    dows.forEach(d => {
+      weathers.forEach(w => {
+        const c = matrix[d][w];
+        if (c.count === 0) return;
+        cells.push({
+          dow: d, weather: w,
+          avgAmount: Math.round(c.totalAmount / c.count),
+          dailyAvg: c.days.size > 0 ? Math.round(c.totalAmount / c.days.size) : 0,
+          rides: c.count, dayCount: c.days.size,
+        });
+      });
+    });
+    // 曜日別サマリ
+    const dowSummary = dows.map(d => {
+      let total = 0, count = 0, daySet = new Set();
+      weathers.forEach(w => {
+        total += matrix[d][w].totalAmount;
+        count += matrix[d][w].count;
+        matrix[d][w].days.forEach(dd => daySet.add(dd));
+      });
+      return { dow: d, dailyAvg: daySet.size > 0 ? Math.round(total / daySet.size) : 0, rides: count, dayCount: daySet.size };
+    });
+    return { cells, dowSummary, dows, weathers };
+  }
+
+  /** シフト別 実車率分析 */
+  function getShiftOccupancyAnalysis() {
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const entries = getEntries();
+    const completedShifts = shifts.filter(s => s.startTime && s.endTime);
+    if (completedShifts.length === 0) return [];
+
+    return completedShifts.slice(-30).map(s => {
+      const startD = new Date(s.startTime);
+      const endD = new Date(s.endTime);
+      const dateStr = getLocalDateString(startD);
+      const shiftMin = Math.round((endD - startD) / 60000);
+      // このシフト中のエントリ
+      const shiftEntries = entries.filter(e => {
+        if (e.date !== dateStr || !e.pickupTime) return false;
+        const [h, m] = e.pickupTime.split(':').map(Number);
+        const entryMin = h * 60 + m;
+        const startMin = startD.getHours() * 60 + startD.getMinutes();
+        const endMin = endD.getHours() * 60 + endD.getMinutes();
+        return entryMin >= startMin && entryMin <= endMin;
+      });
+      const rideCount = shiftEntries.length;
+      const totalAmount = shiftEntries.reduce((s2, e) => s2 + _meterAmount(e), 0);
+      // 実車時間（推定: 乗車時間合計）
+      let occupiedMin = 0;
+      shiftEntries.forEach(e => {
+        if (e.pickupTime && e.dropoffTime) {
+          const [ph, pm] = e.pickupTime.split(':').map(Number);
+          const [dh, dm] = e.dropoffTime.split(':').map(Number);
+          const dur = (dh * 60 + dm) - (ph * 60 + pm);
+          if (dur > 0 && dur < 180) occupiedMin += dur;
+        }
+      });
+      const vacantMin = shiftMin - occupiedMin;
+      const rate = shiftMin > 0 ? Math.round(occupiedMin / shiftMin * 100) : 0;
+      // 天候
+      const wCounts = {};
+      shiftEntries.forEach(e => { if (e.weather) wCounts[e.weather] = (wCounts[e.weather] || 0) + 1; });
+      const topWeather = Object.entries(wCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
+
+      return {
+        date: dateStr,
+        startTime: startD.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        endTime: endD.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        shiftMin, occupiedMin, vacantMin: Math.max(vacantMin, 0), rate,
+        rideCount, totalAmount,
+        hourlyRate: shiftMin > 0 ? Math.round(totalAmount / shiftMin * 60) : 0,
+        weather: topWeather,
+      };
+    }).sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  /** 乗客属性分析（人数・性別×天候） */
+  function getPassengerWeatherAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    // 乗客数別
+    const byCount = {};
+    entries.forEach(e => {
+      const p = e.passengers || '不明';
+      if (!byCount[p]) byCount[p] = { label: p === '不明' ? '不明' : `${p}名`, count: 0, totalAmount: 0, weathers: {} };
+      byCount[p].count++;
+      byCount[p].totalAmount += _meterAmount(e);
+      if (e.weather) byCount[p].weathers[e.weather] = (byCount[p].weathers[e.weather] || 0) + 1;
+    });
+    const passengerCounts = Object.values(byCount)
+      .filter(p => p.count > 0)
+      .map(p => ({ ...p, avgFare: Math.round(p.totalAmount / p.count), sharePercent: Math.round(p.count / entries.length * 1000) / 10 }))
+      .sort((a, b) => b.count - a.count);
+
+    // 性別別
+    const byGender = {};
+    entries.forEach(e => {
+      const g = e.gender || '未設定';
+      if (!byGender[g]) byGender[g] = { gender: g, count: 0, totalAmount: 0, weathers: {} };
+      byGender[g].count++;
+      byGender[g].totalAmount += _meterAmount(e);
+      if (e.weather) byGender[g].weathers[e.weather] = (byGender[g].weathers[e.weather] || 0) + 1;
+    });
+    const genderStats = Object.values(byGender)
+      .filter(g => g.count > 0)
+      .map(g => ({ ...g, avgFare: Math.round(g.totalAmount / g.count), sharePercent: Math.round(g.count / entries.length * 1000) / 10 }))
+      .sort((a, b) => b.count - a.count);
+
+    return { passengerCounts, genderStats };
+  }
+
+  /** 目的別×天候 分析 */
+  function getPurposeWeatherAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const purposes = {};
+    entries.forEach(e => {
+      const p = e.purpose || '未設定';
+      if (!purposes[p]) purposes[p] = { purpose: p, count: 0, totalAmount: 0, weathers: {}, hours: {} };
+      purposes[p].count++;
+      purposes[p].totalAmount += _meterAmount(e);
+      if (e.weather) purposes[p].weathers[e.weather] = (purposes[p].weathers[e.weather] || 0) + 1;
+      if (e.pickupTime) {
+        const h = parseInt(e.pickupTime.split(':')[0], 10);
+        if (!isNaN(h)) purposes[p].hours[h] = (purposes[p].hours[h] || 0) + 1;
+      }
+    });
+    return Object.values(purposes)
+      .filter(p => p.count >= 2)
+      .map(p => ({
+        purpose: p.purpose, count: p.count,
+        avgFare: Math.round(p.totalAmount / p.count),
+        totalAmount: p.totalAmount,
+        sharePercent: Math.round(p.count / entries.length * 1000) / 10,
+        weatherBreakdown: Object.entries(p.weathers).sort((a, b) => b[1] - a[1]).map(([w, c]) => ({ weather: w, count: c, pct: Math.round(c / p.count * 100) })),
+        peakHour: Object.entries(p.hours).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /** 支払方法×天候 分析 */
+  function getPaymentWeatherAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const payLabels = { cash: '現金', uncollected: '未収', didi: 'DIDI' };
+    const methods = {};
+    entries.forEach(e => {
+      const pm = e.paymentMethod || 'cash';
+      if (!methods[pm]) methods[pm] = { method: pm, label: payLabels[pm] || pm, count: 0, totalAmount: 0, weathers: {} };
+      methods[pm].count++;
+      methods[pm].totalAmount += _meterAmount(e);
+      if (e.weather) methods[pm].weathers[e.weather] = (methods[pm].weathers[e.weather] || 0) + 1;
+    });
+    return Object.values(methods)
+      .filter(m => m.count > 0)
+      .map(m => ({
+        ...m,
+        avgFare: Math.round(m.totalAmount / m.count),
+        sharePercent: Math.round(m.count / entries.length * 1000) / 10,
+        weatherBreakdown: Object.entries(m.weathers).sort((a, b) => b[1] - a[1]).map(([w, c]) => ({ weather: w, count: c, pct: Math.round(c / m.count * 100) })),
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /** 他社乗車×天候 相関分析 */
+  function getRivalWeatherOccupancyAnalysis() {
+    const rivals = getRivalEntries();
+    if (rivals.length === 0) return null;
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    const byWeather = {};
+    weathers.forEach(w => { byWeather[w] = { weather: w, count: 0, days: new Set(), hours: {} }; });
+    rivals.forEach(r => {
+      const w = r.weather && weathers.includes(r.weather) ? r.weather : null;
+      if (!w) return;
+      byWeather[w].count++;
+      byWeather[w].days.add(r.date || '');
+      if (r.time) {
+        const h = parseInt(r.time.split(':')[0], 10);
+        if (!isNaN(h)) byWeather[w].hours[h] = (byWeather[w].hours[h] || 0) + 1;
+      }
+    });
+    // 曜日別
+    const byDow = {};
+    const dows = ['日', '月', '火', '水', '木', '金', '土'];
+    rivals.forEach(r => {
+      if (!r.date) return;
+      const d = new Date(r.date + 'T00:00:00');
+      const dow = dows[d.getDay()];
+      if (!byDow[dow]) byDow[dow] = 0;
+      byDow[dow]++;
+    });
+    return {
+      total: rivals.length,
+      byWeather: weathers.map(w => ({
+        weather: w, count: byWeather[w].count,
+        dailyAvg: byWeather[w].days.size > 0 ? Math.round(byWeather[w].count / byWeather[w].days.size * 10) / 10 : 0,
+        dayCount: byWeather[w].days.size,
+        peakHour: Object.entries(byWeather[w].hours).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+      })).filter(w => w.count > 0),
+      byDow: dows.map(d => ({ dow: d, count: byDow[d] || 0 })),
+    };
+  }
+
+  /** 待機時間と実車率の関係分析 */
+  function getWaitingTimeOccupancyAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const standbyEntries = getStandbyEntries();
+    // 日別の待機合計と売上を集計
+    const byDate = {};
+    entries.forEach(e => {
+      const d = e.date || toDateStr(e.timestamp);
+      if (!d) return;
+      if (!byDate[d]) byDate[d] = { date: d, rideCount: 0, totalAmount: 0, totalRideMin: 0, totalWaitMin: 0, weather: null };
+      byDate[d].rideCount++;
+      byDate[d].totalAmount += _meterAmount(e);
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 180) byDate[d].totalRideMin += dur;
+      }
+      if (!byDate[d].weather && e.weather) byDate[d].weather = e.weather;
+    });
+    // 待機時間を加算
+    standbyEntries.forEach(s => {
+      const d = s.date || toDateStr(s.timestamp);
+      if (!d || !byDate[d]) return;
+      if (s.pickupTime && s.dropoffTime) {
+        const [ph, pm] = s.pickupTime.split(':').map(Number);
+        const [dh, dm] = s.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 300) byDate[d].totalWaitMin += dur;
+      }
+    });
+
+    const dailyData = Object.values(byDate)
+      .filter(d => d.rideCount > 0 && d.totalRideMin > 0)
+      .map(d => {
+        const totalActiveMin = d.totalRideMin + d.totalWaitMin;
+        return {
+          date: d.date, rideCount: d.rideCount, totalAmount: d.totalAmount,
+          rideMin: d.totalRideMin, waitMin: d.totalWaitMin,
+          occupancyRate: totalActiveMin > 0 ? Math.round(d.totalRideMin / totalActiveMin * 100) : 0,
+          hourlyRate: d.totalRideMin > 0 ? Math.round(d.totalAmount / d.totalRideMin * 60) : 0,
+          weather: d.weather || '-',
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 30);
+
+    // 待機時間帯別の効率
+    const waitBands = [
+      { min: 0, max: 30, label: '0~30分' },
+      { min: 30, max: 60, label: '30~60分' },
+      { min: 60, max: 120, label: '1~2時間' },
+      { min: 120, max: Infinity, label: '2時間以上' },
+    ];
+    const bandStats = waitBands.map(b => {
+      const matches = dailyData.filter(d => d.waitMin >= b.min && d.waitMin < b.max);
+      if (matches.length === 0) return null;
+      return {
+        label: b.label,
+        dayCount: matches.length,
+        avgOccupancy: Math.round(matches.reduce((s, d) => s + d.occupancyRate, 0) / matches.length),
+        avgRevenue: Math.round(matches.reduce((s, d) => s + d.totalAmount, 0) / matches.length),
+        avgHourlyRate: Math.round(matches.reduce((s, d) => s + d.hourlyRate, 0) / matches.length),
+      };
+    }).filter(Boolean);
+
+    return { dailyData, bandStats };
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -9301,6 +9675,15 @@ window.DataService = (() => {
     getWeatherRevenueCorrelation,
     getWeatherTimeDemandMatrix,
     getTemperatureBandAnalysis,
+    getAreaOccupancyAnalysis,
+    getSourceEfficiencyAnalysis,
+    getDayWeatherCrossAnalysis,
+    getShiftOccupancyAnalysis,
+    getPassengerWeatherAnalysis,
+    getPurposeWeatherAnalysis,
+    getPaymentWeatherAnalysis,
+    getRivalWeatherOccupancyAnalysis,
+    getWaitingTimeOccupancyAnalysis,
     getShiftProductivity,
     getGatheringRevenueCorrelation,
     getSourceBreakdown,
@@ -24981,7 +25364,16 @@ window.AnalyticsPage = () => {
         ]);
         const weatherTimeMatrix = DataService.getWeatherTimeDemandMatrix(dt);
         const tempBands = DataService.getTemperatureBandAnalysis(dt);
-        if (!cancelled) setOwData({ todayOcc, hourlyOcc, trend, weatherCorr, weatherTimeMatrix, tempBands });
+        const areaOcc = DataService.getAreaOccupancyAnalysis(dt);
+        const sourceEff = DataService.getSourceEfficiencyAnalysis(dt);
+        const dayWeather = DataService.getDayWeatherCrossAnalysis(dt);
+        const shiftOcc = DataService.getShiftOccupancyAnalysis();
+        const passenger = DataService.getPassengerWeatherAnalysis(dt);
+        const purposeW = DataService.getPurposeWeatherAnalysis(dt);
+        const paymentW = DataService.getPaymentWeatherAnalysis(dt);
+        const rivalW = DataService.getRivalWeatherOccupancyAnalysis();
+        const waitingOcc = DataService.getWaitingTimeOccupancyAnalysis(dt);
+        if (!cancelled) setOwData({ todayOcc, hourlyOcc, trend, weatherCorr, weatherTimeMatrix, tempBands, areaOcc, sourceEff, dayWeather, shiftOcc, passenger, purposeW, paymentW, rivalW, waitingOcc });
       }
       if (!cancelled) setOwLoading(false);
     })();
@@ -26733,6 +27125,270 @@ window.AnalyticsPage = () => {
                   React.createElement('div', null, `平均単価: ¥${s.avgPrice.toLocaleString()}`),
                   React.createElement('div', null, `乗車数: ${s.totalCount}回 / ${s.dayCount}日`)
                 )
+              );
+            })
+          )
+        ),
+
+        // ===== エリア別 実車効率 =====
+        owData.areaOcc && owData.areaOcc.length > 0 && React.createElement(Card, { title: 'エリア別 実車効率 TOP20', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { overflowX: 'auto' } },
+            React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+              React.createElement('thead', null,
+                React.createElement('tr', { style: { borderBottom: '1px solid rgba(255,255,255,0.1)' } },
+                  ...['エリア', '乗車数', '平均単価', '時給効率', '平均時間', 'ピーク時', '天候'].map((h, i) =>
+                    React.createElement('th', { key: i, style: { padding: '6px 4px', textAlign: i === 0 ? 'left' : 'right', color: 'var(--text-muted)', fontWeight: 500 } }, h)
+                  )
+                )
+              ),
+              React.createElement('tbody', null,
+                ...owData.areaOcc.map((a, i) => React.createElement('tr', {
+                  key: i, style: { borderBottom: '1px solid rgba(255,255,255,0.04)' },
+                },
+                  React.createElement('td', { style: { padding: '6px 4px', fontWeight: 600, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, a.area),
+                  React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, `${a.rides}回`),
+                  React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', color: 'var(--color-secondary)' } }, `¥${a.avgFare.toLocaleString()}`),
+                  React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right', fontWeight: 700, color: a.hourlyRevenue >= 3000 ? '#4caf50' : a.hourlyRevenue >= 2000 ? '#ff9800' : '#f44336' } }, a.hourlyRevenue > 0 ? `¥${a.hourlyRevenue.toLocaleString()}/h` : '-'),
+                  React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.avgDuration > 0 ? `${a.avgDuration}分` : '-'),
+                  React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.peakHour !== '-' ? `${a.peakHour}時` : '-'),
+                  React.createElement('td', { style: { padding: '6px 4px', textAlign: 'right' } }, a.topWeather)
+                ))
+              )
+            )
+          )
+        ),
+
+        // ===== 配車元別 効率分析 =====
+        owData.sourceEff && owData.sourceEff.length > 0 && React.createElement(Card, { title: '配車元別 効率比較', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' } },
+            ...owData.sourceEff.map((s, i) => {
+              const maxRevenue = Math.max(...owData.sourceEff.map(x => x.hourlyRevenue), 1);
+              return React.createElement('div', {
+                key: i, style: { padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' },
+              },
+                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } },
+                  React.createElement('span', { style: { fontWeight: 700, fontSize: '14px' } }, s.source),
+                  React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '10px' } }, `${s.sharePercent}%`)
+                ),
+                React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.8 } },
+                  React.createElement('div', null, `乗車数: ${s.rides}回 (${s.ridesPerDay}/日)`),
+                  React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `平均単価: ¥${s.avgFare.toLocaleString()}`),
+                  s.hourlyRevenue > 0 && React.createElement('div', { style: { color: s.hourlyRevenue >= 3000 ? '#4caf50' : '#ff9800' } }, `時給効率: ¥${s.hourlyRevenue.toLocaleString()}/h`),
+                  s.avgDuration > 0 && React.createElement('div', null, `平均乗車: ${s.avgDuration}分`),
+                  s.avgWaitTime > 0 && React.createElement('div', null, `平均待時間: ${s.avgWaitTime}分`)
+                ),
+                s.hourlyRevenue > 0 && React.createElement('div', { style: { marginTop: '8px', height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' } },
+                  React.createElement('div', { style: { width: `${Math.round(s.hourlyRevenue / maxRevenue * 100)}%`, height: '100%', borderRadius: '3px', background: 'var(--color-primary-light)' } })
+                )
+              );
+            })
+          )
+        ),
+
+        // ===== 曜日×天候 クロス分析 =====
+        owData.dayWeather && owData.dayWeather.cells.length > 0 && React.createElement(Card, { title: '曜日×天候 クロス分析', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('p', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' } }, '各セルは日平均売上（¥）'),
+          React.createElement('div', { style: { overflowX: 'auto' } },
+            (() => {
+              const { cells, dows, weathers } = owData.dayWeather;
+              const cellMap = {};
+              cells.forEach(c => { cellMap[`${c.dow}_${c.weather}`] = c; });
+              const allDailyAvgs = cells.map(c => c.dailyAvg).filter(v => v > 0);
+              const maxDailyAvg = allDailyAvgs.length > 0 ? Math.max(...allDailyAvgs) : 1;
+              const minDailyAvg = allDailyAvgs.length > 0 ? Math.min(...allDailyAvgs) : 0;
+              return React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+                React.createElement('thead', null,
+                  React.createElement('tr', null,
+                    React.createElement('th', { style: { padding: '6px', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.1)' } }, ''),
+                    ...weathers.map(w => {
+                      const icon = w === '晴れ' ? 'wb_sunny' : w === '曇り' ? 'cloud' : w === '雨' ? 'water_drop' : 'ac_unit';
+                      return React.createElement('th', { key: w, style: { padding: '6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)' } },
+                        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, icon)
+                      );
+                    })
+                  )
+                ),
+                React.createElement('tbody', null,
+                  ...dows.map(d => React.createElement('tr', { key: d },
+                    React.createElement('td', { style: { padding: '6px', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' } }, d),
+                    ...weathers.map(w => {
+                      const cell = cellMap[`${d}_${w}`];
+                      if (!cell) return React.createElement('td', { key: w, style: { padding: '6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-muted)' } }, '-');
+                      const ratio = maxDailyAvg > minDailyAvg ? (cell.dailyAvg - minDailyAvg) / (maxDailyAvg - minDailyAvg) : 0.5;
+                      const bg = ratio >= 0.7 ? 'rgba(244,67,54,0.25)' : ratio >= 0.4 ? 'rgba(255,152,0,0.15)' : 'rgba(33,150,243,0.1)';
+                      return React.createElement('td', { key: w, style: { padding: '6px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', background: bg, fontWeight: ratio >= 0.7 ? 700 : 400 }, title: `${d}・${w}: ${cell.rides}回 (${cell.dayCount}日)` },
+                        `¥${Math.round(cell.dailyAvg / 1000)}k`
+                      );
+                    })
+                  ))
+                )
+              );
+            })()
+          ),
+          // 曜日別サマリ
+          owData.dayWeather.dowSummary && React.createElement('div', { style: { display: 'flex', gap: '4px', marginTop: '12px', flexWrap: 'wrap' } },
+            ...owData.dayWeather.dowSummary.filter(d => d.dayCount > 0).map(d => {
+              const maxDow = Math.max(...owData.dayWeather.dowSummary.map(x => x.dailyAvg), 1);
+              return React.createElement('div', { key: d.dow, style: { flex: 1, minWidth: '40px', textAlign: 'center', padding: '6px 2px', borderRadius: '8px', background: `rgba(26,115,232,${0.1 + (d.dailyAvg / maxDow) * 0.3})` } },
+                React.createElement('div', { style: { fontSize: '11px', fontWeight: 700 } }, d.dow),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-secondary)' } }, `¥${Math.round(d.dailyAvg / 1000)}k`)
+              );
+            })
+          )
+        ),
+
+        // ===== シフト別 実車率 =====
+        owData.shiftOcc && owData.shiftOcc.length > 0 && React.createElement(Card, { title: 'シフト別 実車率（直近30回）', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '3px', height: '120px', marginBottom: '8px' } },
+            ...owData.shiftOcc.map((s, i) => {
+              const color = s.rate >= 50 ? '#4caf50' : s.rate >= 30 ? '#ff9800' : '#f44336';
+              return React.createElement('div', {
+                key: i, style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', cursor: 'pointer' },
+                title: `${s.date} ${s.startTime}-${s.endTime}\n実車率${s.rate}% 売上¥${s.totalAmount.toLocaleString()} ${s.weather}`,
+              },
+                React.createElement('div', { style: { width: '100%', height: `${Math.max(s.rate, 3)}%`, background: color, borderRadius: '2px 2px 0 0', minHeight: '2px' } })
+              );
+            })
+          ),
+          React.createElement('div', { style: { display: 'flex', gap: '3px' } },
+            ...owData.shiftOcc.map((s, i) => React.createElement('div', { key: i, style: { flex: 1, textAlign: 'center', fontSize: '8px', color: 'var(--text-muted)', overflow: 'hidden' } },
+              i === 0 || i === owData.shiftOcc.length - 1 ? s.date.slice(5) : ''
+            ))
+          ),
+          // 平均値
+          (() => {
+            const avgRate = Math.round(owData.shiftOcc.reduce((s, d) => s + d.rate, 0) / owData.shiftOcc.length);
+            const avgHourly = Math.round(owData.shiftOcc.reduce((s, d) => s + d.hourlyRate, 0) / owData.shiftOcc.length);
+            return React.createElement('div', { style: { display: 'flex', gap: '16px', marginTop: '8px', fontSize: '12px', justifyContent: 'center' } },
+              React.createElement('span', null, `平均実車率: `), React.createElement('span', { style: { fontWeight: 700, color: avgRate >= 40 ? '#4caf50' : '#ff9800' } }, `${avgRate}%`),
+              React.createElement('span', { style: { marginLeft: '12px' } }, `平均時給: `), React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${avgHourly.toLocaleString()}`)
+            );
+          })()
+        ),
+
+        // ===== 目的別×天候 =====
+        owData.purposeW && owData.purposeW.length > 0 && React.createElement(Card, { title: '乗車目的別 分析', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+            ...owData.purposeW.map((p, i) => {
+              const maxAmt = Math.max(...owData.purposeW.map(x => x.totalAmount), 1);
+              return React.createElement('div', { key: i, style: { padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' } },
+                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                    React.createElement('span', { style: { fontWeight: 700, fontSize: '13px' } }, p.purpose),
+                    React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${p.count}回 (${p.sharePercent}%)`)
+                  ),
+                  React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '13px' } }, `¥${p.avgFare.toLocaleString()}`)
+                ),
+                React.createElement('div', { style: { display: 'flex', gap: '4px', marginBottom: '4px' } },
+                  ...p.weatherBreakdown.slice(0, 4).map(w => {
+                    const icon = w.weather === '晴れ' ? 'wb_sunny' : w.weather === '曇り' ? 'cloud' : w.weather === '雨' ? 'water_drop' : 'ac_unit';
+                    return React.createElement('span', { key: w.weather, style: { fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '2px' } },
+                      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px' } }, icon), `${w.pct}%`
+                    );
+                  })
+                ),
+                React.createElement('div', { style: { height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' } },
+                  React.createElement('div', { style: { width: `${Math.round(p.totalAmount / maxAmt * 100)}%`, height: '100%', borderRadius: '2px', background: 'var(--color-primary-light)' } })
+                )
+              );
+            })
+          )
+        ),
+
+        // ===== 支払方法×天候 =====
+        owData.paymentW && owData.paymentW.length > 0 && React.createElement(Card, { title: '支払方法別 分析', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' } },
+            ...owData.paymentW.map((m, i) =>
+              React.createElement('div', { key: i, style: { padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' } },
+                React.createElement('div', { style: { fontWeight: 700, fontSize: '14px', marginBottom: '6px' } }, m.label),
+                React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.7 } },
+                  React.createElement('div', null, `${m.count}回 (${m.sharePercent}%)`),
+                  React.createElement('div', { style: { color: 'var(--color-secondary)', fontWeight: 600 } }, `平均¥${m.avgFare.toLocaleString()}`),
+                  React.createElement('div', null, `合計¥${m.totalAmount.toLocaleString()}`)
+                ),
+                m.weatherBreakdown.length > 0 && React.createElement('div', { style: { marginTop: '6px', display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+                  ...m.weatherBreakdown.map(w => {
+                    const icon = w.weather === '晴れ' ? 'wb_sunny' : w.weather === '曇り' ? 'cloud' : w.weather === '雨' ? 'water_drop' : 'ac_unit';
+                    return React.createElement('span', { key: w.weather, style: { fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '1px' } },
+                      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '11px' } }, icon), `${w.pct}%`
+                    );
+                  })
+                )
+              )
+            )
+          )
+        ),
+
+        // ===== 乗客属性 =====
+        owData.passenger && (owData.passenger.passengerCounts.length > 0 || owData.passenger.genderStats.length > 0) && React.createElement(Card, { title: '乗客属性 分析', style: { marginTop: 'var(--space-lg)' } },
+          // 乗客数別
+          owData.passenger.passengerCounts.length > 0 && React.createElement(React.Fragment, null,
+            React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' } }, '乗客数別'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', marginBottom: '14px', flexWrap: 'wrap' } },
+              ...owData.passenger.passengerCounts.map((p, i) =>
+                React.createElement('div', { key: i, style: { padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center', minWidth: '60px' } },
+                  React.createElement('div', { style: { fontSize: '14px', fontWeight: 700 } }, p.label),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${p.count}回 (${p.sharePercent}%)`),
+                  React.createElement('div', { style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: 600 } }, `¥${p.avgFare.toLocaleString()}`)
+                )
+              )
+            )
+          ),
+          // 性別別
+          owData.passenger.genderStats.length > 0 && owData.passenger.genderStats.some(g => g.gender !== '未設定') && React.createElement(React.Fragment, null,
+            React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-secondary)' } }, '性別別'),
+            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
+              ...owData.passenger.genderStats.map((g, i) =>
+                React.createElement('div', { key: i, style: { padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center', minWidth: '60px' } },
+                  React.createElement('div', { style: { fontSize: '13px', fontWeight: 700 } }, g.gender),
+                  React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${g.count}回 (${g.sharePercent}%)`),
+                  React.createElement('div', { style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: 600 } }, `¥${g.avgFare.toLocaleString()}`)
+                )
+              )
+            )
+          )
+        ),
+
+        // ===== 待機時間と実車率の関係 =====
+        owData.waitingOcc && owData.waitingOcc.bandStats.length > 0 && React.createElement(Card, { title: '待機時間と実車効率の関係', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '12px' } },
+            ...owData.waitingOcc.bandStats.map((b, i) =>
+              React.createElement('div', { key: i, style: { padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' } },
+                React.createElement('div', { style: { fontSize: '12px', fontWeight: 700, marginBottom: '4px' } }, b.label),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${b.dayCount}日`),
+                React.createElement('div', { style: { fontSize: '14px', fontWeight: 700, color: b.avgOccupancy >= 50 ? '#4caf50' : '#ff9800', margin: '4px 0' } }, `${b.avgOccupancy}%`),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `実車率`),
+                React.createElement('div', { style: { fontSize: '12px', color: 'var(--color-secondary)', fontWeight: 600, marginTop: '4px' } }, `¥${b.avgRevenue.toLocaleString()}/日`),
+                b.avgHourlyRate > 0 && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `¥${b.avgHourlyRate.toLocaleString()}/h`)
+              )
+            )
+          )
+        ),
+
+        // ===== 他社乗車×天候 =====
+        owData.rivalW && React.createElement(Card, { title: '他社乗車×天候 相関', style: { marginTop: 'var(--space-lg)' } },
+          React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' } }, `他社乗車 合計${owData.rivalW.total}回を記録`),
+          owData.rivalW.byWeather.length > 0 && React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px', marginBottom: '12px' } },
+            ...owData.rivalW.byWeather.map(w => {
+              const icon = w.weather === '晴れ' ? 'wb_sunny' : w.weather === '曇り' ? 'cloud' : w.weather === '雨' ? 'water_drop' : 'ac_unit';
+              return React.createElement('div', { key: w.weather, style: { padding: '10px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', textAlign: 'center' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', display: 'block', marginBottom: '4px' } }, icon),
+                React.createElement('div', { style: { fontSize: '16px', fontWeight: 700 } }, `${w.count}回`),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `${w.dailyAvg}/日 (${w.dayCount}日)`),
+                w.peakHour !== '-' && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `ピーク${w.peakHour}時`)
+              );
+            })
+          ),
+          // 曜日別
+          owData.rivalW.byDow && React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+            ...owData.rivalW.byDow.map(d => {
+              const maxDow = Math.max(...owData.rivalW.byDow.map(x => x.count), 1);
+              return React.createElement('div', { key: d.dow, style: { flex: 1, textAlign: 'center' } },
+                React.createElement('div', { style: { height: '40px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' } },
+                  React.createElement('div', { style: { width: '80%', height: `${Math.max(Math.round(d.count / maxDow * 100), 3)}%`, background: 'var(--color-primary-light)', borderRadius: '2px 2px 0 0', minHeight: '2px' } })
+                ),
+                React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, d.dow),
+                React.createElement('div', { style: { fontSize: '10px', fontWeight: 600 } }, d.count > 0 ? d.count : '')
               );
             })
           )

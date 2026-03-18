@@ -6770,6 +6770,380 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 実車率・天候タブ用 統合分析（既存データフル活用）
+  // ============================================================
+
+  /** エリア別 実車率・売上効率 */
+  function getAreaOccupancyAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const areaMap = {};
+    entries.forEach(e => {
+      const area = e.pickup || '不明';
+      if (!areaMap[area]) areaMap[area] = { area, rides: 0, totalAmount: 0, totalDuration: 0, weathers: {}, hours: {}, days: new Set() };
+      const m = areaMap[area];
+      m.rides++;
+      m.totalAmount += _meterAmount(e);
+      m.days.add(e.date || toDateStr(e.timestamp));
+      // 乗車時間(分)
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 180) m.totalDuration += dur;
+      }
+      if (e.weather) m.weathers[e.weather] = (m.weathers[e.weather] || 0) + 1;
+      if (e.pickupTime) {
+        const h = parseInt(e.pickupTime.split(':')[0], 10);
+        if (!isNaN(h)) m.hours[h] = (m.hours[h] || 0) + 1;
+      }
+    });
+    return Object.values(areaMap)
+      .filter(a => a.rides >= 2)
+      .map(a => ({
+        area: a.area, rides: a.rides,
+        avgFare: Math.round(a.totalAmount / a.rides),
+        totalAmount: a.totalAmount,
+        avgDuration: a.rides > 0 && a.totalDuration > 0 ? Math.round(a.totalDuration / a.rides) : 0,
+        ridesPerDay: a.days.size > 0 ? Math.round(a.rides / a.days.size * 10) / 10 : 0,
+        dayCount: a.days.size,
+        topWeather: Object.entries(a.weathers).sort((x, y) => y[1] - x[1])[0]?.[0] || '-',
+        peakHour: Object.entries(a.hours).sort((x, y) => y[1] - x[1])[0]?.[0] || '-',
+        hourlyRevenue: a.totalDuration > 0 ? Math.round(a.totalAmount / a.totalDuration * 60) : 0,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 20);
+  }
+
+  /** 配車元別 効率分析（流し/待機/DIDI/電話等） */
+  function getSourceEfficiencyAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const srcMap = {};
+    entries.forEach(e => {
+      const src = e.source || '未設定';
+      if (!srcMap[src]) srcMap[src] = { source: src, rides: 0, totalAmount: 0, totalDuration: 0, weathers: {}, days: new Set(), waitTimes: [] };
+      const m = srcMap[src];
+      m.rides++;
+      m.totalAmount += _meterAmount(e);
+      m.days.add(e.date || toDateStr(e.timestamp));
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 180) m.totalDuration += dur;
+      }
+      if (e.weather) m.weathers[e.weather] = (m.weathers[e.weather] || 0) + 1;
+      if (e.waitingTime) {
+        const wt = parseInt(e.waitingTime, 10);
+        if (!isNaN(wt) && wt > 0) m.waitTimes.push(wt);
+      }
+    });
+    return Object.values(srcMap)
+      .filter(s => s.rides >= 1)
+      .map(s => ({
+        source: s.source, rides: s.rides,
+        avgFare: Math.round(s.totalAmount / s.rides),
+        totalAmount: s.totalAmount,
+        avgDuration: s.rides > 0 && s.totalDuration > 0 ? Math.round(s.totalDuration / s.rides) : 0,
+        hourlyRevenue: s.totalDuration > 0 ? Math.round(s.totalAmount / s.totalDuration * 60) : 0,
+        ridesPerDay: s.days.size > 0 ? Math.round(s.rides / s.days.size * 10) / 10 : 0,
+        sharePercent: entries.length > 0 ? Math.round(s.rides / entries.length * 1000) / 10 : 0,
+        avgWaitTime: s.waitTimes.length > 0 ? Math.round(s.waitTimes.reduce((a, b) => a + b, 0) / s.waitTimes.length) : 0,
+        weatherBreakdown: Object.entries(s.weathers).sort((a, b) => b[1] - a[1]).map(([w, c]) => ({ weather: w, count: c })),
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /** 曜日×天候 クロス分析 */
+  function getDayWeatherCrossAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    const dows = ['月', '火', '水', '木', '金', '土', '日'];
+    const matrix = {};
+    dows.forEach(d => {
+      matrix[d] = {};
+      weathers.forEach(w => { matrix[d][w] = { totalAmount: 0, count: 0, days: new Set() }; });
+    });
+    entries.forEach(e => {
+      const dow = e.dayOfWeek;
+      const w = e.weather;
+      if (!dow || !w || !dows.includes(dow) || !weathers.includes(w)) return;
+      matrix[dow][w].totalAmount += _meterAmount(e);
+      matrix[dow][w].count++;
+      matrix[dow][w].days.add(e.date || toDateStr(e.timestamp));
+    });
+    // フラット配列で返す
+    const cells = [];
+    dows.forEach(d => {
+      weathers.forEach(w => {
+        const c = matrix[d][w];
+        if (c.count === 0) return;
+        cells.push({
+          dow: d, weather: w,
+          avgAmount: Math.round(c.totalAmount / c.count),
+          dailyAvg: c.days.size > 0 ? Math.round(c.totalAmount / c.days.size) : 0,
+          rides: c.count, dayCount: c.days.size,
+        });
+      });
+    });
+    // 曜日別サマリ
+    const dowSummary = dows.map(d => {
+      let total = 0, count = 0, daySet = new Set();
+      weathers.forEach(w => {
+        total += matrix[d][w].totalAmount;
+        count += matrix[d][w].count;
+        matrix[d][w].days.forEach(dd => daySet.add(dd));
+      });
+      return { dow: d, dailyAvg: daySet.size > 0 ? Math.round(total / daySet.size) : 0, rides: count, dayCount: daySet.size };
+    });
+    return { cells, dowSummary, dows, weathers };
+  }
+
+  /** シフト別 実車率分析 */
+  function getShiftOccupancyAnalysis() {
+    const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+    const entries = getEntries();
+    const completedShifts = shifts.filter(s => s.startTime && s.endTime);
+    if (completedShifts.length === 0) return [];
+
+    return completedShifts.slice(-30).map(s => {
+      const startD = new Date(s.startTime);
+      const endD = new Date(s.endTime);
+      const dateStr = getLocalDateString(startD);
+      const shiftMin = Math.round((endD - startD) / 60000);
+      // このシフト中のエントリ
+      const shiftEntries = entries.filter(e => {
+        if (e.date !== dateStr || !e.pickupTime) return false;
+        const [h, m] = e.pickupTime.split(':').map(Number);
+        const entryMin = h * 60 + m;
+        const startMin = startD.getHours() * 60 + startD.getMinutes();
+        const endMin = endD.getHours() * 60 + endD.getMinutes();
+        return entryMin >= startMin && entryMin <= endMin;
+      });
+      const rideCount = shiftEntries.length;
+      const totalAmount = shiftEntries.reduce((s2, e) => s2 + _meterAmount(e), 0);
+      // 実車時間（推定: 乗車時間合計）
+      let occupiedMin = 0;
+      shiftEntries.forEach(e => {
+        if (e.pickupTime && e.dropoffTime) {
+          const [ph, pm] = e.pickupTime.split(':').map(Number);
+          const [dh, dm] = e.dropoffTime.split(':').map(Number);
+          const dur = (dh * 60 + dm) - (ph * 60 + pm);
+          if (dur > 0 && dur < 180) occupiedMin += dur;
+        }
+      });
+      const vacantMin = shiftMin - occupiedMin;
+      const rate = shiftMin > 0 ? Math.round(occupiedMin / shiftMin * 100) : 0;
+      // 天候
+      const wCounts = {};
+      shiftEntries.forEach(e => { if (e.weather) wCounts[e.weather] = (wCounts[e.weather] || 0) + 1; });
+      const topWeather = Object.entries(wCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
+
+      return {
+        date: dateStr,
+        startTime: startD.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        endTime: endD.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+        shiftMin, occupiedMin, vacantMin: Math.max(vacantMin, 0), rate,
+        rideCount, totalAmount,
+        hourlyRate: shiftMin > 0 ? Math.round(totalAmount / shiftMin * 60) : 0,
+        weather: topWeather,
+      };
+    }).sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  /** 乗客属性分析（人数・性別×天候） */
+  function getPassengerWeatherAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    // 乗客数別
+    const byCount = {};
+    entries.forEach(e => {
+      const p = e.passengers || '不明';
+      if (!byCount[p]) byCount[p] = { label: p === '不明' ? '不明' : `${p}名`, count: 0, totalAmount: 0, weathers: {} };
+      byCount[p].count++;
+      byCount[p].totalAmount += _meterAmount(e);
+      if (e.weather) byCount[p].weathers[e.weather] = (byCount[p].weathers[e.weather] || 0) + 1;
+    });
+    const passengerCounts = Object.values(byCount)
+      .filter(p => p.count > 0)
+      .map(p => ({ ...p, avgFare: Math.round(p.totalAmount / p.count), sharePercent: Math.round(p.count / entries.length * 1000) / 10 }))
+      .sort((a, b) => b.count - a.count);
+
+    // 性別別
+    const byGender = {};
+    entries.forEach(e => {
+      const g = e.gender || '未設定';
+      if (!byGender[g]) byGender[g] = { gender: g, count: 0, totalAmount: 0, weathers: {} };
+      byGender[g].count++;
+      byGender[g].totalAmount += _meterAmount(e);
+      if (e.weather) byGender[g].weathers[e.weather] = (byGender[g].weathers[e.weather] || 0) + 1;
+    });
+    const genderStats = Object.values(byGender)
+      .filter(g => g.count > 0)
+      .map(g => ({ ...g, avgFare: Math.round(g.totalAmount / g.count), sharePercent: Math.round(g.count / entries.length * 1000) / 10 }))
+      .sort((a, b) => b.count - a.count);
+
+    return { passengerCounts, genderStats };
+  }
+
+  /** 目的別×天候 分析 */
+  function getPurposeWeatherAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const purposes = {};
+    entries.forEach(e => {
+      const p = e.purpose || '未設定';
+      if (!purposes[p]) purposes[p] = { purpose: p, count: 0, totalAmount: 0, weathers: {}, hours: {} };
+      purposes[p].count++;
+      purposes[p].totalAmount += _meterAmount(e);
+      if (e.weather) purposes[p].weathers[e.weather] = (purposes[p].weathers[e.weather] || 0) + 1;
+      if (e.pickupTime) {
+        const h = parseInt(e.pickupTime.split(':')[0], 10);
+        if (!isNaN(h)) purposes[p].hours[h] = (purposes[p].hours[h] || 0) + 1;
+      }
+    });
+    return Object.values(purposes)
+      .filter(p => p.count >= 2)
+      .map(p => ({
+        purpose: p.purpose, count: p.count,
+        avgFare: Math.round(p.totalAmount / p.count),
+        totalAmount: p.totalAmount,
+        sharePercent: Math.round(p.count / entries.length * 1000) / 10,
+        weatherBreakdown: Object.entries(p.weathers).sort((a, b) => b[1] - a[1]).map(([w, c]) => ({ weather: w, count: c, pct: Math.round(c / p.count * 100) })),
+        peakHour: Object.entries(p.hours).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /** 支払方法×天候 分析 */
+  function getPaymentWeatherAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const payLabels = { cash: '現金', uncollected: '未収', didi: 'DIDI' };
+    const methods = {};
+    entries.forEach(e => {
+      const pm = e.paymentMethod || 'cash';
+      if (!methods[pm]) methods[pm] = { method: pm, label: payLabels[pm] || pm, count: 0, totalAmount: 0, weathers: {} };
+      methods[pm].count++;
+      methods[pm].totalAmount += _meterAmount(e);
+      if (e.weather) methods[pm].weathers[e.weather] = (methods[pm].weathers[e.weather] || 0) + 1;
+    });
+    return Object.values(methods)
+      .filter(m => m.count > 0)
+      .map(m => ({
+        ...m,
+        avgFare: Math.round(m.totalAmount / m.count),
+        sharePercent: Math.round(m.count / entries.length * 1000) / 10,
+        weatherBreakdown: Object.entries(m.weathers).sort((a, b) => b[1] - a[1]).map(([w, c]) => ({ weather: w, count: c, pct: Math.round(c / m.count * 100) })),
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }
+
+  /** 他社乗車×天候 相関分析 */
+  function getRivalWeatherOccupancyAnalysis() {
+    const rivals = getRivalEntries();
+    if (rivals.length === 0) return null;
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    const byWeather = {};
+    weathers.forEach(w => { byWeather[w] = { weather: w, count: 0, days: new Set(), hours: {} }; });
+    rivals.forEach(r => {
+      const w = r.weather && weathers.includes(r.weather) ? r.weather : null;
+      if (!w) return;
+      byWeather[w].count++;
+      byWeather[w].days.add(r.date || '');
+      if (r.time) {
+        const h = parseInt(r.time.split(':')[0], 10);
+        if (!isNaN(h)) byWeather[w].hours[h] = (byWeather[w].hours[h] || 0) + 1;
+      }
+    });
+    // 曜日別
+    const byDow = {};
+    const dows = ['日', '月', '火', '水', '木', '金', '土'];
+    rivals.forEach(r => {
+      if (!r.date) return;
+      const d = new Date(r.date + 'T00:00:00');
+      const dow = dows[d.getDay()];
+      if (!byDow[dow]) byDow[dow] = 0;
+      byDow[dow]++;
+    });
+    return {
+      total: rivals.length,
+      byWeather: weathers.map(w => ({
+        weather: w, count: byWeather[w].count,
+        dailyAvg: byWeather[w].days.size > 0 ? Math.round(byWeather[w].count / byWeather[w].days.size * 10) / 10 : 0,
+        dayCount: byWeather[w].days.size,
+        peakHour: Object.entries(byWeather[w].hours).sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
+      })).filter(w => w.count > 0),
+      byDow: dows.map(d => ({ dow: d, count: byDow[d] || 0 })),
+    };
+  }
+
+  /** 待機時間と実車率の関係分析 */
+  function getWaitingTimeOccupancyAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const standbyEntries = getStandbyEntries();
+    // 日別の待機合計と売上を集計
+    const byDate = {};
+    entries.forEach(e => {
+      const d = e.date || toDateStr(e.timestamp);
+      if (!d) return;
+      if (!byDate[d]) byDate[d] = { date: d, rideCount: 0, totalAmount: 0, totalRideMin: 0, totalWaitMin: 0, weather: null };
+      byDate[d].rideCount++;
+      byDate[d].totalAmount += _meterAmount(e);
+      if (e.pickupTime && e.dropoffTime) {
+        const [ph, pm] = e.pickupTime.split(':').map(Number);
+        const [dh, dm] = e.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 180) byDate[d].totalRideMin += dur;
+      }
+      if (!byDate[d].weather && e.weather) byDate[d].weather = e.weather;
+    });
+    // 待機時間を加算
+    standbyEntries.forEach(s => {
+      const d = s.date || toDateStr(s.timestamp);
+      if (!d || !byDate[d]) return;
+      if (s.pickupTime && s.dropoffTime) {
+        const [ph, pm] = s.pickupTime.split(':').map(Number);
+        const [dh, dm] = s.dropoffTime.split(':').map(Number);
+        const dur = (dh * 60 + dm) - (ph * 60 + pm);
+        if (dur > 0 && dur < 300) byDate[d].totalWaitMin += dur;
+      }
+    });
+
+    const dailyData = Object.values(byDate)
+      .filter(d => d.rideCount > 0 && d.totalRideMin > 0)
+      .map(d => {
+        const totalActiveMin = d.totalRideMin + d.totalWaitMin;
+        return {
+          date: d.date, rideCount: d.rideCount, totalAmount: d.totalAmount,
+          rideMin: d.totalRideMin, waitMin: d.totalWaitMin,
+          occupancyRate: totalActiveMin > 0 ? Math.round(d.totalRideMin / totalActiveMin * 100) : 0,
+          hourlyRate: d.totalRideMin > 0 ? Math.round(d.totalAmount / d.totalRideMin * 60) : 0,
+          weather: d.weather || '-',
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 30);
+
+    // 待機時間帯別の効率
+    const waitBands = [
+      { min: 0, max: 30, label: '0~30分' },
+      { min: 30, max: 60, label: '30~60分' },
+      { min: 60, max: 120, label: '1~2時間' },
+      { min: 120, max: Infinity, label: '2時間以上' },
+    ];
+    const bandStats = waitBands.map(b => {
+      const matches = dailyData.filter(d => d.waitMin >= b.min && d.waitMin < b.max);
+      if (matches.length === 0) return null;
+      return {
+        label: b.label,
+        dayCount: matches.length,
+        avgOccupancy: Math.round(matches.reduce((s, d) => s + d.occupancyRate, 0) / matches.length),
+        avgRevenue: Math.round(matches.reduce((s, d) => s + d.totalAmount, 0) / matches.length),
+        avgHourlyRate: Math.round(matches.reduce((s, d) => s + d.hourlyRate, 0) / matches.length),
+      };
+    }).filter(Boolean);
+
+    return { dailyData, bandStats };
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -6798,6 +7172,15 @@ window.DataService = (() => {
     getWeatherRevenueCorrelation,
     getWeatherTimeDemandMatrix,
     getTemperatureBandAnalysis,
+    getAreaOccupancyAnalysis,
+    getSourceEfficiencyAnalysis,
+    getDayWeatherCrossAnalysis,
+    getShiftOccupancyAnalysis,
+    getPassengerWeatherAnalysis,
+    getPurposeWeatherAnalysis,
+    getPaymentWeatherAnalysis,
+    getRivalWeatherOccupancyAnalysis,
+    getWaitingTimeOccupancyAnalysis,
     getShiftProductivity,
     getGatheringRevenueCorrelation,
     getSourceBreakdown,
