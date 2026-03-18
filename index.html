@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.37.1</title>
+  <title>タクシー売上サポート v3.37.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.37.1',
+  VERSION: '3.37.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -16953,8 +16953,11 @@ window.DashboardPage = () => {
             c.key === 'uncollected' && todayCouponUncollected > 0 && React.createElement('div', {
               style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
             },
+              React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+                `クーポン込: ¥${todayUncollected.toLocaleString()}`
+              ),
               React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
-                `うちクーポン未収: ¥${todayCouponUncollected.toLocaleString()}`
+                `クーポン抜: ¥${(todayUncollected - todayCouponUncollected).toLocaleString()}`
               )
             )
           ))
@@ -17029,12 +17032,6 @@ window.DashboardPage = () => {
             ),
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: 16, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: expandedPayment === 'uncollected_total' ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
           )
-        ),
-        todayCouponUncollected > 0 && React.createElement('div', {
-          style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '12px' },
-        },
-          React.createElement('span', { style: { color: 'var(--text-muted)' } }, 'クーポン抜き:'),
-          React.createElement('span', { style: { fontWeight: 700, color: '#ba68c8', fontSize: '14px' } }, `¥${todayUncollectedTotalExCoupon.toLocaleString()}`)
         ),
         React.createElement('div', {
           style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
