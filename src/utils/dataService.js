@@ -6662,6 +6662,114 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 天候×時間帯 需要マトリクス
+  // ============================================================
+  function getWeatherTimeDemandMatrix(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    // 基準値（晴れの各時間帯平均）を算出するための集計
+    const byWeatherHour = {};
+    weathers.forEach(w => {
+      byWeatherHour[w] = {};
+      for (let h = 0; h < 24; h++) byWeatherHour[w][h] = { totalAmount: 0, count: 0, days: new Set() };
+    });
+
+    entries.forEach(e => {
+      const w = e.weather && weathers.includes(e.weather) ? e.weather : null;
+      if (!w || !e.pickupTime) return;
+      const h = parseInt(e.pickupTime.split(':')[0], 10);
+      if (isNaN(h) || h < 0 || h > 23) return;
+      byWeatherHour[w][h].totalAmount += _meterAmount(e);
+      byWeatherHour[w][h].count++;
+      byWeatherHour[w][h].days.add(e.date || toDateStr(e.timestamp));
+    });
+
+    // 晴れの時間帯別平均を基準にする
+    const clearAvg = {};
+    for (let h = 0; h < 24; h++) {
+      const d = byWeatherHour['晴れ'][h];
+      clearAvg[h] = d.count > 0 ? d.totalAmount / d.count : 0;
+    }
+
+    const matrix = [];
+    weathers.forEach(w => {
+      for (let h = 0; h < 24; h++) {
+        const d = byWeatherHour[w][h];
+        if (d.count === 0) continue;
+        const avgAmount = Math.round(d.totalAmount / d.count);
+        const base = clearAvg[h];
+        const multiplier = base > 0 ? Math.round(avgAmount / base * 100) / 100 : 1.0;
+        matrix.push({
+          weather: w, hour: h, avgAmount, count: d.count, dayCount: d.days.size, multiplier,
+        });
+      }
+    });
+
+    // 天候別サマリ
+    const summary = weathers.map(w => {
+      let totalAmount = 0, totalCount = 0, daySet = new Set();
+      for (let h = 0; h < 24; h++) {
+        totalAmount += byWeatherHour[w][h].totalAmount;
+        totalCount += byWeatherHour[w][h].count;
+        byWeatherHour[w][h].days.forEach(d => daySet.add(d));
+      }
+      const dayCount = daySet.size;
+      return {
+        weather: w, totalAmount, totalCount,
+        dailyAvg: dayCount > 0 ? Math.round(totalAmount / dayCount) : 0,
+        avgPrice: totalCount > 0 ? Math.round(totalAmount / totalCount) : 0,
+        dayCount,
+      };
+    }).filter(s => s.totalCount > 0);
+
+    return { matrix, summary };
+  }
+
+  // ============================================================
+  // 気温帯別分析
+  // ============================================================
+  function getTemperatureBandAnalysis(dayType) {
+    const entries = _getAnalyticsEntries(dayType);
+    const bands = [
+      { min: -Infinity, max: -10, label: '-10℃以下' },
+      { min: -10, max: -5, label: '-10~-5℃' },
+      { min: -5, max: 0, label: '-5~0℃' },
+      { min: 0, max: 5, label: '0~5℃' },
+      { min: 5, max: 10, label: '5~10℃' },
+      { min: 10, max: 15, label: '10~15℃' },
+      { min: 15, max: 20, label: '15~20℃' },
+      { min: 20, max: 25, label: '20~25℃' },
+      { min: 25, max: 30, label: '25~30℃' },
+      { min: 30, max: Infinity, label: '30℃以上' },
+    ];
+
+    const byBand = bands.map(b => ({ ...b, totalAmount: 0, count: 0, days: new Set() }));
+
+    entries.forEach(e => {
+      if (e.temperature == null || isNaN(e.temperature)) return;
+      const temp = e.temperature;
+      for (const b of byBand) {
+        if (temp >= b.min && temp < b.max) {
+          b.totalAmount += _meterAmount(e);
+          b.count++;
+          b.days.add(e.date || toDateStr(e.timestamp));
+          break;
+        }
+      }
+    });
+
+    return byBand
+      .filter(b => b.count > 0)
+      .map(b => ({
+        label: b.label, min: b.min === -Infinity ? null : b.min, max: b.max === Infinity ? null : b.max,
+        avgAmount: Math.round(b.totalAmount / b.count),
+        avgDailyRevenue: b.days.size > 0 ? Math.round(b.totalAmount / b.days.size) : 0,
+        avgRidesPerDay: b.days.size > 0 ? Math.round(b.count / b.days.size * 10) / 10 : 0,
+        count: b.count, dayCount: b.days.size,
+      }));
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
   return {
@@ -6688,6 +6796,8 @@ window.DataService = (() => {
     getMonthlyBreakdown,
     getWeatherBreakdown,
     getWeatherRevenueCorrelation,
+    getWeatherTimeDemandMatrix,
+    getTemperatureBandAnalysis,
     getShiftProductivity,
     getGatheringRevenueCorrelation,
     getSourceBreakdown,

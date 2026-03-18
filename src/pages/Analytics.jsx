@@ -97,6 +97,9 @@ window.AnalyticsPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [dayTypeFilter, setDayTypeFilter] = useState(null);
   const [gpsDate, setGpsDate] = useState(getLocalDateString());
+  const [owDate, setOwDate] = useState(getLocalDateString());
+  const [owData, setOwData] = useState(null);
+  const [owLoading, setOwLoading] = useState(false);
   const [gpsData, setGpsData] = useState(null);
   const [gpsMultiDay, setGpsMultiDay] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -126,6 +129,28 @@ window.AnalyticsPage = () => {
       window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
+
+  // 実車率・天候タブデータ読み込み
+  useEffect(() => {
+    if (tab !== 'occupancyWeather') return;
+    let cancelled = false;
+    setOwLoading(true);
+    (async () => {
+      if (window.GpsLogService) {
+        const [todayOcc, hourlyOcc, trend, weatherCorr] = await Promise.all([
+          GpsLogService.getDistanceBasedOccupancy(owDate),
+          GpsLogService.getHourlyOccupancyFromGps(owDate),
+          GpsLogService.getOccupancyTrend(30),
+          GpsLogService.getWeatherOccupancyCorrelation(90),
+        ]);
+        const weatherTimeMatrix = DataService.getWeatherTimeDemandMatrix(dt);
+        const tempBands = DataService.getTemperatureBandAnalysis(dt);
+        if (!cancelled) setOwData({ todayOcc, hourlyOcc, trend, weatherCorr, weatherTimeMatrix, tempBands });
+      }
+      if (!cancelled) setOwLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tab, owDate, refreshKey, dt]);
 
   // GPS分析データ読み込み
   useEffect(() => {
@@ -339,6 +364,7 @@ window.AnalyticsPage = () => {
     { id: 'rival', label: '他社分析', icon: 'local_taxi' },
     { id: 'forecast', label: '業務予測', icon: 'tips_and_updates' },
     { id: 'repeater', label: 'リピーター', icon: 'people' },
+    { id: 'occupancyWeather', label: '実車率・天候', icon: 'speed' },
     { id: 'gps', label: 'GPS分析', icon: 'gps_fixed' },
   ];
 
@@ -1642,6 +1668,240 @@ window.AnalyticsPage = () => {
             )
           )
         )
+    ),
+
+    // ======== 実車率・天候タブ ========
+    tab === 'occupancyWeather' && React.createElement(React.Fragment, null,
+      owLoading && React.createElement(Loading, null),
+      !owLoading && !owData && React.createElement(Card, { style: { textAlign: 'center', padding: 'var(--space-2xl)' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '48px', color: 'var(--text-muted)', marginBottom: '12px' } }, 'speed'),
+        React.createElement('p', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' } }, 'GPSデータがありません。始業してGPS追跡を開始すると、実車率が自動計算されます。')
+      ),
+      !owLoading && owData && React.createElement(React.Fragment, null,
+
+        // ===== 日付選択 =====
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-md)' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: 'var(--text-secondary)' } }, 'calendar_today'),
+          React.createElement('input', {
+            type: 'date', value: owDate,
+            onChange: (e) => setOwDate(e.target.value),
+            style: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '6px 10px', color: 'var(--text-primary)', fontSize: '13px' },
+          })
+        ),
+
+        // ===== 当日実車率サマリ =====
+        owData.todayOcc && owData.todayOcc.points > 0 && React.createElement(Card, { title: `${owDate} の実車率`, style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('div', { className: 'grid grid--4', style: { gap: '12px', marginBottom: '16px' } },
+            ...[
+              { label: '時間ベース実車率', value: `${owData.todayOcc.timeRate}%`, icon: 'schedule', color: owData.todayOcc.timeRate >= 50 ? '#4caf50' : owData.todayOcc.timeRate >= 30 ? '#ff9800' : '#f44336' },
+              { label: '距離ベース実車率', value: `${owData.todayOcc.distanceRate}%`, icon: 'straighten', color: owData.todayOcc.distanceRate >= 50 ? '#4caf50' : owData.todayOcc.distanceRate >= 30 ? '#ff9800' : '#f44336' },
+              { label: '実車距離', value: `${owData.todayOcc.occupiedKm}km`, sub: `空車 ${owData.todayOcc.vacantKm}km`, icon: 'local_taxi', color: 'var(--color-primary-light)' },
+              { label: '稼働時間', value: `${owData.todayOcc.totalMin}分`, sub: `実車${owData.todayOcc.occupiedMin}分 空車${owData.todayOcc.vacantMin}分`, icon: 'timer', color: 'var(--color-secondary)' },
+            ].map((item, i) => React.createElement('div', {
+              key: i, style: { background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '14px', border: '1px solid rgba(255,255,255,0.06)' },
+            },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' } },
+                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px', color: item.color } }, item.icon),
+                React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, item.label)
+              ),
+              React.createElement('div', { style: { fontSize: '22px', fontWeight: 700, color: item.color } }, item.value),
+              item.sub && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' } }, item.sub)
+            ))
+          ),
+          // 実車率ゲージ
+          React.createElement('div', { style: { marginTop: '8px' } },
+            React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } },
+              React.createElement('span', null, '空車'),
+              React.createElement('span', null, '実車')
+            ),
+            React.createElement('div', { style: { height: '12px', borderRadius: '6px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden', position: 'relative' } },
+              React.createElement('div', { style: { height: '100%', width: `${owData.todayOcc.timeRate}%`, borderRadius: '6px', background: 'linear-gradient(90deg, #1a73e8, #4fc3f7)', transition: 'width 0.5s ease' } })
+            )
+          )
+        ),
+
+        // ===== 時間帯別実車率 =====
+        owData.hourlyOcc && owData.hourlyOcc.length > 0 && React.createElement(Card, { title: '時間帯別 実車率', style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: '2px', height: '140px', padding: '0 4px' } },
+            ...owData.hourlyOcc.map((h, i) => {
+              const barColor = h.rate >= 60 ? '#4caf50' : h.rate >= 40 ? '#ff9800' : h.rate >= 20 ? '#f44336' : 'rgba(255,255,255,0.1)';
+              return React.createElement('div', {
+                key: i, style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' },
+                title: `${h.hour}時: 実車率${h.rate}% (実車${h.occupiedMin}分/空車${h.vacantMin}分)`,
+              },
+                React.createElement('div', { style: { fontSize: '9px', color: 'var(--text-muted)', marginBottom: '2px' } }, `${h.rate}%`),
+                React.createElement('div', { style: { width: '100%', height: `${Math.max(h.rate, 2)}%`, background: barColor, borderRadius: '3px 3px 0 0', transition: 'height 0.3s ease', minHeight: '2px' } })
+              );
+            })
+          ),
+          React.createElement('div', { style: { display: 'flex', gap: '2px', padding: '4px 4px 0' } },
+            ...owData.hourlyOcc.map((h, i) => React.createElement('div', {
+              key: i, style: { flex: 1, textAlign: 'center', fontSize: '9px', color: 'var(--text-muted)' },
+            }, `${h.hour}`))
+          )
+        ),
+
+        // ===== 実車率トレンド（30日） =====
+        owData.trend && owData.trend.length > 1 && React.createElement(Card, { title: '実車率 推移（直近30日）', style: { marginBottom: 'var(--space-lg)' } },
+          (() => {
+            const avgRate = Math.round(owData.trend.reduce((s, d) => s + d.timeRate, 0) / owData.trend.length);
+            const avgDistRate = Math.round(owData.trend.reduce((s, d) => s + d.distanceRate, 0) / owData.trend.length);
+            return React.createElement(React.Fragment, null,
+              React.createElement('div', { style: { display: 'flex', gap: '16px', marginBottom: '12px', fontSize: '12px' } },
+                React.createElement('span', { style: { color: 'var(--text-secondary)' } }, `平均時間実車率: `),
+                React.createElement('span', { style: { fontWeight: 700, color: avgRate >= 50 ? '#4caf50' : '#ff9800' } }, `${avgRate}%`),
+                React.createElement('span', { style: { color: 'var(--text-secondary)', marginLeft: '12px' } }, `平均距離実車率: `),
+                React.createElement('span', { style: { fontWeight: 700, color: avgDistRate >= 50 ? '#4caf50' : '#ff9800' } }, `${avgDistRate}%`)
+              ),
+              React.createElement(BarChart, { data: owData.trend, valueKey: 'timeRate', labelKey: 'date', color: '#4fc3f7', height: 160, prefix: '', showLabels: true })
+            );
+          })()
+        ),
+
+        // ===== 天候×実車率 相関 =====
+        owData.weatherCorr && owData.weatherCorr.length > 0 && React.createElement(Card, { title: '天候×実車率 相関分析', style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' } },
+            ...owData.weatherCorr.map(wc => {
+              const icon = wc.weather === '晴れ' ? 'wb_sunny' : wc.weather === '曇り' ? 'cloud' : wc.weather === '雨' ? 'water_drop' : 'ac_unit';
+              const rateColor = wc.timeRate >= 50 ? '#4caf50' : wc.timeRate >= 35 ? '#ff9800' : '#f44336';
+              return React.createElement('div', {
+                key: wc.weather,
+                style: { padding: '14px', borderRadius: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' },
+              },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '22px', color: 'var(--color-primary-light)' } }, icon),
+                  React.createElement('span', { style: { fontWeight: 700, fontSize: '15px' } }, wc.weather),
+                  React.createElement('span', { style: { marginLeft: 'auto', fontSize: '11px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '10px' } }, `${wc.dayCount}日分`)
+                ),
+                // 実車率ゲージ
+                React.createElement('div', { style: { marginBottom: '10px' } },
+                  React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' } },
+                    React.createElement('span', { style: { color: 'var(--text-muted)' } }, '時間実車率'),
+                    React.createElement('span', { style: { fontWeight: 700, color: rateColor } }, `${wc.timeRate}%`)
+                  ),
+                  React.createElement('div', { style: { height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' } },
+                    React.createElement('div', { style: { height: '100%', width: `${wc.timeRate}%`, borderRadius: '4px', background: rateColor, transition: 'width 0.3s ease' } })
+                  )
+                ),
+                React.createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.8 } },
+                  React.createElement('div', null, `距離実車率: ${wc.distanceRate}%`),
+                  React.createElement('div', null, `日平均売上: ¥${wc.avgRevenue.toLocaleString()}`),
+                  React.createElement('div', null, `平均実車: ${wc.avgOccMin}分 / ${wc.avgOccKm}km`),
+                  React.createElement('div', null, `平均空車: ${wc.avgVacMin}分 / ${wc.avgVacKm}km`),
+                  wc.avgTemp != null && React.createElement('div', null, `平均気温: ${wc.avgTemp}℃`)
+                )
+              );
+            })
+          )
+        ),
+
+        // ===== 天候×時間帯 需要マトリクス =====
+        owData.weatherTimeMatrix && owData.weatherTimeMatrix.matrix.length > 0 && React.createElement(Card, { title: '天候×時間帯 需要マトリクス', style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('p', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' } }, '晴れを1.0として各天候の需要倍率を表示（赤=需要増、青=需要減）'),
+          (() => {
+            const weathers = ['晴れ', '曇り', '雨', '雪'];
+            const matrixMap = {};
+            owData.weatherTimeMatrix.matrix.forEach(m => {
+              if (!matrixMap[m.weather]) matrixMap[m.weather] = {};
+              matrixMap[m.weather][m.hour] = m;
+            });
+            // 時間帯の範囲を検出
+            const allHours = [...new Set(owData.weatherTimeMatrix.matrix.map(m => m.hour))].sort((a, b) => a - b);
+            if (allHours.length === 0) return null;
+
+            return React.createElement('div', { style: { overflowX: 'auto' } },
+              React.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: '11px' } },
+                React.createElement('thead', null,
+                  React.createElement('tr', null,
+                    React.createElement('th', { style: { padding: '6px 8px', textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.1)' } }, '天候'),
+                    ...allHours.map(h => React.createElement('th', { key: h, style: { padding: '4px 2px', textAlign: 'center', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.1)', minWidth: '32px' } }, `${h}時`))
+                  )
+                ),
+                React.createElement('tbody', null,
+                  ...weathers.filter(w => matrixMap[w]).map(w => {
+                    const icon = w === '晴れ' ? 'wb_sunny' : w === '曇り' ? 'cloud' : w === '雨' ? 'water_drop' : 'ac_unit';
+                    return React.createElement('tr', { key: w },
+                      React.createElement('td', { style: { padding: '6px 8px', display: 'flex', alignItems: 'center', gap: '4px', borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+                        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, icon), w
+                      ),
+                      ...allHours.map(h => {
+                        const cell = matrixMap[w] && matrixMap[w][h];
+                        if (!cell) return React.createElement('td', { key: h, style: { padding: '4px 2px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-muted)' } }, '-');
+                        const mult = cell.multiplier;
+                        let bg = 'transparent';
+                        if (mult >= 1.3) bg = 'rgba(244,67,54,0.3)';
+                        else if (mult >= 1.1) bg = 'rgba(255,152,0,0.2)';
+                        else if (mult <= 0.7) bg = 'rgba(33,150,243,0.3)';
+                        else if (mult <= 0.9) bg = 'rgba(33,150,243,0.15)';
+                        return React.createElement('td', {
+                          key: h,
+                          style: { padding: '4px 2px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', background: bg, fontWeight: mult >= 1.2 || mult <= 0.8 ? 700 : 400 },
+                          title: `${w} ${h}時: 平均¥${cell.avgAmount.toLocaleString()} (${cell.count}回)`,
+                        }, `${mult.toFixed(1)}`);
+                      })
+                    );
+                  })
+                )
+              )
+            );
+          })()
+        ),
+
+        // ===== 気温帯別分析 =====
+        owData.tempBands && owData.tempBands.length > 0 && React.createElement(Card, { title: '気温帯別 売上分析', style: { marginBottom: 'var(--space-lg)' } },
+          React.createElement('div', { style: { display: 'grid', gap: '8px' } },
+            ...owData.tempBands.map((b, i) => {
+              const maxRevenue = Math.max(...owData.tempBands.map(x => x.avgDailyRevenue), 1);
+              const pct = (b.avgDailyRevenue / maxRevenue) * 100;
+              // 温度に応じた色
+              let barColor = '#4fc3f7';
+              if (b.min != null && b.min >= 25) barColor = '#f44336';
+              else if (b.min != null && b.min >= 15) barColor = '#ff9800';
+              else if (b.min != null && b.min >= 5) barColor = '#4caf50';
+              else if (b.max != null && b.max <= 0) barColor = '#90caf9';
+              return React.createElement('div', { key: i },
+                React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', marginBottom: '3px' } },
+                  React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                    React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: barColor } }, 'thermostat'),
+                    React.createElement('span', { style: { fontWeight: 600 } }, b.label),
+                    React.createElement('span', { style: { color: 'var(--text-muted)', fontSize: '10px' } }, `${b.dayCount}日`)
+                  ),
+                  React.createElement('div', { style: { display: 'flex', gap: '12px', alignItems: 'center' } },
+                    React.createElement('span', { style: { color: 'var(--text-secondary)', fontSize: '11px' } }, `${b.avgRidesPerDay}回/日`),
+                    React.createElement('span', { style: { fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${b.avgDailyRevenue.toLocaleString()}/日`)
+                  )
+                ),
+                React.createElement('div', { style: { height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' } },
+                  React.createElement('div', { style: { width: `${pct}%`, height: '100%', background: barColor, borderRadius: '4px', transition: 'width 0.3s ease' } })
+                )
+              );
+            })
+          )
+        ),
+
+        // ===== 天候別サマリ =====
+        owData.weatherTimeMatrix && owData.weatherTimeMatrix.summary.length > 0 && React.createElement(Card, { title: '天候別 需要サマリ' },
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' } },
+            ...owData.weatherTimeMatrix.summary.map(s => {
+              const icon = s.weather === '晴れ' ? 'wb_sunny' : s.weather === '曇り' ? 'cloud' : s.weather === '雨' ? 'water_drop' : 'ac_unit';
+              return React.createElement('div', {
+                key: s.weather,
+                style: { padding: '12px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' },
+              },
+                React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' } },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, icon),
+                  React.createElement('span', { style: { fontWeight: 600 } }, s.weather)
+                ),
+                React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.7 } },
+                  React.createElement('div', null, `日平均: ¥${s.dailyAvg.toLocaleString()}`),
+                  React.createElement('div', null, `平均単価: ¥${s.avgPrice.toLocaleString()}`),
+                  React.createElement('div', null, `乗車数: ${s.totalCount}回 / ${s.dayCount}日`)
+                )
+              );
+            })
+          )
+        )
+      )
     ),
 
     // ======== GPS分析タブ ========

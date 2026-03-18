@@ -1791,6 +1791,176 @@ window.GpsLogService = (() => {
     };
   }
 
+  // ============================================================
+  // 距離ベース実車率計算
+  // ============================================================
+
+  /** 距離ベースの実車率を算出 (async) */
+  async function getDistanceBasedOccupancy(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return { date: dateStr, occupiedKm: 0, vacantKm: 0, totalKm: 0, distanceRate: 0, timeRate: 0, occupiedMin: 0, vacantMin: 0, totalMin: 0, points: 0 };
+
+    let occupiedDist = 0, vacantDist = 0;
+    let occupiedCount = 0, vacantCount = 0;
+
+    for (let i = 1; i < classified.length; i++) {
+      const prev = classified[i - 1];
+      const curr = classified[i];
+      const dist = _haversine(prev.lat, prev.lng, curr.lat, curr.lng);
+      if (dist > 1000) continue; // 1km超のジャンプは除外
+      if (curr.status === 'occupied') {
+        occupiedDist += dist;
+        occupiedCount++;
+      } else {
+        vacantDist += dist;
+        vacantCount++;
+      }
+    }
+    // ポイントカウントで時間も算出
+    for (const p of classified) {
+      if (p.status === 'occupied') occupiedCount++;
+      else vacantCount++;
+    }
+
+    const intervalSec = THROTTLE_MS / 1000;
+    // classifyEntries全体から再カウント
+    let occPts = 0, vacPts = 0;
+    for (const p of classified) {
+      if (p.status === 'occupied') occPts++; else vacPts++;
+    }
+    const occupiedMin = Math.round(occPts * intervalSec / 60);
+    const vacantMin = Math.round(vacPts * intervalSec / 60);
+    const totalMin = occupiedMin + vacantMin;
+    const occupiedKm = Math.round(occupiedDist / 100) / 10;
+    const vacantKm = Math.round(vacantDist / 100) / 10;
+    const totalKm = Math.round((occupiedDist + vacantDist) / 100) / 10;
+    const distanceRate = totalKm > 0 ? Math.round(occupiedKm / totalKm * 100) : 0;
+    const timeRate = totalMin > 0 ? Math.round(occupiedMin / totalMin * 100) : 0;
+
+    return {
+      date: dateStr, occupiedKm, vacantKm, totalKm, distanceRate, timeRate,
+      occupiedMin, vacantMin, totalMin, points: classified.length,
+    };
+  }
+
+  /** 複数日の実車率トレンド (async) */
+  async function getOccupancyTrend(days) {
+    if (!days) days = 30;
+    const dates = await getLogDates();
+    const recent = dates.slice(0, days);
+    const results = [];
+    for (const d of recent) {
+      const occ = await getDistanceBasedOccupancy(d);
+      if (occ.points > 0) {
+        results.push(occ);
+      }
+    }
+    // 日付昇順
+    results.sort((a, b) => a.date.localeCompare(b.date));
+    return results;
+  }
+
+  /** 時間帯別のGPS実車率 (async) */
+  async function getHourlyOccupancyFromGps(dateStr) {
+    const classified = await classifyEntries(dateStr);
+    if (classified.length === 0) return [];
+
+    const hourly = {};
+    for (let h = 0; h < 24; h++) hourly[h] = { occupied: 0, vacant: 0 };
+
+    for (const p of classified) {
+      const h = new Date(p.t).getHours();
+      if (p.status === 'occupied') hourly[h].occupied++;
+      else hourly[h].vacant++;
+    }
+
+    const intervalSec = THROTTLE_MS / 1000;
+    const result = [];
+    for (let h = 0; h < 24; h++) {
+      const occ = hourly[h].occupied;
+      const vac = hourly[h].vacant;
+      const total = occ + vac;
+      if (total === 0) continue;
+      result.push({
+        hour: h,
+        occupiedMin: Math.round(occ * intervalSec / 60),
+        vacantMin: Math.round(vac * intervalSec / 60),
+        rate: Math.round(occ / total * 100),
+      });
+    }
+    return result;
+  }
+
+  /** 天候×実車率 相関分析 (async) */
+  async function getWeatherOccupancyCorrelation(days) {
+    if (!days) days = 90;
+    const dates = await getLogDates();
+    const recent = dates.slice(0, days);
+
+    const byWeather = {}; // { weather: { totalOccMin, totalVacMin, totalOccKm, totalVacKm, totalRevenue, dayCount, temps[] } }
+
+    for (const d of recent) {
+      const log = await getLogForDate(d);
+      if (log.length === 0) continue;
+
+      // この日の主要天気を判定
+      const weatherCounts = {};
+      const temps = [];
+      for (const p of log) {
+        if (p.w) weatherCounts[p.w] = (weatherCounts[p.w] || 0) + 1;
+        if (p.tp != null) temps.push(p.tp);
+      }
+      let mainWeather = null, maxCount = 0;
+      Object.entries(weatherCounts).forEach(([w, c]) => {
+        if (c > maxCount) { mainWeather = w; maxCount = c; }
+      });
+      if (!mainWeather) continue;
+
+      const avgTemp = temps.length > 0 ? Math.round(temps.reduce((s, t) => s + t, 0) / temps.length * 10) / 10 : null;
+      const occ = await getDistanceBasedOccupancy(d);
+      if (occ.points === 0) continue;
+
+      // その日の売上合計
+      let dayRevenue = 0;
+      try {
+        const entries = DataService.getEntries().filter(e => e.date === d && !e.noPassenger && e.amount > 0);
+        dayRevenue = entries.reduce((s, e) => s + (e.amount || 0), 0);
+      } catch {}
+
+      if (!byWeather[mainWeather]) {
+        byWeather[mainWeather] = { weather: mainWeather, totalOccMin: 0, totalVacMin: 0, totalOccKm: 0, totalVacKm: 0, totalRevenue: 0, dayCount: 0, temps: [] };
+      }
+      const bw = byWeather[mainWeather];
+      bw.totalOccMin += occ.occupiedMin;
+      bw.totalVacMin += occ.vacantMin;
+      bw.totalOccKm += occ.occupiedKm;
+      bw.totalVacKm += occ.vacantKm;
+      bw.totalRevenue += dayRevenue;
+      bw.dayCount++;
+      if (avgTemp != null) bw.temps.push(avgTemp);
+    }
+
+    const weathers = ['晴れ', '曇り', '雨', '雪'];
+    return weathers.map(w => {
+      const bw = byWeather[w];
+      if (!bw || bw.dayCount === 0) return { weather: w, timeRate: 0, distanceRate: 0, avgRevenue: 0, avgTemp: null, dayCount: 0 };
+      const totalMin = bw.totalOccMin + bw.totalVacMin;
+      const totalKm = bw.totalOccKm + bw.totalVacKm;
+      return {
+        weather: w,
+        timeRate: totalMin > 0 ? Math.round(bw.totalOccMin / totalMin * 100) : 0,
+        distanceRate: totalKm > 0 ? Math.round(bw.totalOccKm / totalKm * 100) : 0,
+        avgRevenue: Math.round(bw.totalRevenue / bw.dayCount),
+        avgTemp: bw.temps.length > 0 ? Math.round(bw.temps.reduce((s, t) => s + t, 0) / bw.temps.length * 10) / 10 : null,
+        dayCount: bw.dayCount,
+        avgOccMin: Math.round(bw.totalOccMin / bw.dayCount),
+        avgVacMin: Math.round(bw.totalVacMin / bw.dayCount),
+        avgOccKm: Math.round(bw.totalOccKm / bw.dayCount * 10) / 10,
+        avgVacKm: Math.round(bw.totalVacKm / bw.dayCount * 10) / 10,
+      };
+    }).filter(w => w.dayCount > 0);
+  }
+
   return {
     maybeRecord,
     getLogForDate,
@@ -1831,6 +2001,11 @@ window.GpsLogService = (() => {
     // 乗車/降車イベント記録
     recordEvent,
     updateEvent,
+    // 実車率・天候相関
+    getDistanceBasedOccupancy,
+    getOccupancyTrend,
+    getHourlyOccupancyFromGps,
+    getWeatherOccupancyCorrelation,
   };
 })();
 })();
