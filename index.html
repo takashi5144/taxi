@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.37.3</title>
+  <title>タクシー売上サポート v3.38.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.37.3',
+  VERSION: '3.38.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17065,18 +17065,37 @@ window.DashboardPage = () => {
           todayCouponUncollected > 0 && React.createElement('span', null, `うちクーポン: ¥${todayCouponUncollected.toLocaleString()}`)
         )
       ),
-      // 未収合計の内訳リスト
+      // 未収合計の内訳リスト（クーポンサブは親にまとめる）
       expandedPayment === 'uncollected_total' && (() => {
-        const allUncollected = [...todayUncollectedEntries, ...todayDidiEntries, ...todayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
-        if (allUncollected.length === 0) return React.createElement('div', {
+        const _isCpn = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+        // クーポンサブを除外した一覧
+        const allUncollected = [...todayUncollectedEntries.filter(e => !_isCpn(e)), ...todayDidiEntries, ...todayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+        // クーポンサブのparentIdマップ
+        const cpnMap = {};
+        todayCouponEntries.forEach(c => {
+          if (c.couponParentId) { cpnMap[c.couponParentId] = c; return; }
+          // parentId未設定 → 同日同乗車地同時刻でマッチ
+          const p = todayEntries.find(e => e.id !== c.id && !_isCpn(e) && e.couponAmount > 0 && e.date === c.date && e.pickup === c.pickup && e.pickupTime === c.pickupTime);
+          if (p) cpnMap[p.id] = c;
+        });
+        if (allUncollected.length === 0 && todayCouponEntries.length === 0) return React.createElement('div', {
           style: { marginBottom: 'var(--space-sm)', padding: '16px', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' },
         }, '未収データはありません');
+        // クーポン付き現金エントリもリストに含める
+        const cashWithCoupon = todayEntries.filter(e => !_isCpn(e) && e.couponAmount > 0 && (e.paymentMethod || 'cash') === 'cash' && cpnMap[e.id]);
+        const mergedList = [...allUncollected, ...cashWithCoupon].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+        // 重複排除
+        const seen = new Set();
+        const uniqueList = mergedList.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+
         const payLabel = (e) => {
+          if (cpnMap[e.id]) return '現金+クーポン';
           if (e.paymentMethod === 'didi') return 'DIDI';
           if (e.paymentMethod === 'uber' || e.source === 'Uber') return 'Uber';
           return '未収';
         };
         const payColor = (e) => {
+          if (cpnMap[e.id]) return '#a78bfa';
           if (e.paymentMethod === 'didi') return 'var(--color-warning)';
           if (e.paymentMethod === 'uber' || e.source === 'Uber') return '#fff';
           return 'var(--color-error)';
@@ -17084,26 +17103,32 @@ window.DashboardPage = () => {
         return React.createElement('div', {
           style: { marginBottom: 'var(--space-sm)', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', overflow: 'hidden' },
         },
-          ...allUncollected.map((e, i) => React.createElement('div', {
-            key: e.id || i,
-            style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
-          },
-            React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', minWidth: 42 } }, e.pickupTime || '--:--'),
-            React.createElement('span', { style: { fontSize: 10, padding: '1px 6px', borderRadius: '4px', background: 'rgba(156,39,176,0.15)', color: payColor(e), fontWeight: 600, whiteSpace: 'nowrap' } }, payLabel(e)),
-            React.createElement('div', { style: { flex: 1, minWidth: 0 } },
-              React.createElement('div', { style: { fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-                (e.pickup || '?') + ' → ' + (e.dropoff || '?')
+          ...uniqueList.map((e, i) => {
+            const cpnSub = cpnMap[e.id];
+            const displayAmt = cpnSub ? (e.amount || 0) + (cpnSub.amount || 0) : (e.amount || 0);
+            return React.createElement('div', {
+              key: e.id || i,
+              style: { padding: '8px 12px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+            },
+              React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                React.createElement('span', { style: { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', minWidth: 42 } }, e.pickupTime || '--:--'),
+                React.createElement('span', { style: { fontSize: 10, padding: '1px 6px', borderRadius: '4px', background: 'rgba(156,39,176,0.15)', color: payColor(e), fontWeight: 600, whiteSpace: 'nowrap' } }, payLabel(e)),
+                React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                  React.createElement('div', { style: { fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                    (e.pickup || '?') + ' → ' + (e.dropoff || '?')
+                  ),
+                  (e.source || e.purpose) && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 1 } },
+                    [e.source, e.purpose].filter(Boolean).join(' / ')
+                  )
+                ),
+                React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: '#ce93d8', whiteSpace: 'nowrap' } }, `¥${displayAmt.toLocaleString()}`)
               ),
-              (e.source || e.purpose) && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 1 } },
-                [e.source, e.purpose].filter(Boolean).join(' / ')
-              ),
-              e.couponParentId && React.createElement('div', { style: { fontSize: 9, color: '#a78bfa', marginTop: 1, display: 'flex', alignItems: 'center', gap: '2px' } },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
-                'クーポン分離（元の売上と対）'
+              cpnSub && React.createElement('div', { style: { marginLeft: 50, marginTop: 4, fontSize: 10, color: 'var(--text-muted)', display: 'flex', gap: '8px' } },
+                React.createElement('span', { style: { color: '#66bb6a' } }, `現金¥${e.amount.toLocaleString()}`),
+                React.createElement('span', { style: { color: '#ef5350' } }, `クーポン未収¥${cpnSub.amount.toLocaleString()}`)
               )
-            ),
-            React.createElement('span', { style: { fontSize: 13, fontWeight: 700, color: '#ce93d8', whiteSpace: 'nowrap' } }, `¥${(e.amount || 0).toLocaleString()}`)
-          ))
+            );
+          })
         );
       })(),
 
@@ -29612,6 +29637,7 @@ window.DataManagePage = () => {
   const [standbyAddForm, setStandbyAddForm] = useState({ date: todayDefault, weather: '', location: '', startTime: '', endTime: '', memo: '' });
   const [standbyAddErrors, setStandbyAddErrors] = useState([]);
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
+  const [expandedCouponId, setExpandedCouponId] = useState(null); // クーポン詳細展開中のエントリID
   const [addCoords, setAddCoords] = useState({ pickupCoords: null, dropoffCoords: null });
   const mapPickerRef = React.useRef(null);
   const mapPickerInstanceRef = React.useRef(null);
@@ -30306,8 +30332,34 @@ window.DataManagePage = () => {
   }, [revenueEntries]);
 
   // 検索・フィルター
+  // クーポンサブエントリ判定
+  const _isCouponSubEntry = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+
+  // クーポンサブエントリをparentIdで引くマップ
+  const couponSubMap = useMemo(() => {
+    const map = {};
+    revenueEntries.forEach(e => {
+      if (_isCouponSubEntry(e) && e.couponParentId) {
+        map[e.couponParentId] = e;
+      }
+    });
+    // couponParentId未設定のサブエントリも日付+乗車地+時刻でマッチング
+    revenueEntries.forEach(e => {
+      if (_isCouponSubEntry(e) && !e.couponParentId) {
+        const parent = revenueEntries.find(p =>
+          p.id !== e.id && !_isCouponSubEntry(p) && p.couponAmount > 0 &&
+          p.date === e.date && p.pickup === e.pickup && p.pickupTime === e.pickupTime &&
+          !map[p.id]
+        );
+        if (parent) map[parent.id] = e;
+      }
+    });
+    return map;
+  }, [revenueEntries]);
+
   const filteredRevenue = useMemo(() => {
-    let result = revenueEntries;
+    // クーポンサブエントリは一覧から除外（メインエントリ内に統合表示）
+    let result = revenueEntries.filter(e => !_isCouponSubEntry(e));
     if (filterSource) {
       result = result.filter(e => (e.source || '') === filterSource);
     }
@@ -30719,13 +30771,13 @@ window.DataManagePage = () => {
               entry.customerName || 'ユーザー'
             ),
             entry.memo && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `| ${entry.memo}`),
-            entry.couponParentId && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.2)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
-              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
-              'クーポン分離'
-            ),
-            !entry.couponParentId && entry.couponAmount > 0 && React.createElement('span', { style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' } },
-              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'link'),
-              `クーポン¥${entry.couponAmount.toLocaleString()}分離済`
+            entry.couponAmount > 0 && couponSubMap[entry.id] && React.createElement('span', {
+              style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(167,139,250,0.2)', color: '#a78bfa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px', cursor: 'pointer' },
+              onClick: (ev) => { ev.stopPropagation(); setExpandedCouponId(expandedCouponId === entry.id ? null : entry.id); },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'confirmation_number'),
+              `クーポン¥${entry.couponAmount.toLocaleString()}`,
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '12px', transition: 'transform 0.2s', transform: expandedCouponId === entry.id ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
             )
           ),
           !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '2px' } },
@@ -30739,8 +30791,15 @@ window.DataManagePage = () => {
                 React.createElement('div', { style: { fontWeight: 700, color: '#d32f2f', fontSize: '15px' } }, '¥0（空車）'),
                 entry.memo && entry.memo.includes('自動記録') && React.createElement('div', { style: { fontSize: '9px', color: '#ff9800', marginTop: '1px' } }, 'GPS自動検出')
               )
-            : React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${entry.amount.toLocaleString()}`),
-          !entry.noPassenger && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
+            : (() => {
+                const meterAmt = (entry.amount || 0) + (entry.discountAmount || 0) + (entry.couponAmount || 0);
+                const hasCoupon = entry.couponAmount > 0 && couponSubMap[entry.id];
+                return React.createElement(React.Fragment, null,
+                  React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${meterAmt.toLocaleString()}`),
+                  hasCoupon && React.createElement('div', { style: { fontSize: '10px', color: '#a78bfa' } }, `現金¥${entry.amount.toLocaleString()} + クーポン¥${entry.couponAmount.toLocaleString()}`)
+                );
+              })(),
+          !entry.noPassenger && !entry.couponAmount && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, `税抜¥${Math.floor(entry.amount / 1.1).toLocaleString()} 税¥${(entry.amount - Math.floor(entry.amount / 1.1)).toLocaleString()}`)
         ),
         React.createElement('button', {
           onClick: () => startEdit(entry, 'revenue'),
@@ -30752,7 +30811,38 @@ window.DataManagePage = () => {
           style: { background: 'none', border: 'none', cursor: 'pointer', color: isConfirm ? 'var(--color-danger)' : 'var(--text-muted)', padding: '4px' },
           title: isConfirm ? 'もう一度押して削除' : '削除',
         }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, isConfirm ? 'delete_forever' : 'delete_outline'))
-      )
+      ),
+      // クーポン内訳展開
+      expandedCouponId === entry.id && couponSubMap[entry.id] && (() => {
+        const sub = couponSubMap[entry.id];
+        const meterAmt = (entry.amount || 0) + (entry.discountAmount || 0) + (entry.couponAmount || 0);
+        return React.createElement('div', {
+          style: { margin: '0 0 8px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.2)', fontSize: '12px' },
+        },
+          React.createElement('div', { style: { fontWeight: 700, fontSize: '12px', color: '#a78bfa', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'receipt_long'),
+            '1件の乗車 → 2件のデータ内訳'
+          ),
+          React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
+            // メインエントリ
+            React.createElement('div', { style: { padding: '8px', borderRadius: '6px', background: 'rgba(76,175,80,0.1)', border: '1px solid rgba(76,175,80,0.2)' } },
+              React.createElement('div', { style: { fontSize: '10px', color: '#66bb6a', fontWeight: 600, marginBottom: '4px' } }, '① 現金分'),
+              React.createElement('div', { style: { fontSize: '16px', fontWeight: 700, color: '#66bb6a' } }, `¥${entry.amount.toLocaleString()}`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, entry.paymentMethod === 'cash' ? '現金' : entry.paymentMethod === 'didi' ? 'DIDI' : entry.paymentMethod)
+            ),
+            // クーポンサブエントリ
+            React.createElement('div', { style: { padding: '8px', borderRadius: '6px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' } },
+              React.createElement('div', { style: { fontSize: '10px', color: '#ef5350', fontWeight: 600, marginBottom: '4px' } }, '② クーポン未収分'),
+              React.createElement('div', { style: { fontSize: '16px', fontWeight: 700, color: '#ef5350' } }, `¥${sub.amount.toLocaleString()}`),
+              React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } }, sub.memo || 'クーポン未収')
+            )
+          ),
+          React.createElement('div', { style: { marginTop: '8px', padding: '6px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+            React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, 'メーター金額（合計）'),
+            React.createElement('span', { style: { fontSize: '14px', fontWeight: 700, color: 'var(--color-secondary)' } }, `¥${meterAmt.toLocaleString()}`)
+          )
+        );
+      })()
     );
   };
 
