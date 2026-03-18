@@ -550,10 +550,11 @@ window.DashboardPage = () => {
   const todayDiscountLongDistance = getDiscountByType(todayEntries, 'longDistance');
   const todayDiscountCoupon = getDiscountByType(todayEntries, 'coupon');
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count;
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
+  const todayUncollectedTotalExCoupon = todayUncollectedTotal - todayCouponUncollected;
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count;
   const currentMonth = getLocalDateString().slice(0, 7);
   const monthData = useMemo(() => {
     const entries = DataService.getEntries();
@@ -968,6 +969,12 @@ window.DashboardPage = () => {
             ),
             React.createElement('span', { className: 'material-icons-round', style: { fontSize: 16, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: expandedPayment === 'uncollected_total' ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
           )
+        ),
+        todayCouponUncollected > 0 && React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '12px' },
+        },
+          React.createElement('span', { style: { color: 'var(--text-muted)' } }, 'クーポン抜き:'),
+          React.createElement('span', { style: { fontWeight: 700, color: '#ba68c8', fontSize: '14px' } }, `¥${todayUncollectedTotalExCoupon.toLocaleString()}`)
         ),
         React.createElement('div', {
           style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
