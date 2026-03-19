@@ -755,9 +755,9 @@ const GpsAnalysisTab = ({ refreshKey }) => {
             )
           )
         ),
-        // エリア座標の説明
+        // エリア名の説明
         React.createElement('div', { style: { marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' } },
-          '* エリアはGPS範囲を5x5グリッドに分割。座標は各エリアの中心点。'
+          '* エリアはGPS範囲を5x5グリッドに分割。最寄りの地名で表示。'
         )
       );
     })(),

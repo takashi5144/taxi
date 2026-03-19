@@ -774,13 +774,31 @@ window.GpsLogService = (() => {
       if (p.status === 'occupied') matrix[key].occupied++;
     }
 
-    // エリア名生成（中心座標から簡易ラベル）
+    // エリア名生成（中心座標から最寄りの巡回エリア名にマッチング）
+    const cruisingAreas = (APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.cruisingAreas) || [];
+    const waitingSpots = (APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.waitingSpots) || [];
+    const _findAreaName = (lat, lng) => {
+      let bestName = null;
+      let bestDist = Infinity;
+      // 巡回エリアから最寄りを探す
+      for (const area of cruisingAreas) {
+        const d = _haversine(lat, lng, area.lat, area.lng);
+        if (d < bestDist) { bestDist = d; bestName = area.shortName; }
+      }
+      // 待機スポットで近い場所があれば優先（1km以内）
+      for (const spot of waitingSpots) {
+        const d = _haversine(lat, lng, spot.lat, spot.lng);
+        if (d < 1000 && d < bestDist) { bestDist = d; bestName = spot.name; }
+      }
+      return bestName || `${lat.toFixed(3)},${lng.toFixed(3)}`;
+    };
     const areas = [...usedAreas].sort((a, b) => a - b).map(idx => {
       const row = Math.floor(idx / GRID);
       const col = idx % GRID;
-      const cLat = (minLat + (row + 0.5) * latStep).toFixed(3);
-      const cLng = (minLng + (col + 0.5) * lngStep).toFixed(3);
-      return { idx, label: `${cLat},${cLng}`, centerLat: parseFloat(cLat), centerLng: parseFloat(cLng) };
+      const cLat = parseFloat((minLat + (row + 0.5) * latStep).toFixed(4));
+      const cLng = parseFloat((minLng + (col + 0.5) * lngStep).toFixed(4));
+      const label = _findAreaName(cLat, cLng);
+      return { idx, label, centerLat: cLat, centerLng: cLng };
     });
 
     // マトリクスデータ

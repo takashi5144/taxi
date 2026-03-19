@@ -19,6 +19,14 @@ window.CalendarPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingItem, setEditingItem] = useState(null); // { type: 'shift'|'break', id, startTime, endTime }
 
+  // 日額目標金額を設定から取得
+  const dailyGoal = useMemo(() => {
+    try {
+      const settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+      return Number(settings.dailyGoal) || 0;
+    } catch { return 0; }
+  }, [refreshKey]);
+
   // クラウドから勤務状態を同期（ページ表示時・タブ復帰時）
   useEffect(() => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
@@ -265,25 +273,66 @@ window.CalendarPage = () => {
       'カレンダー'
     ),
 
-    // 給料予想額
+    // 売上総額・税抜き・給料予想額
     createElement('div', {
       style: {
         background: 'var(--surface-color)',
         borderRadius: 'var(--border-radius)',
         padding: 'var(--space-sm) var(--space-md)',
         marginBottom: 'var(--space-md)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
         border: '1px solid var(--border-color)',
+        display: 'flex', flexDirection: 'column', gap: '6px',
       }
     },
-      createElement('span', {
-        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
-      }, '給料予想額'),
-      createElement('span', {
-        style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
-      }, `¥${Math.round(monthlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`)
+      // 売上総額
+      createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+      },
+        createElement('span', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+        }, '売上総額'),
+        createElement('span', {
+          style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--text-primary)' }
+        }, `¥${Math.round(monthlySummary.totalRevenue).toLocaleString()}`)
+      ),
+      // 税抜き金額
+      createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+      },
+        createElement('span', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+        }, '税抜き金額'),
+        createElement('span', {
+          style: { fontWeight: 600, fontSize: 'var(--font-size-md)', color: 'var(--text-secondary)' }
+        }, `¥${Math.round(monthlySummary.totalRevenue / 1.1).toLocaleString()}`)
+      ),
+      // 区切り線
+      createElement('div', { style: { borderTop: '1px solid var(--border-color)' } }),
+      // 給料予想額
+      createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+      },
+        createElement('span', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+        }, '給料予想額'),
+        createElement('span', {
+          style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
+        }, `¥${Math.round(monthlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`)
+      ),
+      // 月額目標金額
+      dailyGoal > 0 && createElement(React.Fragment, null,
+        createElement('div', { style: { borderTop: '1px solid var(--border-color)' } }),
+        createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+        },
+          createElement('span', {
+            style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+          }, `月額目標（¥${dailyGoal.toLocaleString()} × ${monthlySummary.workDays + monthlySummary.remainingWorkDays}日）`),
+          createElement('span', {
+            style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: '#4fc3f7' }
+          }, `¥${(dailyGoal * (monthlySummary.workDays + monthlySummary.remainingWorkDays)).toLocaleString()}`)
+        )
+      )
     ),
 
     // 残り勤務日数・1日平均売上
