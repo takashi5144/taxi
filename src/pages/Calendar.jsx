@@ -319,7 +319,7 @@ window.CalendarPage = () => {
           style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
         }, `¥${Math.round(monthlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`)
       ),
-      // 月額目標金額
+      // 月額売上目標・月額給料目標
       dailyGoal > 0 && createElement(React.Fragment, null,
         createElement('div', { style: { borderTop: '1px solid var(--border-color)' } }),
         createElement('div', {
@@ -327,10 +327,20 @@ window.CalendarPage = () => {
         },
           createElement('span', {
             style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
-          }, `月額目標（¥${dailyGoal.toLocaleString()} × ${monthlySummary.workDays + monthlySummary.remainingWorkDays}日）`),
+          }, `月額売上目標（¥${dailyGoal.toLocaleString()} × ${monthlySummary.workDays + monthlySummary.remainingWorkDays}日）`),
           createElement('span', {
             style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: '#4fc3f7' }
           }, `¥${(dailyGoal * (monthlySummary.workDays + monthlySummary.remainingWorkDays)).toLocaleString()}`)
+        ),
+        createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+        },
+          createElement('span', {
+            style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+          }, '月額給料目標（売上の50%）'),
+          createElement('span', {
+            style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: '#81c784' }
+          }, `¥${Math.round(dailyGoal * (monthlySummary.workDays + monthlySummary.remainingWorkDays) * 0.5).toLocaleString()}`)
         )
       )
     ),
