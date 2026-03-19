@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.40.4</title>
+  <title>タクシー売上サポート v3.40.5</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.40.4',
+  VERSION: '3.40.5',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -24218,12 +24218,6 @@ window.CalendarPage = () => {
         ),
         monthlySummary.avgAllDays > 0 && createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' } },
           `税抜 ¥${Math.round(monthlySummary.avgAllDays / 1.1).toLocaleString()}`
-        ),
-        createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } },
-          `勤務日平均 ¥${monthlySummary.avgDaily > 0 ? monthlySummary.avgDaily.toLocaleString() : '−'}`
-        ),
-        monthlySummary.avgDaily > 0 && createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
-          `税抜 ¥${Math.round(monthlySummary.avgDaily / 1.1).toLocaleString()}`
         )
       ),
       createElement('div', {

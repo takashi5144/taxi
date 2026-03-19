@@ -378,12 +378,6 @@ window.CalendarPage = () => {
         ),
         monthlySummary.avgAllDays > 0 && createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' } },
           `税抜 ¥${Math.round(monthlySummary.avgAllDays / 1.1).toLocaleString()}`
-        ),
-        createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } },
-          `勤務日平均 ¥${monthlySummary.avgDaily > 0 ? monthlySummary.avgDaily.toLocaleString() : '−'}`
-        ),
-        monthlySummary.avgDaily > 0 && createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } },
-          `税抜 ¥${Math.round(monthlySummary.avgDaily / 1.1).toLocaleString()}`
         )
       ),
       createElement('div', {
