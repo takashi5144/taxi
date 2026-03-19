@@ -792,7 +792,7 @@ window.GpsLogService = (() => {
       }
       return bestName || `${lat.toFixed(3)},${lng.toFixed(3)}`;
     };
-    const areas = [...usedAreas].sort((a, b) => a - b).map(idx => {
+    const rawAreas = [...usedAreas].sort((a, b) => a - b).map(idx => {
       const row = Math.floor(idx / GRID);
       const col = idx % GRID;
       const cLat = parseFloat((minLat + (row + 0.5) * latStep).toFixed(4));
@@ -801,18 +801,47 @@ window.GpsLogService = (() => {
       return { idx, label, centerLat: cLat, centerLng: cLng };
     });
 
-    // マトリクスデータ
+    // 同じラベルのエリアを統合（データを合算）
+    const labelGroups = {};
+    for (const area of rawAreas) {
+      if (!labelGroups[area.label]) {
+        labelGroups[area.label] = { indices: [], centerLat: 0, centerLng: 0 };
+      }
+      labelGroups[area.label].indices.push(area.idx);
+      labelGroups[area.label].centerLat += area.centerLat;
+      labelGroups[area.label].centerLng += area.centerLng;
+    }
+
+    const areas = [];
+    let mergedIdx = 0;
+    for (const [label, group] of Object.entries(labelGroups)) {
+      const count = group.indices.length;
+      areas.push({
+        idx: mergedIdx,
+        label,
+        centerLat: group.centerLat / count,
+        centerLng: group.centerLng / count,
+        _srcIndices: group.indices,
+      });
+      mergedIdx++;
+    }
+
+    // マトリクスデータ（統合エリアごとに合算）
     const cells = [];
     for (const area of areas) {
       for (const hr of hourBuckets) {
-        const key = `${area.idx}_${hr}`;
-        const d = matrix[key];
-        if (d && d.total >= 2) {
+        let occupied = 0, total = 0;
+        for (const srcIdx of area._srcIndices) {
+          const key = `${srcIdx}_${hr}`;
+          const d = matrix[key];
+          if (d) { occupied += d.occupied; total += d.total; }
+        }
+        if (total >= 2) {
           cells.push({
             areaIdx: area.idx,
             hour: hr,
-            rate: Math.round(d.occupied / d.total * 100),
-            total: d.total,
+            rate: Math.round(occupied / total * 100),
+            total,
           });
         }
       }
