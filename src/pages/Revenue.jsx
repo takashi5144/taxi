@@ -958,19 +958,24 @@ window.RevenuePage = () => {
 
 
   // GPS取得ボタンのスタイル
-  const gpsButtonStyle = (loading) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-    padding: '12px 16px', borderRadius: '10px',
-    fontSize: '13px', fontWeight: '700',
-    color: loading ? 'var(--color-secondary)' : '#fff',
-    cursor: loading ? 'wait' : 'pointer',
-    border: loading ? '2px solid rgba(249,168,37,0.4)' : '2px solid rgba(26,115,232,0.4)',
-    background: loading ? 'rgba(249,168,37,0.15)' : 'rgba(26,115,232,0.2)',
-    transition: 'all 0.2s ease',
-    whiteSpace: 'nowrap',
-    flex: 1,
-    minHeight: '44px',
-  });
+  const gpsButtonStyle = (loading, type) => {
+    const isPickup = type === 'pickup';
+    const baseColor = isPickup ? '26,115,232' : '0,200,83';    // 青 / 緑
+    const loadingColor = '249,168,37';                          // 黄
+    return {
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+      padding: '12px 16px', borderRadius: '10px',
+      fontSize: '13px', fontWeight: '700',
+      color: loading ? 'var(--color-secondary)' : '#fff',
+      cursor: loading ? 'wait' : 'pointer',
+      border: loading ? `2px solid rgba(${loadingColor},0.4)` : `2px solid rgba(${baseColor},0.4)`,
+      background: loading ? `rgba(${loadingColor},0.15)` : `rgba(${baseColor},0.2)`,
+      transition: 'all 0.2s ease',
+      whiteSpace: 'nowrap',
+      flex: 1,
+      minHeight: '44px',
+    };
+  };
   const mapPickerButtonStyle = (active) => ({
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
     padding: '12px 16px', borderRadius: '10px',
@@ -1053,14 +1058,14 @@ window.RevenuePage = () => {
                 type: 'button',
                 onClick: () => getGpsLocation('pickup'),
                 disabled: gpsLoading.pickup,
-                style: gpsButtonStyle(gpsLoading.pickup),
-                title: 'GPSで現在地を取得',
+                style: gpsButtonStyle(gpsLoading.pickup, 'pickup'),
+                title: 'GPSで現在地を取得（乗車地）',
               },
                 React.createElement('span', {
                   className: 'material-icons-round',
                   style: { fontSize: '20px', animation: gpsLoading.pickup ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.pickup ? 'sync' : 'my_location'),
-                gpsLoading.pickup ? '取得中...' : 'GPS現在地'
+                gpsLoading.pickup ? '取得中...' : '🔵 乗車地GPS'
               )
             ),
             // GPS取得結果の住所・座標表示
@@ -1155,14 +1160,14 @@ window.RevenuePage = () => {
                 type: 'button',
                 onClick: () => getGpsLocation('dropoff'),
                 disabled: gpsLoading.dropoff,
-                style: gpsButtonStyle(gpsLoading.dropoff),
-                title: 'GPSで現在地を取得',
+                style: gpsButtonStyle(gpsLoading.dropoff, 'dropoff'),
+                title: 'GPSで現在地を取得（降車地）',
               },
                 React.createElement('span', {
                   className: 'material-icons-round',
                   style: { fontSize: '20px', animation: gpsLoading.dropoff ? 'spin 1s linear infinite' : 'none' },
                 }, gpsLoading.dropoff ? 'sync' : 'my_location'),
-                gpsLoading.dropoff ? '取得中...' : 'GPS現在地'
+                gpsLoading.dropoff ? '取得中...' : '🟢 降車地GPS'
               )
             ),
             // GPS取得結果の住所・座標表示
