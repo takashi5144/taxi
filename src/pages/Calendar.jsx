@@ -310,13 +310,13 @@ window.CalendarPage = () => {
       createElement('div', { style: { borderTop: '1px solid var(--border-color)' } }),
       // 給料予想額
       createElement('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255, 167, 38, 0.08)', margin: '0 -16px', padding: '6px 16px', borderRadius: '6px' }
       },
         createElement('span', {
-          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
-        }, '給料予想額'),
+          style: { fontSize: 'var(--font-size-sm)', color: '#ffa726', fontWeight: 600 }
+        }, '💰 給料予想額'),
         createElement('span', {
-          style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--accent-color)' }
+          style: { fontWeight: 700, fontSize: 'var(--font-size-xl)', color: '#ffa726' }
         }, `¥${Math.round(monthlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`)
       ),
       // 月額売上目標・月額給料目標
