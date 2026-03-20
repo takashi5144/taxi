@@ -2319,10 +2319,16 @@ window.DataManagePage = () => {
                 entry.memo && entry.memo.includes('自動記録') && React.createElement('div', { style: { fontSize: '9px', color: '#ff9800', marginTop: '1px' } }, 'GPS自動検出')
               )
             : (() => {
-                const meterAmt = (entry.amount || 0) + (entry.discountAmount || 0) + (entry.couponAmount || 0);
+                const _entryLd = (() => {
+                  if (entry.discounts && Array.isArray(entry.discounts)) { const r = entry.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+                  if (entry.discountType && entry.discountType.includes('longDistance') && entry.discountAmount) { const t = entry.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return entry.discountAmount; }
+                  return 0;
+                })();
+                const salesAmt = (entry.amount || 0) + (entry.discountAmount || 0) + (entry.couponAmount || 0) - _entryLd;
                 const hasCoupon = entry.couponAmount > 0 && couponSubMap[entry.id];
                 return React.createElement(React.Fragment, null,
-                  React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${meterAmt.toLocaleString()}`),
+                  React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${salesAmt.toLocaleString()}`),
+                  _entryLd > 0 && React.createElement('div', { style: { fontSize: '10px', color: '#60a5fa' } }, `遠距離割 -¥${_entryLd.toLocaleString()}`),
                   hasCoupon && React.createElement('div', { style: { fontSize: '10px', color: '#a78bfa' } }, `現金¥${entry.amount.toLocaleString()} + クーポン¥${entry.couponAmount.toLocaleString()}`)
                 );
               })(),

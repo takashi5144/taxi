@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.41.1</title>
+  <title>タクシー売上サポート v3.41.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.41.1',
+  VERSION: '3.41.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -20304,7 +20304,7 @@ window.RevenuePage = () => {
             // ルートのポリラインを描画
             const routePath = result.routes[0].overview_path;
             new google.maps.Polyline({
-              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4,
+              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4, clickable: false,
               icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.5, strokeColor: '#fff', strokeOpacity: 0.9 }, offset: '100%', repeat: '300px' }],
             });
             routePath.forEach(p => bounds.extend(p));
@@ -20313,7 +20313,7 @@ window.RevenuePage = () => {
             // Directions失敗時は直線フォールバック
             AppLogger.warn('Directions API失敗、直線表示にフォールバック: ' + dirErr.message);
             new google.maps.Polyline({
-              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3,
+              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3, clickable: false,
             });
             seg.forEach(p => bounds.extend(p));
             routeDrawn = true;
@@ -31366,10 +31366,16 @@ window.DataManagePage = () => {
                 entry.memo && entry.memo.includes('自動記録') && React.createElement('div', { style: { fontSize: '9px', color: '#ff9800', marginTop: '1px' } }, 'GPS自動検出')
               )
             : (() => {
-                const meterAmt = (entry.amount || 0) + (entry.discountAmount || 0) + (entry.couponAmount || 0);
+                const _entryLd = (() => {
+                  if (entry.discounts && Array.isArray(entry.discounts)) { const r = entry.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+                  if (entry.discountType && entry.discountType.includes('longDistance') && entry.discountAmount) { const t = entry.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return entry.discountAmount; }
+                  return 0;
+                })();
+                const salesAmt = (entry.amount || 0) + (entry.discountAmount || 0) + (entry.couponAmount || 0) - _entryLd;
                 const hasCoupon = entry.couponAmount > 0 && couponSubMap[entry.id];
                 return React.createElement(React.Fragment, null,
-                  React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${meterAmt.toLocaleString()}`),
+                  React.createElement('div', { style: { fontWeight: 700, color: 'var(--color-secondary)', fontSize: '15px' } }, `¥${salesAmt.toLocaleString()}`),
+                  _entryLd > 0 && React.createElement('div', { style: { fontSize: '10px', color: '#60a5fa' } }, `遠距離割 -¥${_entryLd.toLocaleString()}`),
                   hasCoupon && React.createElement('div', { style: { fontSize: '10px', color: '#a78bfa' } }, `現金¥${entry.amount.toLocaleString()} + クーポン¥${entry.couponAmount.toLocaleString()}`)
                 );
               })(),

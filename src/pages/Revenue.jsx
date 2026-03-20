@@ -373,7 +373,7 @@ window.RevenuePage = () => {
             // ルートのポリラインを描画
             const routePath = result.routes[0].overview_path;
             new google.maps.Polyline({
-              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4,
+              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4, clickable: false,
               icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.5, strokeColor: '#fff', strokeOpacity: 0.9 }, offset: '100%', repeat: '300px' }],
             });
             routePath.forEach(p => bounds.extend(p));
@@ -382,7 +382,7 @@ window.RevenuePage = () => {
             // Directions失敗時は直線フォールバック
             AppLogger.warn('Directions API失敗、直線表示にフォールバック: ' + dirErr.message);
             new google.maps.Polyline({
-              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3,
+              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3, clickable: false,
             });
             seg.forEach(p => bounds.extend(p));
             routeDrawn = true;
