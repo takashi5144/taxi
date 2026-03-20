@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.41.2</title>
+  <title>タクシー売上サポート v3.41.3</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.41.2',
+  VERSION: '3.41.3',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1977,7 +1977,18 @@ window.AppStorage = {
   getApiKey() {
     // APIキーはユーザーが設定画面から入力したもののみ使用
     // ハードコードされたキーは使用しない（セキュリティリスク）
-    return this.get(APP_CONSTANTS.STORAGE_KEYS.API_KEY, '');
+    const key = this.get(APP_CONSTANTS.STORAGE_KEYS.API_KEY, '');
+    if (key) return key;
+    // フォールバック: JSON.stringifyなしで保存された生文字列に対応
+    try {
+      const raw = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.API_KEY);
+      if (raw && raw.trim()) {
+        // 正しい形式で再保存
+        this.set(APP_CONSTANTS.STORAGE_KEYS.API_KEY, raw.trim());
+        return raw.trim();
+      }
+    } catch {}
+    return '';
   },
 
   setApiKey(key) {
@@ -1985,7 +1996,16 @@ window.AppStorage = {
   },
 
   getGeminiApiKey() {
-    return this.get(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, '');
+    const key = this.get(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, '');
+    if (key) return key;
+    try {
+      const raw = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY);
+      if (raw && raw.trim()) {
+        this.set(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, raw.trim());
+        return raw.trim();
+      }
+    } catch {}
+    return '';
   },
 
   setGeminiApiKey(key) {

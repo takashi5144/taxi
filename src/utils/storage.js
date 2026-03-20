@@ -31,7 +31,18 @@ window.AppStorage = {
   getApiKey() {
     // APIキーはユーザーが設定画面から入力したもののみ使用
     // ハードコードされたキーは使用しない（セキュリティリスク）
-    return this.get(APP_CONSTANTS.STORAGE_KEYS.API_KEY, '');
+    const key = this.get(APP_CONSTANTS.STORAGE_KEYS.API_KEY, '');
+    if (key) return key;
+    // フォールバック: JSON.stringifyなしで保存された生文字列に対応
+    try {
+      const raw = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.API_KEY);
+      if (raw && raw.trim()) {
+        // 正しい形式で再保存
+        this.set(APP_CONSTANTS.STORAGE_KEYS.API_KEY, raw.trim());
+        return raw.trim();
+      }
+    } catch {}
+    return '';
   },
 
   setApiKey(key) {
@@ -39,7 +50,16 @@ window.AppStorage = {
   },
 
   getGeminiApiKey() {
-    return this.get(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, '');
+    const key = this.get(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, '');
+    if (key) return key;
+    try {
+      const raw = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY);
+      if (raw && raw.trim()) {
+        this.set(APP_CONSTANTS.STORAGE_KEYS.GEMINI_API_KEY, raw.trim());
+        return raw.trim();
+      }
+    } catch {}
+    return '';
   },
 
   setGeminiApiKey(key) {
