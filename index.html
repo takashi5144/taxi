@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.41.0</title>
+  <title>タクシー売上サポート v3.41.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.41.0',
+  VERSION: '3.41.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2659,8 +2659,19 @@ window.DataService = (() => {
   const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
   // メーター金額（amount + discountAmount + couponAmount）
   const _meterAmount = (e) => (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+  // 遠距離割の金額取得（discounts配列 → discountType/discountAmountフォールバック）
+  const _longDistanceAmt = (e) => {
+    if (e.discounts && Array.isArray(e.discounts)) {
+      const ld = e.discounts.filter(d => d.type === 'longDistance');
+      if (ld.length > 0) return ld.reduce((s, d) => s + (d.amount || 0), 0);
+    }
+    if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) {
+      const types = e.discountType.split(',').filter(t => t && t !== 'longDistance');
+      if (types.length === 0) return e.discountAmount;
+    }
+    return 0;
+  };
   // 売上金額（メーター金額から遠距離割を除外 = 実際の売上）
-  const _longDistanceAmt = (e) => (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
   const _salesAmount = (e) => _meterAmount(e) - _longDistanceAmt(e);
 
   // 全エントリ（空車含む）を生データとして取得（内部CRUD用）
@@ -16690,7 +16701,11 @@ window.DashboardPage = () => {
       if (!byName[name]) byName[name] = { rides: [], days: {}, hours: {}, areas: {}, totalAmount: 0 };
       const u = byName[name];
       u.rides.push(e);
-      const _ld = (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+      const _ld = (() => {
+        if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+        if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
+        return 0;
+      })();
       u.totalAmount += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ld;
       const dow = e.dayOfWeek || '';
       if (dow) u.days[dow] = (u.days[dow] || 0) + 1;
@@ -17005,8 +17020,18 @@ window.DashboardPage = () => {
   // ただし遠距離割は売上から除外（実際に受け取れない金額のため）
   // クーポン別エントリは除外（couponAmountで既に加算するため二重計上防止）
   const _getLongDistanceAmt = (e) => {
-    if (!e.discounts || !Array.isArray(e.discounts)) return 0;
-    return e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0);
+    // discounts配列から取得
+    if (e.discounts && Array.isArray(e.discounts)) {
+      const ld = e.discounts.filter(d => d.type === 'longDistance');
+      if (ld.length > 0) return ld.reduce((s, d) => s + (d.amount || 0), 0);
+    }
+    // フォールバック: discountType文字列から判定
+    if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) {
+      // 遠距離割のみの場合はdiscountAmount全額
+      const types = e.discountType.split(',').filter(t => t && t !== 'longDistance');
+      if (types.length === 0) return e.discountAmount;
+    }
+    return 0;
   };
   const todayTotal = todayEntries.reduce((sum, e) => {
     if (isCouponSubEntry(e)) return sum; // クーポン別エントリは除外
@@ -17053,7 +17078,11 @@ window.DashboardPage = () => {
     const entries = DataService.getEntries();
     const _isCpnSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
     const month = entries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth) && !_isCpnSub(e));
-    const _ldAmt = (e) => (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+    const _ldAmt = (e) => {
+      if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+      if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
+      return 0;
+    };
     return { count: month.length, total: month.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ldAmt(e), 0) };
   }, [refreshKey, currentMonth]);
 
@@ -23943,7 +23972,11 @@ window.CalendarPage = () => {
       // クーポン別エントリは除外（couponAmountで加算するため二重計上防止）
       if (e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収')) return;
       // 遠距離割は売上から除外（実際に受け取れない金額のため）
-      const longDistAmt = (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+      const longDistAmt = (() => {
+        if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+        if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
+        return 0;
+      })();
       map[e.date].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - longDistAmt;
       map[e.date].count += 1;
     });
@@ -30939,7 +30972,11 @@ window.DataManagePage = () => {
       const name = e.customerName || '名前なし';
       if (!byName[name]) byName[name] = { count: 0, total: 0, lastDate: '' };
       byName[name].count++;
-      const _ldA = (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+      const _ldA = (() => {
+        if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+        if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
+        return 0;
+      })();
       byName[name].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ldA;
       const d = e.date || e.timestamp.split('T')[0];
       if (d > byName[name].lastDate) byName[name].lastDate = d;

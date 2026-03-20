@@ -1925,7 +1925,11 @@ window.DataManagePage = () => {
       const name = e.customerName || '名前なし';
       if (!byName[name]) byName[name] = { count: 0, total: 0, lastDate: '' };
       byName[name].count++;
-      const _ldA = (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+      const _ldA = (() => {
+        if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+        if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
+        return 0;
+      })();
       byName[name].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ldA;
       const d = e.date || e.timestamp.split('T')[0];
       if (d > byName[name].lastDate) byName[name].lastDate = d;

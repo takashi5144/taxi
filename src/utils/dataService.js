@@ -155,8 +155,19 @@ window.DataService = (() => {
   const _isCouponSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
   // メーター金額（amount + discountAmount + couponAmount）
   const _meterAmount = (e) => (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+  // 遠距離割の金額取得（discounts配列 → discountType/discountAmountフォールバック）
+  const _longDistanceAmt = (e) => {
+    if (e.discounts && Array.isArray(e.discounts)) {
+      const ld = e.discounts.filter(d => d.type === 'longDistance');
+      if (ld.length > 0) return ld.reduce((s, d) => s + (d.amount || 0), 0);
+    }
+    if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) {
+      const types = e.discountType.split(',').filter(t => t && t !== 'longDistance');
+      if (types.length === 0) return e.discountAmount;
+    }
+    return 0;
+  };
   // 売上金額（メーター金額から遠距離割を除外 = 実際の売上）
-  const _longDistanceAmt = (e) => (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
   const _salesAmount = (e) => _meterAmount(e) - _longDistanceAmt(e);
 
   // 全エントリ（空車含む）を生データとして取得（内部CRUD用）

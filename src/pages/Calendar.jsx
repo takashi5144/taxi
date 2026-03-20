@@ -93,7 +93,11 @@ window.CalendarPage = () => {
       // クーポン別エントリは除外（couponAmountで加算するため二重計上防止）
       if (e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収')) return;
       // 遠距離割は売上から除外（実際に受け取れない金額のため）
-      const longDistAmt = (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+      const longDistAmt = (() => {
+        if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
+        if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
+        return 0;
+      })();
       map[e.date].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - longDistAmt;
       map[e.date].count += 1;
     });
