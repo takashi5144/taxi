@@ -203,7 +203,8 @@ window.DashboardPage = () => {
       if (!byName[name]) byName[name] = { rides: [], days: {}, hours: {}, areas: {}, totalAmount: 0 };
       const u = byName[name];
       u.rides.push(e);
-      u.totalAmount += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+      const _ld = (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+      u.totalAmount += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ld;
       const dow = e.dayOfWeek || '';
       if (dow) u.days[dow] = (u.days[dow] || 0) + 1;
       if (e.pickupTime) {
@@ -514,10 +515,15 @@ window.DashboardPage = () => {
   // クーポン別エントリ（自動生成）を識別
   const isCouponSubEntry = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
   // 売上合計 = amount + discountAmount + couponAmount（メーター金額ベース）
+  // ただし遠距離割は売上から除外（実際に受け取れない金額のため）
   // クーポン別エントリは除外（couponAmountで既に加算するため二重計上防止）
+  const _getLongDistanceAmt = (e) => {
+    if (!e.discounts || !Array.isArray(e.discounts)) return 0;
+    return e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0);
+  };
   const todayTotal = todayEntries.reduce((sum, e) => {
     if (isCouponSubEntry(e)) return sum; // クーポン別エントリは除外
-    return sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0);
+    return sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _getLongDistanceAmt(e);
   }, 0);
   const todayCashEntries = todayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
   const todayUncollectedEntries = todayEntries.filter(e => e.paymentMethod === 'uncollected');
@@ -560,7 +566,8 @@ window.DashboardPage = () => {
     const entries = DataService.getEntries();
     const _isCpnSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
     const month = entries.filter(e => (e.date || e.timestamp.split('T')[0]).startsWith(currentMonth) && !_isCpnSub(e));
-    return { count: month.length, total: month.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0), 0) };
+    const _ldAmt = (e) => (e.discounts && Array.isArray(e.discounts)) ? e.discounts.filter(d => d.type === 'longDistance').reduce((s, d) => s + (d.amount || 0), 0) : 0;
+    return { count: month.length, total: month.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ldAmt(e), 0) };
   }, [refreshKey, currentMonth]);
 
   return React.createElement('div', null,
