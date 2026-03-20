@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.40.6</title>
+  <title>タクシー売上サポート v3.40.7</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.40.6',
+  VERSION: '3.40.7',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -31164,6 +31164,11 @@ window.DataManagePage = () => {
             if (d.disability != null) fields.push(React.createElement('div', { key: 'dis', style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' } },
               React.createElement('span', { style: { fontSize: '11px', color: '#a78bfa', minWidth: '80px' } }, '障害者割引'),
               React.createElement('input', { type: 'number', min: '0', value: d.disability || '', onChange: e => { const dd = { ...d, disability: e.target.value }; setEditForm(f => ({ ...f, discounts: dd })); }, style: { flex: 1, padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.06)', color: 'var(--text-primary)', fontSize: '12px' }, placeholder: '金額' }),
+              React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, '円')
+            ));
+            if (d.longDistance != null) fields.push(React.createElement('div', { key: 'long', style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' } },
+              React.createElement('span', { style: { fontSize: '11px', color: '#60a5fa', minWidth: '80px' } }, '遠距離割'),
+              React.createElement('input', { type: 'number', min: '0', value: d.longDistance || '', onChange: e => { const dd = { ...d, longDistance: e.target.value }; setEditForm(f => ({ ...f, discounts: dd })); }, style: { flex: 1, padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(96,165,250,0.3)', background: 'rgba(96,165,250,0.06)', color: 'var(--text-primary)', fontSize: '12px' }, placeholder: '金額' }),
               React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, '円')
             ));
             if (d.coupon != null) fields.push(React.createElement('div', { key: 'cou', style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', flexWrap: 'wrap' } },

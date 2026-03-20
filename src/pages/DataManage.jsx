@@ -2164,6 +2164,11 @@ window.DataManagePage = () => {
               React.createElement('input', { type: 'number', min: '0', value: d.disability || '', onChange: e => { const dd = { ...d, disability: e.target.value }; setEditForm(f => ({ ...f, discounts: dd })); }, style: { flex: 1, padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.06)', color: 'var(--text-primary)', fontSize: '12px' }, placeholder: '金額' }),
               React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, '円')
             ));
+            if (d.longDistance != null) fields.push(React.createElement('div', { key: 'long', style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' } },
+              React.createElement('span', { style: { fontSize: '11px', color: '#60a5fa', minWidth: '80px' } }, '遠距離割'),
+              React.createElement('input', { type: 'number', min: '0', value: d.longDistance || '', onChange: e => { const dd = { ...d, longDistance: e.target.value }; setEditForm(f => ({ ...f, discounts: dd })); }, style: { flex: 1, padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(96,165,250,0.3)', background: 'rgba(96,165,250,0.06)', color: 'var(--text-primary)', fontSize: '12px' }, placeholder: '金額' }),
+              React.createElement('span', { style: { fontSize: '11px', color: 'var(--text-muted)' } }, '円')
+            ));
             if (d.coupon != null) fields.push(React.createElement('div', { key: 'cou', style: { display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', flexWrap: 'wrap' } },
               React.createElement('span', { style: { fontSize: '11px', color: '#a78bfa', minWidth: '80px' } }, 'クーポン'),
               React.createElement('input', { type: 'number', min: '0', value: d._couponUnitPrice || '', onChange: e => { const dd = { ...d, _couponUnitPrice: e.target.value, coupon: String((parseInt(e.target.value) || 0) * (parseInt(d._couponSheets) || 1)) }; setEditForm(f => ({ ...f, discounts: dd })); }, style: { width: '70px', padding: '4px 6px', borderRadius: '4px', border: '1px solid rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.06)', color: 'var(--text-primary)', fontSize: '12px' }, placeholder: '単価' }),
