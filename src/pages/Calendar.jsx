@@ -790,7 +790,7 @@ window.CalendarPage = () => {
             },
               createElement('div', {
                 style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)' }
-              }, `${e.pickupLocation || '不明'} → ${e.dropoffLocation || '不明'}`),
+              }, `${e.pickup || '不明'} → ${e.dropoff || '不明'}`),
               createElement('div', {
                 style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px', display: 'flex', gap: '6px', flexWrap: 'wrap' }
               },
