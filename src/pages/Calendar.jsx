@@ -229,8 +229,12 @@ window.CalendarPage = () => {
       return isoToLocalDate(b.startTime) === selectedDate;
     });
 
-    return { ...day, shifts: dayShifts, breaks: dayBreaks };
-  }, [selectedDate, calendarDays, shifts, breaks]);
+    // 売上エントリ
+    const dayEntries = window.DataService ? DataService.getEntries().filter(e => e.date === selectedDate) : [];
+    dayEntries.sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+
+    return { ...day, shifts: dayShifts, breaks: dayBreaks, entries: dayEntries };
+  }, [selectedDate, calendarDays, shifts, breaks, refreshKey]);
 
   // 月切替
   const goMonth = useCallback((delta) => {
@@ -752,6 +756,51 @@ window.CalendarPage = () => {
             }, '編集')
           );
         })
+      ),
+
+      // 売上詳細一覧
+      selectedDayData.entries.length > 0 && createElement('div', {
+        style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)' }
+      },
+        createElement('div', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: '6px' }
+        }, `売上詳細（${selectedDayData.entries.length}件）`),
+        ...selectedDayData.entries.map((e, i) =>
+          createElement('div', {
+            key: 'entry-' + (e.id || i),
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '6px 8px', marginBottom: '4px', borderRadius: '6px',
+              background: 'rgba(255,255,255,0.04)', fontSize: '12px',
+            }
+          },
+            // 時間
+            createElement('span', {
+              style: { color: 'var(--text-secondary)', minWidth: '40px', flexShrink: 0, fontWeight: 600 }
+            }, e.pickupTime || '--:--'),
+            // 乗車地→降車地
+            createElement('div', {
+              style: { flex: 1, overflow: 'hidden', minWidth: 0 }
+            },
+              createElement('div', {
+                style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-primary)' }
+              }, `${e.pickupLocation || '不明'} → ${e.dropoffLocation || '不明'}`),
+              createElement('div', {
+                style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px', display: 'flex', gap: '6px', flexWrap: 'wrap' }
+              },
+                e.dispatchType && createElement('span', null, e.dispatchType),
+                e.paymentMethod && createElement('span', null,
+                  e.paymentMethod === 'cash' ? '現金' : e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod
+                ),
+                e.purpose && createElement('span', null, e.purpose)
+              )
+            ),
+            // 金額
+            createElement('span', {
+              style: { fontWeight: 700, color: 'var(--color-accent)', whiteSpace: 'nowrap', flexShrink: 0 }
+            }, `¥${(e.amount || 0).toLocaleString()}`)
+          )
+        )
       )
     ),
 
