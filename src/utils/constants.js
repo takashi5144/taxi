@@ -422,7 +422,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.41.5',
+  VERSION: '3.42.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -526,6 +526,23 @@ window.APP_CONSTANTS = {
     DEFAULT_SHIFT_START: 'taxi_app_default_shift_start',
     DEFAULT_SHIFT_END: 'taxi_app_default_shift_end',
   },
+
+  // 夜勤設定
+  NIGHT_SHIFT: {
+    startHour: 17,   // 夜勤開始
+    endHour: 5,      // 夜勤終了（翌日）
+    lateNightStart: 22,
+    lateNightEnd: 5,
+    surchargeRate: 1.2,  // 深夜割増 20%
+  },
+
+  // 旭川 終バス・最終便情報
+  LAST_TRANSIT: [
+    { name: '高速あさひかわ号（札幌→旭川）最終', time: '23:25', type: 'bus' },
+    { name: '旭川空港 最終便到着', time: '21:00', type: 'flight', note: '季節変動あり' },
+    { name: '空港シャトルバス 最終', time: '21:30', type: 'bus' },
+    { name: 'JR特急（札幌→旭川）最終', time: '21:30', type: 'train' },
+  ],
 
   // 場所名エイリアス（逆ジオコーディング結果の自動置換）
   // キー: 元の住所に含まれる文字列（部分一致）、値: 置換後の名称

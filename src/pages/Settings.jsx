@@ -26,6 +26,22 @@ window.SettingsPage = () => {
   });
   const [goalSaved, setGoalSaved] = useState(false);
 
+  // 勤務モード（日勤/夜勤）
+  const [shiftMode, setShiftMode] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
+      return s.shiftMode || 'day';
+    } catch { return 'day'; }
+  });
+  const handleShiftModeChange = (mode) => {
+    setShiftMode(mode);
+    let settings = {};
+    try { settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}'); } catch {}
+    settings.shiftMode = mode;
+    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+    window.dispatchEvent(new CustomEvent('taxi-shift-mode-changed'));
+  };
+
   // 基本始業・終業時間
   const [defaultShiftStart, setDefaultShiftStart] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START) || '');
   const [defaultShiftEnd, setDefaultShiftEnd] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END) || '');
@@ -469,6 +485,33 @@ window.SettingsPage = () => {
             transition: 'all 0.2s ease',
           },
         }, NotificationService.isEnabled() ? 'ON' : 'OFF')
+      )
+    ),
+
+    // 勤務モード切り替え
+    React.createElement(Card, { title: '勤務モード', style: { marginBottom: 'var(--space-lg)' } },
+      React.createElement('p', {
+        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
+      }, 'ダッシュボードの表示内容を勤務帯に合わせて切り替えます。'),
+      React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+        ...[
+          { mode: 'day', label: '日勤', icon: 'wb_sunny', color: '#ffa726', bg: 'rgba(255,167,38,0.15)' },
+          { mode: 'night', label: '夜勤', icon: 'nightlight', color: '#7c4dff', bg: 'rgba(124,77,255,0.15)' },
+        ].map(opt => React.createElement('button', {
+          key: opt.mode,
+          onClick: () => handleShiftModeChange(opt.mode),
+          style: {
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            padding: '14px 12px', borderRadius: '10px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+            border: shiftMode === opt.mode ? `2px solid ${opt.color}` : '2px solid rgba(255,255,255,0.15)',
+            background: shiftMode === opt.mode ? opt.bg : 'rgba(255,255,255,0.05)',
+            color: shiftMode === opt.mode ? opt.color : 'var(--text-secondary)',
+            transition: 'all 0.2s',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px' } }, opt.icon),
+          opt.label
+        ))
       )
     ),
 
