@@ -156,6 +156,13 @@ window.GoogleMapView = ({ fullscreen = false }) => {
   const topSpotsMarkersRef = useRef([]);
   const topSpotsInfoRef = useRef(null);
   const [topSpotsData, setTopSpotsData] = useState(null);
+  // 周辺施設検索（Google Places API）
+  const [showNearbyPlaces, setShowNearbyPlaces] = useState(false);
+  const [nearbyPlaces, setNearbyPlaces] = useState([]);
+  const [nearbySearching, setNearbySearching] = useState(false);
+  const [nearbyCategory, setNearbyCategory] = useState('izakaya');
+  const nearbyMarkersRef = useRef([]);
+  const nearbyInfoRef = useRef(null);
   const initDone = useRef(false);
   const firstGpsDone = useRef(false);
 
@@ -702,6 +709,107 @@ window.GoogleMapView = ({ fullscreen = false }) => {
     };
   }, [showTopSpots]);
 
+  // 周辺施設検索レイヤー（Google Places API）
+  useEffect(() => {
+    // 既存マーカーをクリア
+    nearbyMarkersRef.current.forEach(m => m.setMap(null));
+    nearbyMarkersRef.current = [];
+    if (nearbyInfoRef.current) { nearbyInfoRef.current.close(); nearbyInfoRef.current = null; }
+    setNearbyPlaces([]);
+
+    if (!showNearbyPlaces || !mapInstanceRef.current || !window.google || !google.maps.places) return;
+    const map = mapInstanceRef.current;
+    const center = currentPosition || mapCenter;
+    if (!center || !center.lat || !center.lng) return;
+
+    setNearbySearching(true);
+    const service = new google.maps.places.PlacesService(map);
+    const CATEGORY_CONFIG = {
+      izakaya: { keyword: '居酒屋', type: 'restaurant', icon: 'local_bar', color: '#f59e0b' },
+      bar: { keyword: 'バー スナック', type: 'bar', icon: 'nightlife', color: '#ec4899' },
+      restaurant: { keyword: null, type: 'restaurant', icon: 'restaurant', color: '#10b981' },
+      convenience: { keyword: null, type: 'convenience_store', icon: 'local_convenience_store', color: '#3b82f6' },
+      hotel: { keyword: null, type: 'lodging', icon: 'hotel', color: '#8b5cf6' },
+    };
+    const cfg = CATEGORY_CONFIG[nearbyCategory] || CATEGORY_CONFIG.izakaya;
+
+    const request = {
+      location: new google.maps.LatLng(center.lat, center.lng),
+      radius: 1500,
+      type: cfg.type,
+      openNow: true,
+    };
+    if (cfg.keyword) request.keyword = cfg.keyword;
+
+    service.nearbySearch(request, (results, status) => {
+      setNearbySearching(false);
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !results) {
+        AppLogger.info('周辺施設: 該当なし');
+        return;
+      }
+
+      // 評価・レビュー数でソート
+      const sorted = results
+        .filter(p => p.business_status === 'OPERATIONAL' || !p.business_status)
+        .sort((a, b) => (b.user_ratings_total || 0) - (a.user_ratings_total || 0));
+
+      setNearbyPlaces(sorted);
+      const infoWindow = new google.maps.InfoWindow();
+      nearbyInfoRef.current = infoWindow;
+
+      sorted.forEach((place, i) => {
+        const rating = place.rating ? place.rating.toFixed(1) : '-';
+        const reviews = place.user_ratings_total || 0;
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+
+        const marker = new google.maps.Marker({
+          position: { lat, lng },
+          map: map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: cfg.color,
+            fillOpacity: 0.9,
+            strokeColor: '#fff',
+            strokeWeight: 2,
+            scale: Math.min(14, 8 + Math.floor(reviews / 50)),
+          },
+          label: {
+            text: String(i + 1),
+            color: '#fff',
+            fontSize: '10px',
+            fontWeight: '700',
+          },
+          title: place.name,
+          zIndex: 200 + (sorted.length - i),
+        });
+
+        marker.addListener('click', () => {
+          const stars = place.rating ? '★'.repeat(Math.round(place.rating)) + ' ' + place.rating.toFixed(1) : '評価なし';
+          const content = '<div style="color:#1a1a2e;font-size:13px;min-width:200px;max-width:300px;line-height:1.6">' +
+            '<div style="font-size:15px;font-weight:700;margin-bottom:4px">' + (place.name || '') + '</div>' +
+            '<div style="color:#f59e0b;font-size:13px">' + stars + ' <span style="color:#666;font-size:11px">(' + reviews + '件)</span></div>' +
+            '<div style="font-size:12px;color:#555;margin-top:4px">' + (place.vicinity || '') + '</div>' +
+            (place.opening_hours && place.opening_hours.isOpen() ? '<div style="color:#10b981;font-size:12px;font-weight:600;margin-top:4px">営業中</div>' : '') +
+            '<div style="margin-top:6px"><a href="https://www.google.com/maps/place/?q=place_id:' + place.place_id + '" target="_blank" rel="noreferrer" style="color:#1a73e8;font-size:12px">Google Mapsで見る</a></div>' +
+            '</div>';
+          infoWindow.setContent(content);
+          infoWindow.open(map, marker);
+        });
+
+        nearbyMarkersRef.current.push(marker);
+      });
+
+      AppLogger.info('周辺施設検索: ' + sorted.length + '件 (' + (cfg.keyword || cfg.type) + ')');
+    });
+
+    return () => {
+      nearbyMarkersRef.current.forEach(m => m.setMap(null));
+      nearbyMarkersRef.current = [];
+      if (nearbyInfoRef.current) { nearbyInfoRef.current.close(); nearbyInfoRef.current = null; }
+    };
+  }, [showNearbyPlaces, nearbyCategory, currentPosition, mapCenter]);
+
   // データ変更時にアクティブなレイヤーを自動更新
   useEffect(() => {
     const handler = () => {
@@ -1192,6 +1300,28 @@ window.GoogleMapView = ({ fullscreen = false }) => {
         },
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'emoji_events'),
           `乗車ベスト15 ${showTopSpots ? 'ON' : 'OFF'}`
+        ),
+
+        // 周辺施設検索トグル
+        React.createElement('button', {
+          onClick: () => setShowNearbyPlaces(prev => !prev),
+          disabled: nearbySearching,
+          style: {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '8px 14px', borderRadius: '8px',
+            fontSize: '12px', fontWeight: '700',
+            color: '#fff', cursor: nearbySearching ? 'wait' : 'pointer',
+            border: showNearbyPlaces ? 'none' : '1px solid rgba(255,255,255,0.2)',
+            background: showNearbyPlaces ? '#f59e0b' : 'rgba(255,255,255,0.08)',
+            transition: 'all 0.2s ease',
+            opacity: nearbySearching ? 0.7 : 1,
+          },
+        },
+          React.createElement('span', {
+            className: 'material-icons-round',
+            style: { fontSize: '16px', animation: nearbySearching ? 'spin 1s linear infinite' : 'none' },
+          }, nearbySearching ? 'sync' : 'local_bar'),
+          nearbySearching ? '検索中...' : `周辺施設 ${showNearbyPlaces ? 'ON' : 'OFF'}`
         )
       ),
 
@@ -1570,6 +1700,122 @@ window.GoogleMapView = ({ fullscreen = false }) => {
             }, '¥' + cl.totalAmount.toLocaleString())
           );
         })
+      ),
+
+      // 周辺施設パネル
+      showNearbyPlaces && React.createElement('div', {
+        style: {
+          marginTop: '8px', padding: '10px 12px', borderRadius: '8px',
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+        },
+      },
+        // カテゴリ選択
+        React.createElement('div', {
+          style: { display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px', alignItems: 'center' },
+        },
+          React.createElement('span', {
+            style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginRight: '4px' },
+          }, 'カテゴリ:'),
+          ...[
+            { id: 'izakaya', label: '居酒屋', icon: 'local_bar', color: '#f59e0b' },
+            { id: 'bar', label: 'バー・スナック', icon: 'nightlife', color: '#ec4899' },
+            { id: 'restaurant', label: '飲食店', icon: 'restaurant', color: '#10b981' },
+            { id: 'convenience', label: 'コンビニ', icon: 'local_convenience_store', color: '#3b82f6' },
+            { id: 'hotel', label: 'ホテル', icon: 'hotel', color: '#8b5cf6' },
+          ].map(cat =>
+            React.createElement('button', {
+              key: cat.id,
+              onClick: () => setNearbyCategory(cat.id),
+              style: {
+                display: 'flex', alignItems: 'center', gap: '3px',
+                padding: '5px 10px', borderRadius: '12px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-family)',
+                background: nearbyCategory === cat.id ? cat.color : 'rgba(255,255,255,0.1)',
+                color: nearbyCategory === cat.id ? '#fff' : 'var(--text-secondary)',
+                transition: 'all 0.15s ease',
+              },
+            },
+              React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, cat.icon),
+              cat.label
+            )
+          )
+        ),
+
+        // 検索結果サマリ
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '12px' },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '15px', color: '#f59e0b' } }, 'place'),
+          React.createElement('span', { style: { color: 'var(--text-secondary)' } },
+            nearbySearching ? '検索中...'
+              : nearbyPlaces.length > 0 ? `営業中の施設: ${nearbyPlaces.length}件（半径1.5km）`
+              : '該当する施設がありません'
+          )
+        ),
+
+        // 結果リスト
+        nearbyPlaces.length > 0 && React.createElement('div', {
+          style: { maxHeight: '300px', overflowY: 'auto' },
+        },
+          ...nearbyPlaces.slice(0, 20).map((place, i) => {
+            const rating = place.rating ? place.rating.toFixed(1) : '-';
+            const reviews = place.user_ratings_total || 0;
+            const catColors = { izakaya: '#f59e0b', bar: '#ec4899', restaurant: '#10b981', convenience: '#3b82f6', hotel: '#8b5cf6' };
+            const color = catColors[nearbyCategory] || '#f59e0b';
+            return React.createElement('div', {
+              key: place.place_id || i,
+              onClick: () => {
+                if (mapInstanceRef.current) {
+                  const lat = place.geometry.location.lat();
+                  const lng = place.geometry.location.lng();
+                  mapInstanceRef.current.setCenter({ lat, lng });
+                  mapInstanceRef.current.setZoom(17);
+                  // 対応するマーカーのクリックイベントを発火
+                  if (nearbyMarkersRef.current[i]) {
+                    google.maps.event.trigger(nearbyMarkersRef.current[i], 'click');
+                  }
+                }
+              },
+              style: {
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '6px 8px', borderRadius: '6px', cursor: 'pointer',
+                background: 'rgba(0,0,0,0.15)',
+                marginBottom: i < Math.min(nearbyPlaces.length, 20) - 1 ? '4px' : 0,
+                transition: 'background 0.15s ease',
+              },
+            },
+              // 番号
+              React.createElement('div', {
+                style: {
+                  width: '22px', height: '22px', borderRadius: '50%',
+                  background: color, color: '#fff', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '11px', flexShrink: 0,
+                },
+              }, String(i + 1)),
+              // 名前・住所
+              React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+                React.createElement('div', {
+                  style: { fontSize: '12px', fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                }, place.name || ''),
+                React.createElement('div', {
+                  style: { fontSize: '10px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                }, place.vicinity || '')
+              ),
+              // 評価
+              React.createElement('div', {
+                style: { textAlign: 'right', flexShrink: 0 },
+              },
+                React.createElement('div', {
+                  style: { fontSize: '12px', fontWeight: 700, color: '#f59e0b' },
+                }, '★' + rating),
+                React.createElement('div', {
+                  style: { fontSize: '10px', color: 'var(--text-muted)' },
+                }, reviews + '件')
+              )
+            );
+          })
+        )
       ),
 
       // 渋滞凡例
