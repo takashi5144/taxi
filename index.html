@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.42.0',
+  VERSION: '3.43.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1439,10 +1439,12 @@ window.APP_CONSTANTS = {
     { name: 'ホテルクレッセント旭川', lat: 43.7698, lng: 142.3624, radius: 80 },
     { name: '9Cホテル旭川', lat: 43.7672, lng: 142.3588, radius: 80 },
     { name: 'ホテルウイング旭川', lat: 43.7665, lng: 142.3575, radius: 80 },
+    // 公共施設
+    { name: '旭川市役所', lat: 43.7716, lng: 142.3653, radius: 100 },
     // 病院
     { name: '旭川医科大学病院', lat: 43.7306, lng: 142.3857, radius: 300 },
     { name: '旭川赤十字病院', lat: 43.7580, lng: 142.3720, radius: 200 },
-    { name: '市立旭川病院', lat: 43.7710, lng: 142.3650, radius: 200 },
+    { name: '市立旭川病院', lat: 43.7784, lng: 142.3659, radius: 200 },
     { name: '旭川厚生病院', lat: 43.7650, lng: 142.3490, radius: 200 },
   ],
 
@@ -1453,7 +1455,7 @@ window.APP_CONSTANTS = {
       hospitals: [
         { name: '旭川医科大学病院', lat: 43.7306, lng: 142.3857, peakMorning: '08:00-11:00', peakAfternoon: null },
         { name: '旭川赤十字病院', lat: 43.7580, lng: 142.3720, peakMorning: '08:30-11:00', peakAfternoon: null },
-        { name: '市立旭川病院', lat: 43.7710, lng: 142.3650, peakMorning: null, peakAfternoon: '13:00-15:00' },
+        { name: '市立旭川病院', lat: 43.7784, lng: 142.3659, peakMorning: null, peakAfternoon: '13:00-15:00' },
         { name: '旭川厚生病院', lat: 43.7650, lng: 142.3490, peakMorning: null, peakAfternoon: '13:00-15:00' },
       ],
       hospitalSchedules: [
@@ -1475,7 +1477,7 @@ window.APP_CONSTANTS = {
                            { start: '14:30', end: '16:00', weight: 0.7, label: '午後診察終了' }],
           closedDays: [0, 6] },
         { id: 'shiritsu', name: '市立旭川病院',
-          lat: 43.7710, lng: 142.3650,
+          lat: 43.7784, lng: 142.3659,
           reception: [{ days: [1,2,3,4,5], start: '08:30', end: '11:30' },
                       { days: [1,2,3,4,5], start: '13:00', end: '15:00' }],
           dischargePeaks: [{ start: '11:00', end: '12:30', weight: 0.8, label: '午前診察終了' },
