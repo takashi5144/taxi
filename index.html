@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.44.0',
+  VERSION: '3.45.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -11365,7 +11365,7 @@ window.GpsLogService = (() => {
 
   // --- リアルタイム待機検出 ---
   const RT_STANDBY_RADIUS = 50;       // 50m以内なら停車中
-  const RT_STANDBY_MIN_MS = 180000;   // 3分以上で待機確定
+  const RT_STANDBY_MIN_MS = 900000;   // 15分以上で待機確定
   const RT_STANDBY_RIDE_CHECK_MS = 120000; // 待機終了後2分間は乗車チェック猶予
   let _rtAnchor = null;   // { lat, lng, startTime, lastTime }
   let _rtPendingStandby = null; // 待機終了後の乗車チェック待ち { ...standbyData, movedAt }
@@ -11485,7 +11485,7 @@ window.GpsLogService = (() => {
     if (!_rtAnchor) return null;
     const now = Date.now();
     const duration = now - _rtAnchor.startTime;
-    if (duration < RT_STANDBY_MIN_MS) return null; // 3分未満は待機とみなさない
+    if (duration < RT_STANDBY_MIN_MS) return null; // 15分未満は待機とみなさない
     const catInfo = _classifyStandbyCategory(_rtAnchor.lat, _rtAnchor.lng);
     return {
       lat: _rtAnchor.lat,
@@ -11545,10 +11545,16 @@ window.GpsLogService = (() => {
   }
 
   /** 空車待機を売上データに自動記録（noPassenger: true） */
+  /** 既知の場所（駅・病院・ホテル・待機スポット・KNOWN_PLACES）のみ記録。不明な場所はスキップ */
   function _autoRecordVacantStandby(standby) {
     if (!window.DataService) return;
     if (!standby || standby.lat == null || standby.lng == null) return;
     if (!standby.startTime || !standby.endTime) return;
+    // 既知の場所以外は自動記録しない（ゴミデータ防止）
+    if (standby.category === 'other' && !standby.manualLocationName) {
+      if (window.AppLogger) AppLogger.debug(`待機スキップ: 不明な場所 ${standby.durationMin}分 (${standby.lat.toFixed(4)}, ${standby.lng.toFixed(4)})`);
+      return;
+    }
     const dateStr = getLocalDateString(new Date(standby.startTime));
     const startT = new Date(standby.startTime);
     const endT = new Date(standby.endTime);
@@ -12056,6 +12062,12 @@ window.GpsLogService = (() => {
       }
     }
 
+    // KNOWN_PLACESチェック（旭川市役所、イオンモール等を認識）
+    if (window.TaxiApp && TaxiApp.utils && TaxiApp.utils.matchKnownPlace) {
+      const knownName = TaxiApp.utils.matchKnownPlace(lat, lng);
+      if (knownName) return { category: 'known', categoryLabel: knownName, nearbyName: knownName };
+    }
+
     return { category: 'other', categoryLabel: 'その他', nearbyName: null };
   }
 
@@ -12066,7 +12078,7 @@ window.GpsLogService = (() => {
     const startTime = new Date(cluster[0].t).getTime();
     const endTime = new Date(cluster[cluster.length - 1].t).getTime();
     const durationMin = (endTime - startTime) / 60000;
-    if (durationMin < 3) return null; // 3分未満は破棄
+    if (durationMin < 15) return null; // 15分未満は破棄
     const lat = cluster.reduce((s, p) => s + p.lat, 0) / cluster.length;
     const lng = cluster.reduce((s, p) => s + p.lng, 0) / cluster.length;
     // カテゴリ分類を自動付与
