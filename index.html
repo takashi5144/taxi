@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.45.0',
+  VERSION: '3.45.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -11367,7 +11367,8 @@ window.GpsLogService = (() => {
   const RT_STANDBY_RADIUS = 50;       // 50m以内なら停車中
   const RT_STANDBY_MIN_MS = 900000;   // 15分以上で待機確定
   const RT_STANDBY_RIDE_CHECK_MS = 120000; // 待機終了後2分間は乗車チェック猶予
-  let _rtAnchor = null;   // { lat, lng, startTime, lastTime }
+  const RT_STANDBY_MAX_CUMULATIVE = 100; // 累積移動距離100m超で待機キャンセル（流し判定）
+  let _rtAnchor = null;   // { lat, lng, startTime, lastTime, prevLat, prevLng, cumDist }
   let _rtPendingStandby = null; // 待機終了後の乗車チェック待ち { ...standbyData, movedAt }
   let _rtLastEntryCount = 0; // 直前の売上記録数（乗車検出用）
 
@@ -11378,23 +11379,32 @@ window.GpsLogService = (() => {
     _rtCheckPendingStandby(now);
 
     if (_rtAnchor === null) {
-      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now, prevLat: lat, prevLng: lng, cumDist: 0 };
       return;
     }
 
     if (_rtAnchor.lat == null || _rtAnchor.lng == null) {
-      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now, prevLat: lat, prevLng: lng, cumDist: 0 };
       return;
     }
 
     const dist = _haversine(_rtAnchor.lat, _rtAnchor.lng, lat, lng);
     if (dist <= RT_STANDBY_RADIUS) {
-      // まだ同じ場所にいる
+      // 50m圏内だが、直前位置からの移動距離を累積する
+      const stepDist = _haversine(_rtAnchor.prevLat, _rtAnchor.prevLng, lat, lng);
+      _rtAnchor.cumDist += stepDist;
+      _rtAnchor.prevLat = lat;
+      _rtAnchor.prevLng = lng;
       _rtAnchor.lastTime = now;
+
+      // 累積移動距離が閾値を超えた → 流し走行とみなしアンカーリセット
+      if (_rtAnchor.cumDist > RT_STANDBY_MAX_CUMULATIVE) {
+        _rtAnchor = { lat, lng, startTime: now, lastTime: now, prevLat: lat, prevLng: lng, cumDist: 0 };
+      }
     } else {
       // 動き始めた → 待機期間を確定するか判定
       const duration = _rtAnchor.lastTime - _rtAnchor.startTime;
-      if (duration >= RT_STANDBY_MIN_MS) {
+      if (duration >= RT_STANDBY_MIN_MS && _rtAnchor.cumDist <= RT_STANDBY_MAX_CUMULATIVE) {
         // 待機確定 → 乗車チェック待ちに入れる
         const avgLat = _rtAnchor.lat;
         const avgLng = _rtAnchor.lng;
@@ -11416,7 +11426,7 @@ window.GpsLogService = (() => {
         try { _rtLastEntryCount = DataService.getEntries().length; } catch { _rtLastEntryCount = 0; }
       }
       // アンカーリセット
-      _rtAnchor = { lat, lng, startTime: now, lastTime: now };
+      _rtAnchor = { lat, lng, startTime: now, lastTime: now, prevLat: lat, prevLng: lng, cumDist: 0 };
     }
   }
 
