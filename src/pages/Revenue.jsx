@@ -683,8 +683,8 @@ window.RevenuePage = () => {
     }
   }, [confirmDelete]);
 
-  // 起動時ゴミ箱自動クリーンアップ
-  useEffect(() => { DataService.cleanupTrash(); }, []);
+  // 起動時自動クリーンアップ（ゴミ箱 + 不要な待機記録）
+  useEffect(() => { DataService.cleanupTrash(); DataService.cleanupOtherStandby(); }, []);
 
   // 編集機能
   const [editingId, setEditingId] = useState(null);

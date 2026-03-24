@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.45.1',
+  VERSION: '3.45.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -4799,6 +4799,35 @@ window.DataService = (() => {
     if (filtered.length < trash.length) {
       saveTrash(filtered);
       AppLogger.info(`ゴミ箱の自動クリーンアップ: ${trash.length - filtered.length}件を削除`);
+    }
+  }
+
+  /** 2日以上前の「その他」待機記録を自動削除 */
+  function cleanupOtherStandby() {
+    const entries = _getRawEntries();
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2);
+    const twoDaysAgoStr = twoDaysAgo.toISOString().slice(0, 10);
+
+    const toRemove = [];
+    const toKeep = [];
+
+    entries.forEach(e => {
+      if (e.noPassenger && e.purpose === '待機' && e.date && e.date <= twoDaysAgoStr) {
+        // 場所名が空・「その他」・不明な待機記録を削除対象にする
+        const place = (e.pickup || '').trim();
+        const isOther = !place || place === 'その他' || place === '不明';
+        if (isOther) {
+          toRemove.push(e);
+          return;
+        }
+      }
+      toKeep.push(e);
+    });
+
+    if (toRemove.length > 0) {
+      saveEntries(toKeep);
+      AppLogger.info(`「その他」待機記録の自動削除: ${toRemove.length}件（2日以上前）`);
     }
   }
 
@@ -9789,6 +9818,7 @@ window.DataService = (() => {
     permanentDeleteFromTrash,
     emptyTrash,
     cleanupTrash,
+    cleanupOtherStandby,
 
     // エクスポート
     exportCSV,
@@ -21106,8 +21136,8 @@ window.RevenuePage = () => {
     }
   }, [confirmDelete]);
 
-  // 起動時ゴミ箱自動クリーンアップ
-  useEffect(() => { DataService.cleanupTrash(); }, []);
+  // 起動時自動クリーンアップ（ゴミ箱 + 不要な待機記録）
+  useEffect(() => { DataService.cleanupTrash(); DataService.cleanupOtherStandby(); }, []);
 
   // 編集機能
   const [editingId, setEditingId] = useState(null);

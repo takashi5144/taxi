@@ -2259,6 +2259,35 @@ window.DataService = (() => {
     }
   }
 
+  /** 2日以上前の「その他」待機記録を自動削除 */
+  function cleanupOtherStandby() {
+    const entries = _getRawEntries();
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2);
+    const twoDaysAgoStr = twoDaysAgo.toISOString().slice(0, 10);
+
+    const toRemove = [];
+    const toKeep = [];
+
+    entries.forEach(e => {
+      if (e.noPassenger && e.purpose === '待機' && e.date && e.date <= twoDaysAgoStr) {
+        // 場所名が空・「その他」・不明な待機記録を削除対象にする
+        const place = (e.pickup || '').trim();
+        const isOther = !place || place === 'その他' || place === '不明';
+        if (isOther) {
+          toRemove.push(e);
+          return;
+        }
+      }
+      toKeep.push(e);
+    });
+
+    if (toRemove.length > 0) {
+      saveEntries(toKeep);
+      AppLogger.info(`「その他」待機記録の自動削除: ${toRemove.length}件（2日以上前）`);
+    }
+  }
+
   function updateEntry(id, updates) {
     const entries = _getRawEntries();
     const idx = entries.findIndex(e => e.id === id);
@@ -7246,6 +7275,7 @@ window.DataService = (() => {
     permanentDeleteFromTrash,
     emptyTrash,
     cleanupTrash,
+    cleanupOtherStandby,
 
     // エクスポート
     exportCSV,
