@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.46.1</title>
+  <title>タクシー売上サポート v3.46.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.46.1',
+  VERSION: '3.46.2',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17419,9 +17419,17 @@ window.DashboardPage = () => {
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
+  // チケット使用エントリ（paymentMethodに関係なくticket割引があるエントリ）
+  const todayTicketEntries = todayEntries.filter(e => {
+    if (e.discounts && Array.isArray(e.discounts)) return e.discounts.some(d => d.type === 'ticket');
+    return e.discountType && e.discountType.includes('ticket');
+  });
+  // 純粋な未収（クーポンサブとチケットエントリを除く）
+  const todayPureUncollectedEntries = todayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
+  const todayPureUncollected = todayPureUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + todayDiscountTicket.total;
   const todayUncollectedTotalExCoupon = todayUncollectedTotal - todayCouponUncollected;
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count;
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountTicket.count;
   const currentMonth = getLocalDateString().slice(0, 7);
   const monthData = useMemo(() => {
     const entries = DataService.getEntries();
@@ -17935,14 +17943,13 @@ window.DashboardPage = () => {
                 todayDiscountLongDistance.count > 0 && `遠距離割 ${todayDiscountLongDistance.count}件 ¥${todayDiscountLongDistance.total.toLocaleString()}`,
               ].filter(Boolean).join(' / ') || '割引詳細'
             ),
-            c.key === 'uncollected' && todayCouponUncollected > 0 && React.createElement('div', {
+            c.key === 'uncollected' && (todayCouponUncollected > 0 || todayDiscountTicket.count > 0) && React.createElement('div', {
               style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
             },
-              React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
-                `クーポン込: ¥${todayUncollected.toLocaleString()}`
-              ),
-              React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
-                `クーポン抜: ¥${(todayUncollected - todayCouponUncollected).toLocaleString()}`
+              React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 } },
+                React.createElement('span', null, `未収: ${todayPureUncollectedEntries.length}件 ¥${todayPureUncollected.toLocaleString()}`),
+                todayDiscountTicket.count > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
+                todayCouponUncollected > 0 && React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ¥${todayCouponUncollected.toLocaleString()}`)
               )
             )
           ))
@@ -18025,6 +18032,7 @@ window.DashboardPage = () => {
           todayDidiEntries.length > 0 && React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           todayUberEntries.length > 0 && React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           todayDiscountDisability.count > 0 && React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 +¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
+          todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
           todayCouponUncollected > 0 && React.createElement('span', null, `うちクーポン: ¥${todayCouponUncollected.toLocaleString()}`)
         )
       ),
@@ -25014,8 +25022,10 @@ window.CalendarPage = () => {
         const dayDiscTicket = _getDiscByType(dayEntries, 'ticket');
         const dayCouponEntries = dayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
         const dayCouponUncollected = dayCouponEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
-        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + Math.abs(dayDiscDisability.total);
-        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayDiscDisability.count;
+        const dayPureUncollectedEntries = dayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
+        const dayPureUncollected = dayPureUncollectedEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + Math.abs(dayDiscDisability.total) + dayDiscTicket.total;
+        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayDiscDisability.count + dayDiscTicket.count;
         const dayDiscountEntries = dayEntries.filter(e => (e.discountAmount || 0) > 0);
 
         const payCards = [
@@ -25067,12 +25077,13 @@ window.CalendarPage = () => {
                   `¥${c.total.toLocaleString()}`
                 ),
                 createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `${c.count}件`),
-                // 未収カードにクーポン内訳
-                c.key === 'uncollected' && dayCouponUncollected > 0 && createElement('div', {
-                  style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
+                // 未収カードに未収・チケット内訳
+                c.key === 'uncollected' && (dayCouponUncollected > 0 || dayDiscTicket.count > 0) && createElement('div', {
+                  style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4, display: 'flex', flexDirection: 'column', gap: 2 },
                 },
-                  createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `クーポン込: ¥${dayUncollected.toLocaleString()}`),
-                  createElement('div', { style: { fontSize: 10, color: '#a78bfa', fontWeight: 600 } }, `クーポン抜: ¥${(dayUncollected - dayCouponUncollected).toLocaleString()}`)
+                  createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `未収: ${dayPureUncollectedEntries.length}件 ¥${dayPureUncollected.toLocaleString()}`),
+                  dayDiscTicket.count > 0 && createElement('div', { style: { fontSize: 10, color: '#4fc3f7' } }, `チケット: ${dayDiscTicket.count}件 ¥${dayDiscTicket.total.toLocaleString()}`),
+                  dayCouponUncollected > 0 && createElement('div', { style: { fontSize: 10, color: '#a78bfa' } }, `クーポン: ¥${dayCouponUncollected.toLocaleString()}`)
                 ),
                 // 割引カードに内訳
                 c.key === 'discount' && (dayDiscDisability.count > 0 || dayDiscLongDistance.count > 0) && createElement('div', {
@@ -25165,6 +25176,7 @@ window.CalendarPage = () => {
               dayDidiEntries.length > 0 && createElement('span', null, `DIDI: ${dayDidiEntries.length}件 ¥${dayDidi.toLocaleString()}`),
               dayUberEntries.length > 0 && createElement('span', null, `Uber: ${dayUberEntries.length}件 ¥${dayUber.toLocaleString()}`),
               dayDiscDisability.count > 0 && createElement('span', null, `障害者割引: ${dayDiscDisability.count}件 +¥${Math.abs(dayDiscDisability.total).toLocaleString()}`),
+              dayDiscTicket.count > 0 && createElement('span', null, `チケット: ${dayDiscTicket.count}件 ¥${dayDiscTicket.total.toLocaleString()}`),
               dayCouponUncollected > 0 && createElement('span', null, `うちクーポン: ¥${dayCouponUncollected.toLocaleString()}`)
             )
           ),

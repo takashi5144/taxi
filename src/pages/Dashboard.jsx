@@ -584,9 +584,17 @@ window.DashboardPage = () => {
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
+  // チケット使用エントリ（paymentMethodに関係なくticket割引があるエントリ）
+  const todayTicketEntries = todayEntries.filter(e => {
+    if (e.discounts && Array.isArray(e.discounts)) return e.discounts.some(d => d.type === 'ticket');
+    return e.discountType && e.discountType.includes('ticket');
+  });
+  // 純粋な未収（クーポンサブとチケットエントリを除く）
+  const todayPureUncollectedEntries = todayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
+  const todayPureUncollected = todayPureUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + todayDiscountTicket.total;
   const todayUncollectedTotalExCoupon = todayUncollectedTotal - todayCouponUncollected;
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count;
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountTicket.count;
   const currentMonth = getLocalDateString().slice(0, 7);
   const monthData = useMemo(() => {
     const entries = DataService.getEntries();
@@ -1100,14 +1108,13 @@ window.DashboardPage = () => {
                 todayDiscountLongDistance.count > 0 && `遠距離割 ${todayDiscountLongDistance.count}件 ¥${todayDiscountLongDistance.total.toLocaleString()}`,
               ].filter(Boolean).join(' / ') || '割引詳細'
             ),
-            c.key === 'uncollected' && todayCouponUncollected > 0 && React.createElement('div', {
+            c.key === 'uncollected' && (todayCouponUncollected > 0 || todayDiscountTicket.count > 0) && React.createElement('div', {
               style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
             },
-              React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
-                `クーポン込: ¥${todayUncollected.toLocaleString()}`
-              ),
-              React.createElement('div', { style: { fontSize: 11, color: '#a78bfa', fontWeight: 600 } },
-                `クーポン抜: ¥${(todayUncollected - todayCouponUncollected).toLocaleString()}`
+              React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 } },
+                React.createElement('span', null, `未収: ${todayPureUncollectedEntries.length}件 ¥${todayPureUncollected.toLocaleString()}`),
+                todayDiscountTicket.count > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
+                todayCouponUncollected > 0 && React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ¥${todayCouponUncollected.toLocaleString()}`)
               )
             )
           ))
@@ -1190,6 +1197,7 @@ window.DashboardPage = () => {
           todayDidiEntries.length > 0 && React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           todayUberEntries.length > 0 && React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           todayDiscountDisability.count > 0 && React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 +¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
+          todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
           todayCouponUncollected > 0 && React.createElement('span', null, `うちクーポン: ¥${todayCouponUncollected.toLocaleString()}`)
         )
       ),

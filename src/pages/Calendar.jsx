@@ -613,8 +613,10 @@ window.CalendarPage = () => {
         const dayDiscTicket = _getDiscByType(dayEntries, 'ticket');
         const dayCouponEntries = dayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
         const dayCouponUncollected = dayCouponEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
-        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + Math.abs(dayDiscDisability.total);
-        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayDiscDisability.count;
+        const dayPureUncollectedEntries = dayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
+        const dayPureUncollected = dayPureUncollectedEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + Math.abs(dayDiscDisability.total) + dayDiscTicket.total;
+        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayDiscDisability.count + dayDiscTicket.count;
         const dayDiscountEntries = dayEntries.filter(e => (e.discountAmount || 0) > 0);
 
         const payCards = [
@@ -666,12 +668,13 @@ window.CalendarPage = () => {
                   `¥${c.total.toLocaleString()}`
                 ),
                 createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `${c.count}件`),
-                // 未収カードにクーポン内訳
-                c.key === 'uncollected' && dayCouponUncollected > 0 && createElement('div', {
-                  style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
+                // 未収カードに未収・チケット内訳
+                c.key === 'uncollected' && (dayCouponUncollected > 0 || dayDiscTicket.count > 0) && createElement('div', {
+                  style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4, display: 'flex', flexDirection: 'column', gap: 2 },
                 },
-                  createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `クーポン込: ¥${dayUncollected.toLocaleString()}`),
-                  createElement('div', { style: { fontSize: 10, color: '#a78bfa', fontWeight: 600 } }, `クーポン抜: ¥${(dayUncollected - dayCouponUncollected).toLocaleString()}`)
+                  createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `未収: ${dayPureUncollectedEntries.length}件 ¥${dayPureUncollected.toLocaleString()}`),
+                  dayDiscTicket.count > 0 && createElement('div', { style: { fontSize: 10, color: '#4fc3f7' } }, `チケット: ${dayDiscTicket.count}件 ¥${dayDiscTicket.total.toLocaleString()}`),
+                  dayCouponUncollected > 0 && createElement('div', { style: { fontSize: 10, color: '#a78bfa' } }, `クーポン: ¥${dayCouponUncollected.toLocaleString()}`)
                 ),
                 // 割引カードに内訳
                 c.key === 'discount' && (dayDiscDisability.count > 0 || dayDiscLongDistance.count > 0) && createElement('div', {
@@ -764,6 +767,7 @@ window.CalendarPage = () => {
               dayDidiEntries.length > 0 && createElement('span', null, `DIDI: ${dayDidiEntries.length}件 ¥${dayDidi.toLocaleString()}`),
               dayUberEntries.length > 0 && createElement('span', null, `Uber: ${dayUberEntries.length}件 ¥${dayUber.toLocaleString()}`),
               dayDiscDisability.count > 0 && createElement('span', null, `障害者割引: ${dayDiscDisability.count}件 +¥${Math.abs(dayDiscDisability.total).toLocaleString()}`),
+              dayDiscTicket.count > 0 && createElement('span', null, `チケット: ${dayDiscTicket.count}件 ¥${dayDiscTicket.total.toLocaleString()}`),
               dayCouponUncollected > 0 && createElement('span', null, `うちクーポン: ¥${dayCouponUncollected.toLocaleString()}`)
             )
           ),
