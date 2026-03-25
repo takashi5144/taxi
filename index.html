@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.46.0</title>
+  <title>タクシー売上サポート v3.46.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.46.0',
+  VERSION: '3.46.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -24419,6 +24419,7 @@ window.CalendarPage = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingItem, setEditingItem] = useState(null); // { type: 'shift'|'break', id, startTime, endTime }
+  const [expandedCalPay, setExpandedCalPay] = useState(null); // 支払方法カード展開
 
   // 日額目標金額を設定から取得
   const dailyGoal = useMemo(() => {
@@ -25018,11 +25019,11 @@ window.CalendarPage = () => {
         const dayDiscountEntries = dayEntries.filter(e => (e.discountAmount || 0) > 0);
 
         const payCards = [
-          { key: 'cash', label: '現金', icon: 'payments', count: dayCashEntries.length, total: dayCash, color: 'var(--color-accent)', bg: 'rgba(26,115,232,0.08)', border: 'rgba(26,115,232,0.2)' },
-          { key: 'uncollected', label: '未収', icon: 'pending', count: dayUncollectedEntries.length, total: dayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
-          { key: 'didi', label: 'DIDI', icon: 'smartphone', count: dayDidiEntries.length, total: dayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
-          { key: 'uber', label: 'Uber', icon: 'hail', count: dayUberEntries.length, total: dayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
-          { key: 'discount', label: '割引', icon: 'discount', count: dayDiscountEntries.length, total: dayDiscount, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)' },
+          { key: 'cash', label: '現金', icon: 'payments', count: dayCashEntries.length, total: dayCash, entries: dayCashEntries, color: 'var(--color-accent)', bg: 'rgba(26,115,232,0.08)', border: 'rgba(26,115,232,0.2)' },
+          { key: 'uncollected', label: '未収', icon: 'pending', count: dayUncollectedEntries.length, total: dayUncollected, entries: dayUncollectedEntries, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
+          { key: 'didi', label: 'DIDI', icon: 'smartphone', count: dayDidiEntries.length, total: dayDidi, entries: dayDidiEntries, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
+          { key: 'uber', label: 'Uber', icon: 'hail', count: dayUberEntries.length, total: dayUber, entries: dayUberEntries, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
+          { key: 'discount', label: '割引', icon: 'discount', count: dayDiscountEntries.length, total: dayDiscount, entries: dayDiscountEntries, isDiscount: true, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)' },
         ];
 
         return createElement(React.Fragment, null,
@@ -25043,21 +25044,24 @@ window.CalendarPage = () => {
             )
           ),
 
-          // 現金・未収・DIDI・Uber・割引 カード
+          // 現金・未収・DIDI・Uber・割引 カード（クリックで内訳展開）
           createElement('div', {
-            style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px', marginBottom: 'var(--space-sm)' }
+            style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px', marginBottom: expandedCalPay && !expandedCalPay.startsWith('uncollected_total') ? 0 : 'var(--space-sm)' }
           },
             ...payCards.map(c =>
               createElement('div', {
                 key: c.key,
+                onClick: () => setExpandedCalPay(expandedCalPay === c.key ? null : c.key),
                 style: {
                   background: c.bg, border: `1px solid ${c.border}`, borderRadius: 'var(--border-radius)',
-                  padding: '8px 4px', textAlign: 'center', cursor: 'default',
+                  padding: '8px 4px', textAlign: 'center', cursor: 'pointer', userSelect: 'none',
+                  transition: 'box-shadow 0.2s', boxShadow: expandedCalPay === c.key ? `0 0 0 2px ${c.border}` : 'none',
                 },
               },
                 createElement('div', { style: { fontSize: 10, color: c.color, marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 } },
                   createElement('span', { className: 'material-icons-round', style: { fontSize: 12 } }, c.icon),
-                  c.label
+                  c.label,
+                  createElement('span', { className: 'material-icons-round', style: { fontSize: 12, transition: 'transform 0.2s', transform: expandedCalPay === c.key ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
                 ),
                 createElement('div', { style: { fontSize: 13, fontWeight: 700, color: c.color } },
                   `¥${c.total.toLocaleString()}`
@@ -25083,11 +25087,60 @@ window.CalendarPage = () => {
             )
           ),
 
-          // 未収合計
+          // 展開中の内訳リスト
+          (() => {
+            const ec = payCards.find(c => c.key === expandedCalPay);
+            if (!ec) return null;
+            if (ec.entries.length === 0) return createElement('div', {
+              key: 'cal-pay-detail',
+              style: { marginBottom: 'var(--space-sm)', padding: '12px', borderRadius: 'var(--border-radius)', background: 'rgba(255,255,255,0.03)', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' },
+            }, `${ec.label}のデータはありません`);
+            return createElement('div', {
+              key: 'cal-pay-detail',
+              style: { marginBottom: 'var(--space-sm)', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: `1px solid ${ec.border}`, borderTop: 'none', overflow: 'hidden' },
+            },
+              createElement('div', {
+                style: { padding: '6px 10px', background: ec.bg, fontSize: 11, fontWeight: 700, color: ec.color, display: 'flex', alignItems: 'center', gap: 4 },
+              },
+                createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'receipt_long'),
+                `${ec.label} 内訳（${ec.entries.length}件）`
+              ),
+              ...ec.entries
+                .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''))
+                .map((e, i) => createElement('div', {
+                  key: e.id || i,
+                  style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+                },
+                  createElement('span', { style: { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', minWidth: 38 } }, e.pickupTime || '--:--'),
+                  createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    createElement('div', { style: { fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                      (e.pickup || '?') + ' → ' + (e.dropoff || '?')
+                    ),
+                    (e.source || e.purpose || e.memo) && createElement('div', { style: { fontSize: 9, color: 'var(--text-muted)', marginTop: 1 } },
+                      [e.source, e.purpose, e.memo].filter(Boolean).join(' / ')
+                    )
+                  ),
+                  createElement('span', { style: { fontSize: 12, fontWeight: 700, color: ec.color, whiteSpace: 'nowrap' } },
+                    ec.isDiscount
+                      ? `¥${(e.discountAmount || 0).toLocaleString()}`
+                      : `¥${(e.amount || 0).toLocaleString()}`
+                  ),
+                  ec.isDiscount && e.discountType && createElement('span', { style: { fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 } },
+                    e.discountType.split(',').map(t => ({ disability: '障害者', longDistance: '遠距離' })[t] || t).join('/')
+                  )
+                ))
+            );
+          })(),
+
+          // 未収合計（クリックで内訳展開）
           createElement('div', {
+            onClick: () => setExpandedCalPay(expandedCalPay === 'uncollected_total' ? null : 'uncollected_total'),
             style: {
-              padding: '10px 12px', borderRadius: 'var(--border-radius)', marginBottom: 'var(--space-sm)',
+              padding: '10px 12px', marginBottom: expandedCalPay === 'uncollected_total' ? 0 : 'var(--space-sm)',
+              borderRadius: expandedCalPay === 'uncollected_total' ? 'var(--border-radius) var(--border-radius) 0 0' : 'var(--border-radius)',
               background: 'rgba(156,39,176,0.08)', border: '1px solid rgba(156,39,176,0.25)',
+              cursor: 'pointer', userSelect: 'none', transition: 'box-shadow 0.2s',
+              boxShadow: expandedCalPay === 'uncollected_total' ? '0 0 0 2px rgba(156,39,176,0.25)' : 'none',
             },
           },
             createElement('div', {
@@ -25098,7 +25151,8 @@ window.CalendarPage = () => {
               },
                 createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'account_balance'),
                 '未収合計',
-                createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${dayUncollectedTotalCount}件`)
+                createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${dayUncollectedTotalCount}件`),
+                createElement('span', { className: 'material-icons-round', style: { fontSize: 14, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: expandedCalPay === 'uncollected_total' ? 'rotate(180deg)' : 'rotate(0)' } }, 'expand_more')
               ),
               createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ce93d8' } },
                 `¥${dayUncollectedTotal.toLocaleString()}`
@@ -25114,6 +25168,38 @@ window.CalendarPage = () => {
               dayCouponUncollected > 0 && createElement('span', null, `うちクーポン: ¥${dayCouponUncollected.toLocaleString()}`)
             )
           ),
+
+          // 未収合計の展開内訳
+          expandedCalPay === 'uncollected_total' && (() => {
+            const allUncollectedEntries = [...dayUncollectedEntries, ...dayDidiEntries, ...dayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+            if (allUncollectedEntries.length === 0) return createElement('div', {
+              style: { marginBottom: 'var(--space-sm)', padding: '12px', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' },
+            }, '未収データはありません');
+            return createElement('div', {
+              style: { marginBottom: 'var(--space-sm)', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', overflow: 'hidden' },
+            },
+              ...allUncollectedEntries.map((e, i) => {
+                const pmColor = e.paymentMethod === 'didi' ? 'var(--color-warning)' : e.paymentMethod === 'uber' || e.source === 'Uber' ? '#fff' : 'var(--color-error)';
+                const pmLabel = e.paymentMethod === 'didi' ? 'DIDI' : e.paymentMethod === 'uber' || e.source === 'Uber' ? 'Uber' : '未収';
+                return createElement('div', {
+                  key: e.id || i,
+                  style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
+                },
+                  createElement('span', { style: { fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', minWidth: 38 } }, e.pickupTime || '--:--'),
+                  createElement('span', { style: { fontSize: 9, padding: '1px 4px', borderRadius: 4, background: 'rgba(255,255,255,0.08)', color: pmColor, fontWeight: 600 } }, pmLabel),
+                  createElement('div', { style: { flex: 1, minWidth: 0 } },
+                    createElement('div', { style: { fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                      (e.pickup || '?') + ' → ' + (e.dropoff || '?')
+                    ),
+                    e.memo && createElement('div', { style: { fontSize: 9, color: 'var(--text-muted)', marginTop: 1 } }, e.memo)
+                  ),
+                  createElement('span', { style: { fontSize: 12, fontWeight: 700, color: '#ce93d8', whiteSpace: 'nowrap' } },
+                    `¥${(e.amount || 0).toLocaleString()}`
+                  )
+                );
+              })
+            );
+          })(),
 
           // 割引詳細
           (dayDiscDisability.count > 0 || dayDiscCoupon.count > 0 || dayDiscTicket.count > 0 || dayDiscLongDistance.count > 0) &&
