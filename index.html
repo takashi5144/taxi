@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.42.0</title>
+  <title>タクシー売上サポート v3.46.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.45.2',
+  VERSION: '3.46.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -24965,7 +24965,170 @@ window.CalendarPage = () => {
         )
       ),
 
-      // 売上情報
+      // 売上合計セクション（ダッシュボードと同じ項目）
+      (() => {
+        const dayEntries = selectedDayData.entries || [];
+        const _isCpnSub = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
+        const _getLdAmt = (e) => {
+          if (e.discounts && Array.isArray(e.discounts)) {
+            const ld = e.discounts.filter(d => d.type === 'longDistance');
+            if (ld.length > 0) return ld.reduce((s, d) => s + (d.amount || 0), 0);
+          }
+          if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) {
+            const t = e.discountType.split(',').filter(t => t && t !== 'longDistance');
+            if (t.length === 0) return e.discountAmount;
+          }
+          return 0;
+        };
+        const dayTotal = dayEntries.reduce((sum, e) => {
+          if (_isCpnSub(e)) return sum;
+          return sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _getLdAmt(e);
+        }, 0);
+        const dayCashEntries = dayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
+        const dayUncollectedEntries = dayEntries.filter(e => e.paymentMethod === 'uncollected');
+        const dayDidiEntries = dayEntries.filter(e => e.paymentMethod === 'didi');
+        const dayUberEntries = dayEntries.filter(e => e.paymentMethod === 'uber' || e.source === 'Uber');
+        const dayCash = dayCashEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayUncollected = dayUncollectedEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayDidi = dayDidiEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayUber = dayUberEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayDiscount = dayEntries.reduce((sum, e) => _isCpnSub(e) ? sum : sum + (e.discountAmount || 0), 0);
+        const _getDiscByType = (entries, dtype) => {
+          let total = 0, count = 0, sheets = 0;
+          entries.forEach(e => {
+            if (e.discounts && Array.isArray(e.discounts)) {
+              e.discounts.forEach(d => {
+                if (d.type === dtype) { total += d.amount || 0; count++; if (dtype === 'coupon' || dtype === 'ticket') sheets += d.sheets || 1; }
+              });
+            } else if (e.discountType === dtype || (e.discountType && e.discountType.includes(dtype))) {
+              total += e.discountAmount || 0; count++;
+              if (dtype === 'coupon' || dtype === 'ticket') sheets += 1;
+            }
+          });
+          return { total, count, sheets };
+        };
+        const dayDiscDisability = _getDiscByType(dayEntries, 'disability');
+        const dayDiscLongDistance = _getDiscByType(dayEntries, 'longDistance');
+        const dayDiscCoupon = _getDiscByType(dayEntries, 'coupon');
+        const dayDiscTicket = _getDiscByType(dayEntries, 'ticket');
+        const dayCouponEntries = dayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
+        const dayCouponUncollected = dayCouponEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + Math.abs(dayDiscDisability.total);
+        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayDiscDisability.count;
+        const dayDiscountEntries = dayEntries.filter(e => (e.discountAmount || 0) > 0);
+
+        const payCards = [
+          { key: 'cash', label: '現金', icon: 'payments', count: dayCashEntries.length, total: dayCash, color: 'var(--color-accent)', bg: 'rgba(26,115,232,0.08)', border: 'rgba(26,115,232,0.2)' },
+          { key: 'uncollected', label: '未収', icon: 'pending', count: dayUncollectedEntries.length, total: dayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
+          { key: 'didi', label: 'DIDI', icon: 'smartphone', count: dayDidiEntries.length, total: dayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
+          { key: 'uber', label: 'Uber', icon: 'hail', count: dayUberEntries.length, total: dayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
+          { key: 'discount', label: '割引', icon: 'discount', count: dayDiscountEntries.length, total: dayDiscount, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)' },
+        ];
+
+        return createElement(React.Fragment, null,
+          // 売上合計
+          createElement('div', {
+            style: { textAlign: 'center', paddingBottom: 'var(--space-sm)', marginBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-color)' }
+          },
+            createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: 4 } }, '売上合計'),
+            createElement('div', {
+              style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '4px 0' },
+            }, `¥${dayTotal.toLocaleString()}`),
+            createElement('div', {
+              style: { display: 'flex', justifyContent: 'center', gap: '16px', fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' },
+            },
+              createElement('span', null, `${selectedDayData.count}件`),
+              createElement('span', null, `税抜: ¥${Math.floor(dayTotal / 1.1).toLocaleString()}`),
+              createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(dayTotal - Math.floor(dayTotal / 1.1)).toLocaleString()}`)
+            )
+          ),
+
+          // 現金・未収・DIDI・Uber・割引 カード
+          createElement('div', {
+            style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px', marginBottom: 'var(--space-sm)' }
+          },
+            ...payCards.map(c =>
+              createElement('div', {
+                key: c.key,
+                style: {
+                  background: c.bg, border: `1px solid ${c.border}`, borderRadius: 'var(--border-radius)',
+                  padding: '8px 4px', textAlign: 'center', cursor: 'default',
+                },
+              },
+                createElement('div', { style: { fontSize: 10, color: c.color, marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 } },
+                  createElement('span', { className: 'material-icons-round', style: { fontSize: 12 } }, c.icon),
+                  c.label
+                ),
+                createElement('div', { style: { fontSize: 13, fontWeight: 700, color: c.color } },
+                  `¥${c.total.toLocaleString()}`
+                ),
+                createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `${c.count}件`),
+                // 未収カードにクーポン内訳
+                c.key === 'uncollected' && dayCouponUncollected > 0 && createElement('div', {
+                  style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
+                },
+                  createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)' } }, `クーポン込: ¥${dayUncollected.toLocaleString()}`),
+                  createElement('div', { style: { fontSize: 10, color: '#a78bfa', fontWeight: 600 } }, `クーポン抜: ¥${(dayUncollected - dayCouponUncollected).toLocaleString()}`)
+                ),
+                // 割引カードに内訳
+                c.key === 'discount' && (dayDiscDisability.count > 0 || dayDiscLongDistance.count > 0) && createElement('div', {
+                  style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 2 },
+                },
+                  [
+                    dayDiscDisability.count > 0 && `障割 ${dayDiscDisability.count}件`,
+                    dayDiscLongDistance.count > 0 && `遠割 ${dayDiscLongDistance.count}件`,
+                  ].filter(Boolean).join(' / ')
+                )
+              )
+            )
+          ),
+
+          // 未収合計
+          createElement('div', {
+            style: {
+              padding: '10px 12px', borderRadius: 'var(--border-radius)', marginBottom: 'var(--space-sm)',
+              background: 'rgba(156,39,176,0.08)', border: '1px solid rgba(156,39,176,0.25)',
+            },
+          },
+            createElement('div', {
+              style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+            },
+              createElement('div', {
+                style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#ce93d8', fontWeight: 600 },
+              },
+                createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'account_balance'),
+                '未収合計',
+                createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${dayUncollectedTotalCount}件`)
+              ),
+              createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ce93d8' } },
+                `¥${dayUncollectedTotal.toLocaleString()}`
+              )
+            ),
+            createElement('div', {
+              style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
+            },
+              createElement('span', null, `未収: ${dayUncollectedEntries.length}件 ¥${dayUncollected.toLocaleString()}`),
+              dayDidiEntries.length > 0 && createElement('span', null, `DIDI: ${dayDidiEntries.length}件 ¥${dayDidi.toLocaleString()}`),
+              dayUberEntries.length > 0 && createElement('span', null, `Uber: ${dayUberEntries.length}件 ¥${dayUber.toLocaleString()}`),
+              dayDiscDisability.count > 0 && createElement('span', null, `障害者割引: ${dayDiscDisability.count}件 +¥${Math.abs(dayDiscDisability.total).toLocaleString()}`),
+              dayCouponUncollected > 0 && createElement('span', null, `うちクーポン: ¥${dayCouponUncollected.toLocaleString()}`)
+            )
+          ),
+
+          // 割引詳細
+          (dayDiscDisability.count > 0 || dayDiscCoupon.count > 0 || dayDiscTicket.count > 0 || dayDiscLongDistance.count > 0) &&
+          createElement('div', {
+            style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap', marginBottom: 'var(--space-sm)', padding: '0 4px' },
+          },
+            dayDiscDisability.count > 0 && createElement('span', { style: { color: '#ce93d8' } }, `障害者割引: ${dayDiscDisability.count}件 -¥${dayDiscDisability.total.toLocaleString()}`),
+            dayDiscCoupon.count > 0 && createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ${dayDiscCoupon.sheets}枚 -¥${dayDiscCoupon.total.toLocaleString()}`),
+            dayDiscTicket.count > 0 && createElement('span', { style: { color: '#a78bfa' } }, `チケット: ${dayDiscTicket.count}件 -¥${dayDiscTicket.total.toLocaleString()}`),
+            dayDiscLongDistance.count > 0 && createElement('span', { style: { color: '#ce93d8' } }, `遠距離割: ${dayDiscLongDistance.count}件 -¥${dayDiscLongDistance.total.toLocaleString()}`)
+          )
+        );
+      })(),
+
+      // 件数・合計・平均
       createElement('div', {
         style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }
       },
