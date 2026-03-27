@@ -1061,6 +1061,16 @@ window.DashboardPage = () => {
         },
           React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
           React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
+        ),
+        React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'center', gap: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 4 },
+        },
+          React.createElement('span', null, `${todayEntries.filter(e => !isCouponSubEntry(e)).length}件`),
+          React.createElement('span', null, '・'),
+          React.createElement('span', { style: { display: 'flex', alignItems: 'center', gap: 2 } },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 13 } }, 'group'),
+            `${todayEntries.filter(e => !isCouponSubEntry(e)).reduce((sum, e) => sum + (parseInt(e.passengers) || 0), 0)}人`
+          )
         )
       ),
 
@@ -1072,13 +1082,14 @@ window.DashboardPage = () => {
           { key: 'uncollected', label: '未収', icon: 'pending', entries: todayUncollectedEntries, total: todayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
           { key: 'didi', label: 'DIDI決済', icon: 'smartphone', entries: todayDidiEntries, total: todayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
           { key: 'uber', label: 'Uber', icon: 'hail', entries: todayUberEntries, total: todayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
+          { key: 'ticket', label: 'チケット', icon: 'confirmation_number', entries: todayTicketEntries, total: todayDiscountTicket.total + todayDiscountCoupon.total, color: '#4fc3f7', bg: 'rgba(79,195,247,0.08)', border: 'rgba(79,195,247,0.2)', isTicket: true },
           { key: 'discount', label: '割引', icon: 'discount', entries: todayDiscountEntries, total: todayDiscount, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)', isDiscount: true },
         ];
         const gridEl = React.createElement('div', {
           key: 'pay-grid',
           style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
         },
-          ...payCards.filter(c => !c.isDiscount || c.total > 0).map(c => React.createElement('div', {
+          ...payCards.filter(c => (!c.isDiscount && !c.isTicket) || c.total > 0).map(c => React.createElement('div', {
             key: c.key,
             onClick: () => setExpandedPayment(expandedPayment === c.key ? null : c.key),
             style: { padding: '10px', borderRadius: 'var(--border-radius)', background: c.bg, border: `1px solid ${c.border}`, cursor: 'pointer', userSelect: 'none', transition: 'box-shadow 0.2s', boxShadow: expandedPayment === c.key ? `0 0 0 2px ${c.border}` : 'none' },
@@ -1096,10 +1107,10 @@ window.DashboardPage = () => {
             React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: c.color } },
               `¥${c.total.toLocaleString()}`
             ),
-            !c.isDiscount && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
+            !c.isDiscount && !c.isTicket && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', marginTop: 4 } },
               `税抜: ¥${Math.floor(c.total / 1.1).toLocaleString()}`
             ),
-            !c.isDiscount && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
+            !c.isDiscount && !c.isTicket && React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)' } },
               `消費税: ¥${(c.total - Math.floor(c.total / 1.1)).toLocaleString()}`
             ),
             c.isDiscount && todayDiscountEntries.length > 0 && React.createElement('div', { style: { fontSize: 10, color: 'var(--text-muted)', marginTop: 4 } },
@@ -1108,13 +1119,20 @@ window.DashboardPage = () => {
                 todayDiscountLongDistance.count > 0 && `遠距離割 ${todayDiscountLongDistance.count}件 ¥${todayDiscountLongDistance.total.toLocaleString()}`,
               ].filter(Boolean).join(' / ') || '割引詳細'
             ),
-            c.key === 'uncollected' && (todayCouponUncollected > 0 || todayDiscountTicket.count > 0) && React.createElement('div', {
+            c.key === 'uncollected' && todayCouponUncollected > 0 && React.createElement('div', {
               style: { borderTop: '1px solid rgba(229,57,53,0.2)', marginTop: 4, paddingTop: 4 },
             },
               React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 } },
                 React.createElement('span', null, `未収: ${todayPureUncollectedEntries.length}件 ¥${todayPureUncollected.toLocaleString()}`),
+                React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ¥${todayCouponUncollected.toLocaleString()}`)
+              )
+            ),
+            c.isTicket && React.createElement('div', {
+              style: { borderTop: '1px solid rgba(79,195,247,0.2)', marginTop: 4, paddingTop: 4 },
+            },
+              React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 } },
                 todayDiscountTicket.count > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
-                todayCouponUncollected > 0 && React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ¥${todayCouponUncollected.toLocaleString()}`)
+                todayDiscountCoupon.count > 0 && React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ${todayDiscountCoupon.sheets}枚 ¥${todayDiscountCoupon.total.toLocaleString()}`)
               )
             )
           ))
