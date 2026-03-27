@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.47.0</title>
+  <title>タクシー売上サポート v3.47.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.47.0',
+  VERSION: '3.47.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -32037,12 +32037,16 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '支払い方法'),
           React.createElement('div', { style: { display: 'flex', gap: '6px' } },
-            ...['cash', 'uncollected', 'didi', 'uber'].map(method => {
+            ...['cash', 'uncollected', 'didi', 'uber', 'ticket'].map(method => {
               const selected = (editForm.paymentMethod || 'cash') === method;
-              const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : method === 'uber' ? 'Uber' : '未収';
-              const icon = method === 'cash' ? 'payments' : method === 'didi' ? 'smartphone' : method === 'uber' ? 'hail' : 'pending';
-              const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : method === 'uber' ? '#fff' : 'var(--color-error)';
-              const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : method === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(229,57,53,0.15)';
+              const labels = { cash: '現金', uncollected: '未収', didi: 'DIDI決済', uber: 'Uber', ticket: 'チケット' };
+              const icons = { cash: 'payments', uncollected: 'pending', didi: 'smartphone', uber: 'hail', ticket: 'confirmation_number' };
+              const colors = { cash: 'var(--color-accent)', uncollected: 'var(--color-error)', didi: 'var(--color-warning)', uber: '#fff', ticket: '#4fc3f7' };
+              const bgs = { cash: 'rgba(0,200,83,0.15)', uncollected: 'rgba(229,57,53,0.15)', didi: 'rgba(255,152,0,0.15)', uber: 'rgba(0,0,0,0.3)', ticket: 'rgba(79,195,247,0.15)' };
+              const label = labels[method];
+              const icon = icons[method];
+              const activeColor = colors[method];
+              const activeBg = bgs[method];
               return React.createElement('button', {
                 key: method, type: 'button',
                 onClick: () => setEditForm(f => ({ ...f, paymentMethod: method })),

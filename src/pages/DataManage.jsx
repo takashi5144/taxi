@@ -2125,12 +2125,16 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '支払い方法'),
           React.createElement('div', { style: { display: 'flex', gap: '6px' } },
-            ...['cash', 'uncollected', 'didi', 'uber'].map(method => {
+            ...['cash', 'uncollected', 'didi', 'uber', 'ticket'].map(method => {
               const selected = (editForm.paymentMethod || 'cash') === method;
-              const label = method === 'cash' ? '現金' : method === 'didi' ? 'DIDI決済' : method === 'uber' ? 'Uber' : '未収';
-              const icon = method === 'cash' ? 'payments' : method === 'didi' ? 'smartphone' : method === 'uber' ? 'hail' : 'pending';
-              const activeColor = method === 'cash' ? 'var(--color-accent)' : method === 'didi' ? 'var(--color-warning)' : method === 'uber' ? '#fff' : 'var(--color-error)';
-              const activeBg = method === 'cash' ? 'rgba(0,200,83,0.15)' : method === 'didi' ? 'rgba(255,152,0,0.15)' : method === 'uber' ? 'rgba(0,0,0,0.3)' : 'rgba(229,57,53,0.15)';
+              const labels = { cash: '現金', uncollected: '未収', didi: 'DIDI決済', uber: 'Uber', ticket: 'チケット' };
+              const icons = { cash: 'payments', uncollected: 'pending', didi: 'smartphone', uber: 'hail', ticket: 'confirmation_number' };
+              const colors = { cash: 'var(--color-accent)', uncollected: 'var(--color-error)', didi: 'var(--color-warning)', uber: '#fff', ticket: '#4fc3f7' };
+              const bgs = { cash: 'rgba(0,200,83,0.15)', uncollected: 'rgba(229,57,53,0.15)', didi: 'rgba(255,152,0,0.15)', uber: 'rgba(0,0,0,0.3)', ticket: 'rgba(79,195,247,0.15)' };
+              const label = labels[method];
+              const icon = icons[method];
+              const activeColor = colors[method];
+              const activeBg = bgs[method];
               return React.createElement('button', {
                 key: method, type: 'button',
                 onClick: () => setEditForm(f => ({ ...f, paymentMethod: method })),
