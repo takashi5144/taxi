@@ -584,17 +584,21 @@ window.DashboardPage = () => {
   const todayDiscountTicket = getDiscountByType(todayEntries, 'ticket');
   const todayCouponEntries = todayUncollectedEntries.filter(e => e.memo && e.memo.includes('クーポン未収'));
   const todayCouponUncollected = todayCouponEntries.reduce((sum, e) => sum + e.amount, 0);
-  // チケット使用エントリ（paymentMethodに関係なくticket割引があるエントリ）
+  // チケット支払エントリ（paymentMethod=ticket）
+  const todayTicketPayEntries = todayEntries.filter(e => e.paymentMethod === 'ticket');
+  const todayTicketPay = todayTicketPayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+  // チケット使用エントリ（paymentMethod=ticketまたはticket割引があるエントリ）
   const todayTicketEntries = todayEntries.filter(e => {
+    if (e.paymentMethod === 'ticket') return true;
     if (e.discounts && Array.isArray(e.discounts)) return e.discounts.some(d => d.type === 'ticket');
     return e.discountType && e.discountType.includes('ticket');
   });
   // 純粋な未収（クーポンサブとチケットエントリを除く）
   const todayPureUncollectedEntries = todayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
   const todayPureUncollected = todayPureUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total) + todayDiscountTicket.total;
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + todayTicketPay + Math.abs(todayDiscountDisability.total) + todayDiscountTicket.total;
   const todayUncollectedTotalExCoupon = todayUncollectedTotal - todayCouponUncollected;
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count + todayDiscountTicket.count;
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayTicketPayEntries.length + todayDiscountDisability.count + todayDiscountTicket.count;
   const currentMonth = getLocalDateString().slice(0, 7);
   const monthData = useMemo(() => {
     const entries = DataService.getEntries();
@@ -1082,7 +1086,7 @@ window.DashboardPage = () => {
           { key: 'uncollected', label: '未収', icon: 'pending', entries: todayUncollectedEntries, total: todayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
           { key: 'didi', label: 'DIDI決済', icon: 'smartphone', entries: todayDidiEntries, total: todayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
           { key: 'uber', label: 'Uber', icon: 'hail', entries: todayUberEntries, total: todayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
-          { key: 'ticket', label: 'チケット', icon: 'confirmation_number', entries: todayTicketEntries, total: todayDiscountTicket.total + todayDiscountCoupon.total, color: '#4fc3f7', bg: 'rgba(79,195,247,0.08)', border: 'rgba(79,195,247,0.2)', isTicket: true },
+          { key: 'ticket', label: 'チケット', icon: 'confirmation_number', entries: todayTicketEntries, total: todayTicketPay + todayDiscountTicket.total + todayDiscountCoupon.total, color: '#4fc3f7', bg: 'rgba(79,195,247,0.08)', border: 'rgba(79,195,247,0.2)', isTicket: true },
           { key: 'discount', label: '割引', icon: 'discount', entries: todayDiscountEntries, total: todayDiscount, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)', isDiscount: true },
         ];
         const gridEl = React.createElement('div', {
@@ -1131,7 +1135,8 @@ window.DashboardPage = () => {
               style: { borderTop: '1px solid rgba(79,195,247,0.2)', marginTop: 4, paddingTop: 4 },
             },
               React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 } },
-                todayDiscountTicket.count > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
+                todayTicketPayEntries.length > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット払: ${todayTicketPayEntries.length}件 ¥${todayTicketPay.toLocaleString()}`),
+                todayDiscountTicket.count > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット割: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
                 todayDiscountCoupon.count > 0 && React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ${todayDiscountCoupon.sheets}枚 ¥${todayDiscountCoupon.total.toLocaleString()}`)
               )
             )
@@ -1215,7 +1220,8 @@ window.DashboardPage = () => {
           todayDidiEntries.length > 0 && React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           todayUberEntries.length > 0 && React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           todayDiscountDisability.count > 0 && React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 +¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
-          todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
+          todayTicketPayEntries.length > 0 && React.createElement('span', null, `チケット払: ${todayTicketPayEntries.length}件 ¥${todayTicketPay.toLocaleString()}`),
+          todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット割: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
           todayCouponUncollected > 0 && React.createElement('span', null, `うちクーポン: ¥${todayCouponUncollected.toLocaleString()}`)
         )
       ),
@@ -1223,7 +1229,7 @@ window.DashboardPage = () => {
       expandedPayment === 'uncollected_total' && (() => {
         const _isCpn = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
         // クーポンサブを除外した一覧
-        const allUncollected = [...todayUncollectedEntries.filter(e => !_isCpn(e)), ...todayDidiEntries, ...todayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+        const allUncollected = [...todayUncollectedEntries.filter(e => !_isCpn(e)), ...todayDidiEntries, ...todayUberEntries, ...todayTicketPayEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
         // クーポンサブのparentIdマップ
         const cpnMap = {};
         todayCouponEntries.forEach(c => {
@@ -1244,12 +1250,14 @@ window.DashboardPage = () => {
 
         const payLabel = (e) => {
           if (cpnMap[e.id]) return '現金+クーポン';
+          if (e.paymentMethod === 'ticket') return 'チケット';
           if (e.paymentMethod === 'didi') return 'DIDI';
           if (e.paymentMethod === 'uber' || e.source === 'Uber') return 'Uber';
           return '未収';
         };
         const payColor = (e) => {
           if (cpnMap[e.id]) return '#a78bfa';
+          if (e.paymentMethod === 'ticket') return '#4fc3f7';
           if (e.paymentMethod === 'didi') return 'var(--color-warning)';
           if (e.paymentMethod === 'uber' || e.source === 'Uber') return '#fff';
           return 'var(--color-error)';

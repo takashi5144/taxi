@@ -615,8 +615,15 @@ window.CalendarPage = () => {
         const dayCouponUncollected = dayCouponEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
         const dayPureUncollectedEntries = dayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
         const dayPureUncollected = dayPureUncollectedEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
-        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + Math.abs(dayDiscDisability.total) + dayDiscTicket.total;
-        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayDiscDisability.count + dayDiscTicket.count;
+        const dayTicketPayEntries = dayEntries.filter(e => e.paymentMethod === 'ticket');
+        const dayTicketPay = dayTicketPayEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const dayTicketAllEntries = dayEntries.filter(e => {
+          if (e.paymentMethod === 'ticket') return true;
+          if (e.discounts && Array.isArray(e.discounts)) return e.discounts.some(d => d.type === 'ticket');
+          return e.discountType && e.discountType.includes('ticket');
+        });
+        const dayUncollectedTotal = dayUncollected + dayDidi + dayUber + dayTicketPay + Math.abs(dayDiscDisability.total) + dayDiscTicket.total;
+        const dayUncollectedTotalCount = dayUncollectedEntries.length + dayDidiEntries.length + dayUberEntries.length + dayTicketPayEntries.length + dayDiscDisability.count + dayDiscTicket.count;
         const dayDiscountEntries = dayEntries.filter(e => (e.discountAmount || 0) > 0);
 
         const payCards = [
@@ -624,6 +631,7 @@ window.CalendarPage = () => {
           { key: 'uncollected', label: '未収', icon: 'pending', count: dayUncollectedEntries.length, total: dayUncollected, entries: dayUncollectedEntries, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
           { key: 'didi', label: 'DIDI', icon: 'smartphone', count: dayDidiEntries.length, total: dayDidi, entries: dayDidiEntries, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
           { key: 'uber', label: 'Uber', icon: 'hail', count: dayUberEntries.length, total: dayUber, entries: dayUberEntries, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
+          { key: 'ticket', label: 'チケット', icon: 'confirmation_number', count: dayTicketAllEntries.length, total: dayTicketPay + dayDiscTicket.total + dayDiscCoupon.total, entries: dayTicketAllEntries, isTicket: true, color: '#4fc3f7', bg: 'rgba(79,195,247,0.08)', border: 'rgba(79,195,247,0.2)' },
           { key: 'discount', label: '割引', icon: 'discount', count: dayDiscountEntries.length, total: dayDiscount, entries: dayDiscountEntries, isDiscount: true, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)' },
         ];
 
@@ -647,7 +655,7 @@ window.CalendarPage = () => {
 
           // 現金・未収・DIDI・Uber・割引 カード（クリックで内訳展開）
           createElement('div', {
-            style: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px', marginBottom: expandedCalPay && !expandedCalPay.startsWith('uncollected_total') ? 0 : 'var(--space-sm)' }
+            style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: expandedCalPay && !expandedCalPay.startsWith('uncollected_total') ? 0 : 'var(--space-sm)' }
           },
             ...payCards.map(c =>
               createElement('div', {
@@ -767,14 +775,15 @@ window.CalendarPage = () => {
               dayDidiEntries.length > 0 && createElement('span', null, `DIDI: ${dayDidiEntries.length}件 ¥${dayDidi.toLocaleString()}`),
               dayUberEntries.length > 0 && createElement('span', null, `Uber: ${dayUberEntries.length}件 ¥${dayUber.toLocaleString()}`),
               dayDiscDisability.count > 0 && createElement('span', null, `障害者割引: ${dayDiscDisability.count}件 +¥${Math.abs(dayDiscDisability.total).toLocaleString()}`),
-              dayDiscTicket.count > 0 && createElement('span', null, `チケット: ${dayDiscTicket.count}件 ¥${dayDiscTicket.total.toLocaleString()}`),
+              dayTicketPayEntries.length > 0 && createElement('span', null, `チケット払: ${dayTicketPayEntries.length}件 ¥${dayTicketPay.toLocaleString()}`),
+              dayDiscTicket.count > 0 && createElement('span', null, `チケット割: ${dayDiscTicket.count}件 ¥${dayDiscTicket.total.toLocaleString()}`),
               dayCouponUncollected > 0 && createElement('span', null, `うちクーポン: ¥${dayCouponUncollected.toLocaleString()}`)
             )
           ),
 
           // 未収合計の展開内訳
           expandedCalPay === 'uncollected_total' && (() => {
-            const allUncollectedEntries = [...dayUncollectedEntries, ...dayDidiEntries, ...dayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+            const allUncollectedEntries = [...dayUncollectedEntries, ...dayDidiEntries, ...dayUberEntries, ...dayTicketPayEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
             if (allUncollectedEntries.length === 0) return createElement('div', {
               style: { marginBottom: 'var(--space-sm)', padding: '12px', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' },
             }, '未収データはありません');
@@ -782,8 +791,8 @@ window.CalendarPage = () => {
               style: { marginBottom: 'var(--space-sm)', borderRadius: '0 0 var(--border-radius) var(--border-radius)', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(156,39,176,0.25)', borderTop: 'none', overflow: 'hidden' },
             },
               ...allUncollectedEntries.map((e, i) => {
-                const pmColor = e.paymentMethod === 'didi' ? 'var(--color-warning)' : e.paymentMethod === 'uber' || e.source === 'Uber' ? '#fff' : 'var(--color-error)';
-                const pmLabel = e.paymentMethod === 'didi' ? 'DIDI' : e.paymentMethod === 'uber' || e.source === 'Uber' ? 'Uber' : '未収';
+                const pmColor = e.paymentMethod === 'ticket' ? '#4fc3f7' : e.paymentMethod === 'didi' ? 'var(--color-warning)' : e.paymentMethod === 'uber' || e.source === 'Uber' ? '#fff' : 'var(--color-error)';
+                const pmLabel = e.paymentMethod === 'ticket' ? 'チケット' : e.paymentMethod === 'didi' ? 'DIDI' : e.paymentMethod === 'uber' || e.source === 'Uber' ? 'Uber' : '未収';
                 return createElement('div', {
                   key: e.id || i,
                   style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' },
@@ -1049,7 +1058,7 @@ window.CalendarPage = () => {
               },
                 e.dispatchType && createElement('span', null, e.dispatchType),
                 e.paymentMethod && createElement('span', null,
-                  e.paymentMethod === 'cash' ? '現金' : e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod
+                  e.paymentMethod === 'cash' ? '現金' : e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'ticket' ? 'チケット' : e.paymentMethod
                 ),
                 e.purpose && createElement('span', null, e.purpose)
               )
