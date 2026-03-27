@@ -17924,7 +17924,7 @@ window.DashboardPage = () => {
           key: 'pay-grid',
           style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
         },
-          ...payCards.filter(c => (!c.isDiscount && !c.isTicket) || c.total > 0).map(c => React.createElement('div', {
+          ...payCards.filter(c => !c.isDiscount || c.total > 0).map(c => React.createElement('div', {
             key: c.key,
             onClick: () => setExpandedPayment(expandedPayment === c.key ? null : c.key),
             style: { padding: '10px', borderRadius: 'var(--border-radius)', background: c.bg, border: `1px solid ${c.border}`, cursor: 'pointer', userSelect: 'none', transition: 'box-shadow 0.2s', boxShadow: expandedPayment === c.key ? `0 0 0 2px ${c.border}` : 'none' },
