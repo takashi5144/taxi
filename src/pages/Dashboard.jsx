@@ -1231,7 +1231,7 @@ window.DashboardPage = () => {
     // JR旭川駅 到着列車情報
     (() => {
       if (!window.JrTimetable) return null;
-      const trains = JrTimetable.getUpcomingArrivals(6);
+      const trains = JrTimetable.getUpcomingArrivals(6, shiftMode);
       if (trains.length === 0) return React.createElement(Card, {
         style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
       },
@@ -1243,7 +1243,7 @@ window.DashboardPage = () => {
       return React.createElement(Card, {
         style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
       },
-        React.createElement(SectionHeader, { sectionKey: 'jr-arrivals', icon: 'train', title: 'JR旭川駅 到着予定', iconColor: '#2196F3' }),
+        React.createElement(SectionHeader, { sectionKey: 'jr-arrivals', icon: 'train', title: shiftMode === 'night' ? 'JR旭川駅 到着予定（17〜終電）' : 'JR旭川駅 到着予定（5〜19時）', iconColor: '#2196F3' }),
         !collapsedSections['jr-arrivals'] && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
           ...trains.map((t, i) => React.createElement('div', {
             key: i,

@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.58.0</title>
+  <title>タクシー売上サポート v3.58.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.58.0',
+  VERSION: '3.58.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -18125,7 +18125,7 @@ window.DashboardPage = () => {
     // JR旭川駅 到着列車情報
     (() => {
       if (!window.JrTimetable) return null;
-      const trains = JrTimetable.getUpcomingArrivals(6);
+      const trains = JrTimetable.getUpcomingArrivals(6, shiftMode);
       if (trains.length === 0) return React.createElement(Card, {
         style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
       },
@@ -18137,7 +18137,7 @@ window.DashboardPage = () => {
       return React.createElement(Card, {
         style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
       },
-        React.createElement(SectionHeader, { sectionKey: 'jr-arrivals', icon: 'train', title: 'JR旭川駅 到着予定', iconColor: '#2196F3' }),
+        React.createElement(SectionHeader, { sectionKey: 'jr-arrivals', icon: 'train', title: shiftMode === 'night' ? 'JR旭川駅 到着予定（17〜終電）' : 'JR旭川駅 到着予定（5〜19時）', iconColor: '#2196F3' }),
         !collapsedSections['jr-arrivals'] && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
           ...trains.map((t, i) => React.createElement('div', {
             key: i,

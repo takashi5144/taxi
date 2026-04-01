@@ -71,19 +71,27 @@ JR_ASAHIKAWA_ARRIVALS.sort((a, b) => a.time.localeCompare(b.time));
 /**
  * 現在時刻以降の到着列車を取得
  * @param {number} count - 取得件数（デフォルト5）
+ * @param {string} shiftMode - 'day'=日勤(5:00-19:00) / 'night'=夜勤(17:00以降すべて)
  * @returns {Array} 到着列車リスト（minsLeft付き）
  */
-function getUpcomingArrivals(count) {
+function getUpcomingArrivals(count, shiftMode) {
   count = count || 5;
+  shiftMode = shiftMode || 'day';
   const now = new Date();
   const nowHH = String(now.getHours()).padStart(2, '0');
   const nowMM = String(now.getMinutes()).padStart(2, '0');
   const nowTime = nowHH + ':' + nowMM;
   const nowMin = now.getHours() * 60 + now.getMinutes();
 
+  // 日勤: 05:00〜19:00 / 夜勤: 17:00〜終電
+  const rangeStart = shiftMode === 'night' ? '17:00' : '05:00';
+  const rangeEnd = shiftMode === 'night' ? '23:59' : '19:00';
+
   const upcoming = [];
   for (let i = 0; i < JR_ASAHIKAWA_ARRIVALS.length; i++) {
     const train = JR_ASAHIKAWA_ARRIVALS[i];
+    // 時間帯フィルタ
+    if (train.time < rangeStart || train.time > rangeEnd) continue;
     if (train.time >= nowTime) {
       const parts = train.time.split(':');
       const trainMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
