@@ -36,6 +36,7 @@ window.RevenuePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
+  const [standbyEnabled, setStandbyEnabled] = useState(false); // 待機情報オン/オフ
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
@@ -545,8 +546,8 @@ window.RevenuePage = () => {
     if (gpsInfo.dropoff && gpsInfo.dropoff.landmark) {
       formWithCoords.dropoffLandmark = gpsInfo.dropoff.landmark;
     }
-    // 待機情報を保存
-    if (capturedStandby) {
+    // 待機情報を保存（オンの場合のみ）
+    if (standbyEnabled && capturedStandby) {
       formWithCoords.standbyInfo = {
         locationName: capturedStandby.locationName,
         startTime: capturedStandby.startTimeHHMM || '',
@@ -629,6 +630,7 @@ window.RevenuePage = () => {
     setForm({ date: getShiftDateOrToday(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
+    setStandbyEnabled(false);
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -1249,114 +1251,137 @@ window.RevenuePage = () => {
             )
           ),
 
-          // 待機情報（GPS検出・微調整可能）
-          capturedStandby && capturedStandby.locationName && React.createElement('div', {
+          // 待機情��トグル＋入力
+          React.createElement('div', {
             style: {
               padding: '10px 12px', borderRadius: '8px',
-              background: 'rgba(255, 167, 38, 0.08)',
-              border: '1px solid rgba(255, 167, 38, 0.25)',
-              fontSize: '12px', color: '#ffa726',
+              background: standbyEnabled ? 'rgba(255, 167, 38, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+              border: standbyEnabled ? '1px solid rgba(255, 167, 38, 0.25)' : '1px solid rgba(255, 255, 255, 0.1)',
+              fontSize: '12px', color: standbyEnabled ? '#ffa726' : 'var(--text-secondary)',
               marginBottom: 'var(--space-md)',
             },
           },
-            // ヘッダー行
+            // ヘッダー行（トグル付き）
             React.createElement('div', {
-              style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' },
+              style: { display: 'flex', alignItems: 'center', gap: '6px' },
             },
               React.createElement('span', {
                 className: 'material-icons-round',
-                style: { fontSize: '16px', color: '#ffa726' },
+                style: { fontSize: '16px', color: standbyEnabled ? '#ffa726' : 'var(--text-secondary)' },
               }, 'hourglass_top'),
-              React.createElement('span', { style: { fontWeight: 600, fontSize: '12px' } }, '待機情報（GPS検出）'),
-              React.createElement('span', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.6)', marginLeft: 'auto' } }, 'タップで微調整')
-            ),
-            // 待機場所（プルダウン＋自由入力）
-            React.createElement('div', { style: { marginBottom: '6px' } },
-              React.createElement('label', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.7)', display: 'block', marginBottom: '2px' } }, '待機場所'),
-              React.createElement('div', { style: { display: 'flex', gap: '4px' } },
-                React.createElement('select', {
-                  value: (() => {
-                    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
-                    const spots = [];
-                    if (locs && locs.waitingSpots) locs.waitingSpots.forEach(s => spots.push(s.name));
-                    if (APP_CONSTANTS.KNOWN_PLACES) APP_CONSTANTS.KNOWN_PLACES.forEach(p => { if (!spots.includes(p.name)) spots.push(p.name); });
-                    return spots.includes(capturedStandby.locationName) ? capturedStandby.locationName : '__custom__';
-                  })(),
-                  onChange: (e) => {
-                    if (e.target.value !== '__custom__') {
-                      setCapturedStandby({ ...capturedStandby, locationName: e.target.value });
-                    }
-                  },
-                  style: {
-                    flex: 1, padding: '5px 8px', borderRadius: '6px',
-                    border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
-                    color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark',
-                  },
+              React.createElement('span', { style: { fontWeight: 600, fontSize: '12px' } }, '待機情報'),
+              React.createElement('div', {
+                onClick: () => setStandbyEnabled(!standbyEnabled),
+                style: {
+                  marginLeft: 'auto', width: '40px', height: '22px', borderRadius: '11px',
+                  background: standbyEnabled ? '#ffa726' : 'rgba(255,255,255,0.15)',
+                  position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
                 },
-                  ...(() => {
-                    const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
-                    const spots = [];
-                    if (locs && locs.waitingSpots) locs.waitingSpots.forEach(s => spots.push(s.name));
-                    if (APP_CONSTANTS.KNOWN_PLACES) APP_CONSTANTS.KNOWN_PLACES.forEach(p => { if (!spots.includes(p.name)) spots.push(p.name); });
-                    const options = spots.map(name => React.createElement('option', { key: name, value: name }, name));
-                    if (!spots.includes(capturedStandby.locationName)) {
-                      options.unshift(React.createElement('option', { key: '__custom__', value: '__custom__' }, capturedStandby.locationName + '（GPS検出）'));
-                    }
-                    return options;
-                  })()
-                ),
-                React.createElement('input', {
-                  type: 'text',
-                  value: capturedStandby.locationName,
-                  onChange: (e) => setCapturedStandby({ ...capturedStandby, locationName: e.target.value }),
+              },
+                React.createElement('div', {
                   style: {
-                    flex: 1, padding: '5px 8px', borderRadius: '6px',
-                    border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
-                    color: 'var(--text-primary)', fontSize: '12px',
+                    position: 'absolute', top: '2px',
+                    left: standbyEnabled ? '20px' : '2px',
+                    width: '18px', height: '18px', borderRadius: '50%',
+                    background: '#fff', transition: 'left 0.2s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                   },
-                  placeholder: '自由入力',
                 })
               )
             ),
-            // 待機時間（開始〜終了）
-            React.createElement('div', null,
-              React.createElement('label', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.7)', display: 'block', marginBottom: '2px' } }, '待機時間'),
-              React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
-                React.createElement('input', {
-                  type: 'time',
-                  value: capturedStandby.startTimeHHMM || '',
-                  onChange: (e) => setCapturedStandby({ ...capturedStandby, startTimeHHMM: e.target.value }),
-                  style: {
-                    flex: 1, padding: '5px 8px', borderRadius: '6px',
-                    border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
-                    color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark',
-                  },
-                }),
-                React.createElement('span', { style: { fontSize: '12px', color: 'rgba(255,167,38,0.7)' } }, '〜'),
-                React.createElement('input', {
-                  type: 'time',
-                  value: capturedStandby.endTimeHHMM || '',
-                  onChange: (e) => setCapturedStandby({ ...capturedStandby, endTimeHHMM: e.target.value }),
-                  style: {
-                    flex: 1, padding: '5px 8px', borderRadius: '6px',
-                    border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
-                    color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark',
-                  },
-                }),
-                // 経過時間表示
-                (() => {
-                  const s = capturedStandby.startTimeHHMM;
-                  const e = capturedStandby.endTimeHHMM;
-                  if (s && e) {
-                    const [sh, sm] = s.split(':').map(Number);
-                    const [eh, em] = e.split(':').map(Number);
-                    const diff = (eh * 60 + em) - (sh * 60 + sm);
-                    if (diff > 0) return React.createElement('span', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.6)', whiteSpace: 'nowrap' } }, `${diff}分`);
-                  }
-                  return null;
-                })()
-              )
-            )
+            // オンの場合のみ入力フィールドを表示
+            standbyEnabled && (() => {
+              const sb = capturedStandby || {};
+              return React.createElement('div', { style: { marginTop: '8px' } },
+                // 待機場所（プルダウン＋自由入力）
+                React.createElement('div', { style: { marginBottom: '6px' } },
+                  React.createElement('label', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.7)', display: 'block', marginBottom: '2px' } }, '待機場所'),
+                  React.createElement('div', { style: { display: 'flex', gap: '4px' } },
+                    React.createElement('select', {
+                      value: (() => {
+                        const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+                        const spots = [];
+                        if (locs && locs.waitingSpots) locs.waitingSpots.forEach(s => spots.push(s.name));
+                        if (APP_CONSTANTS.KNOWN_PLACES) APP_CONSTANTS.KNOWN_PLACES.forEach(p => { if (!spots.includes(p.name)) spots.push(p.name); });
+                        return sb.locationName && spots.includes(sb.locationName) ? sb.locationName : '__custom__';
+                      })(),
+                      onChange: (e) => {
+                        if (e.target.value !== '__custom__') {
+                          setCapturedStandby({ ...sb, locationName: e.target.value });
+                        }
+                      },
+                      style: {
+                        flex: 1, padding: '5px 8px', borderRadius: '6px',
+                        border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
+                        color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark',
+                      },
+                    },
+                      ...(() => {
+                        const locs = APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa;
+                        const spots = [];
+                        if (locs && locs.waitingSpots) locs.waitingSpots.forEach(s => spots.push(s.name));
+                        if (APP_CONSTANTS.KNOWN_PLACES) APP_CONSTANTS.KNOWN_PLACES.forEach(p => { if (!spots.includes(p.name)) spots.push(p.name); });
+                        const options = [React.createElement('option', { key: '__none__', value: '__custom__' }, '選択してください')];
+                        spots.forEach(name => options.push(React.createElement('option', { key: name, value: name }, name)));
+                        if (sb.locationName && !spots.includes(sb.locationName)) {
+                          options.splice(1, 0, React.createElement('option', { key: '__gps__', value: '__custom__' }, sb.locationName));
+                        }
+                        return options;
+                      })()
+                    ),
+                    React.createElement('input', {
+                      type: 'text',
+                      value: sb.locationName || '',
+                      onChange: (e) => setCapturedStandby({ ...sb, locationName: e.target.value }),
+                      style: {
+                        flex: 1, padding: '5px 8px', borderRadius: '6px',
+                        border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
+                        color: 'var(--text-primary)', fontSize: '12px',
+                      },
+                      placeholder: '自由入力',
+                    })
+                  )
+                ),
+                // 待機時間（開始〜終了）
+                React.createElement('div', null,
+                  React.createElement('label', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.7)', display: 'block', marginBottom: '2px' } }, '待機時間'),
+                  React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
+                    React.createElement('input', {
+                      type: 'time',
+                      value: sb.startTimeHHMM || '',
+                      onChange: (e) => setCapturedStandby({ ...sb, startTimeHHMM: e.target.value }),
+                      style: {
+                        flex: 1, padding: '5px 8px', borderRadius: '6px',
+                        border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
+                        color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark',
+                      },
+                    }),
+                    React.createElement('span', { style: { fontSize: '12px', color: 'rgba(255,167,38,0.7)' } }, '\u301C'),
+                    React.createElement('input', {
+                      type: 'time',
+                      value: sb.endTimeHHMM || '',
+                      onChange: (e) => setCapturedStandby({ ...sb, endTimeHHMM: e.target.value }),
+                      style: {
+                        flex: 1, padding: '5px 8px', borderRadius: '6px',
+                        border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)',
+                        color: 'var(--text-primary)', fontSize: '12px', colorScheme: 'dark',
+                      },
+                    }),
+                    (() => {
+                      const s = sb.startTimeHHMM;
+                      const e = sb.endTimeHHMM;
+                      if (s && e) {
+                        const [sh, sm] = s.split(':').map(Number);
+                        const [eh, em] = e.split(':').map(Number);
+                        const diff = (eh * 60 + em) - (sh * 60 + sm);
+                        if (diff > 0) return React.createElement('span', { style: { fontSize: '10px', color: 'rgba(255,167,38,0.6)', whiteSpace: 'nowrap' } }, diff + '\u5206');
+                      }
+                      return null;
+                    })()
+                  )
+                )
+              );
+            })()
           ),
 
           // 日付（自動：本日 + 曜日・祝日を自動計算）
