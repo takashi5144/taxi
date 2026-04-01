@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.48.0</title>
+  <title>タクシー売上サポート v3.48.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.48.0',
+  VERSION: '3.48.1',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -35258,6 +35258,32 @@ window.GatheringMemoPage = () => {
 // FILE: src/App.jsx
 // ============================================================
 (function() {
+// ワンタイム: 4月2日の売上データを4月1日に移行（日付またぎ対応）
+(function migrateApril2ToApril1() {
+  const MIGRATION_KEY = 'taxi_migration_apr2_to_apr1_done';
+  if (localStorage.getItem(MIGRATION_KEY)) return;
+  try {
+    const entries = JSON.parse(localStorage.getItem('taxi_app_revenue') || '[]');
+    let changed = false;
+    entries.forEach(e => {
+      if (e.date === '2026-04-02') {
+        e.date = '2026-04-01';
+        if (window.JapaneseHolidays) {
+          const info = JapaneseHolidays.getDateInfo('2026-04-01');
+          e.dayOfWeek = info.dayOfWeek;
+          e.holiday = info.holiday || '';
+        }
+        changed = true;
+      }
+    });
+    if (changed) {
+      localStorage.setItem('taxi_app_revenue', JSON.stringify(entries));
+      if (window.AppLogger) AppLogger.info('4月2日の売上を4月1日に移行しました');
+    }
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch (e) { /* ignore */ }
+})();
+
 // App.jsx - ルートコンポーネント（ハッシュルーティング対応）
 window.App = () => {
   const { currentPage, navigate } = useAppContext();

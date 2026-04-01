@@ -1,4 +1,30 @@
 (function() {
+// ワンタイム: 4月2日の売上データを4月1日に移行（日付またぎ対応）
+(function migrateApril2ToApril1() {
+  const MIGRATION_KEY = 'taxi_migration_apr2_to_apr1_done';
+  if (localStorage.getItem(MIGRATION_KEY)) return;
+  try {
+    const entries = JSON.parse(localStorage.getItem('taxi_app_revenue') || '[]');
+    let changed = false;
+    entries.forEach(e => {
+      if (e.date === '2026-04-02') {
+        e.date = '2026-04-01';
+        if (window.JapaneseHolidays) {
+          const info = JapaneseHolidays.getDateInfo('2026-04-01');
+          e.dayOfWeek = info.dayOfWeek;
+          e.holiday = info.holiday || '';
+        }
+        changed = true;
+      }
+    });
+    if (changed) {
+      localStorage.setItem('taxi_app_revenue', JSON.stringify(entries));
+      if (window.AppLogger) AppLogger.info('4月2日の売上を4月1日に移行しました');
+    }
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch (e) { /* ignore */ }
+})();
+
 // App.jsx - ルートコンポーネント（ハッシュルーティング対応）
 window.App = () => {
   const { currentPage, navigate } = useAppContext();
