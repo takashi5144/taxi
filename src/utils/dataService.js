@@ -2825,26 +2825,51 @@ window.DataService = (() => {
 
   function getUtilizationRate() {
     const entries = getEntries();
-    const today = toDateStr(new Date().toISOString());
-    const todayEntries = entries
-      .filter(e => toDateStr(e.timestamp) === today && e.pickupTime && e.dropoffTime)
-      .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
-    let occupied = 0, vacant = 0;
-    todayEntries.forEach((e, i) => {
-      const p = _timeToMinutes(e.pickupTime);
-      const d = _timeToMinutes(e.dropoffTime);
-      if (p !== null && d !== null && d > p) occupied += d - p;
-      if (i < todayEntries.length - 1) {
-        const nextP = _timeToMinutes(todayEntries[i + 1].pickupTime);
-        if (d !== null && nextP !== null && nextP > d) vacant += nextP - d;
-      }
-    });
-    const total = occupied + vacant;
+    const now = new Date();
+    const today = toDateStr(now.toISOString());
+    const currentMonth = today.slice(0, 7);
+
+    // 日別の実車率を計算するヘルパー
+    function calcDayRate(dayEntries) {
+      const sorted = dayEntries
+        .filter(e => e.pickupTime && e.dropoffTime)
+        .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+      let occ = 0, vac = 0;
+      sorted.forEach((e, i) => {
+        const p = _timeToMinutes(e.pickupTime);
+        const d = _timeToMinutes(e.dropoffTime);
+        if (p !== null && d !== null && d > p) occ += d - p;
+        if (i < sorted.length - 1) {
+          const nextP = _timeToMinutes(sorted[i + 1].pickupTime);
+          if (d !== null && nextP !== null && nextP > d) vac += nextP - d;
+        }
+      });
+      return { occ, vac, count: sorted.length };
+    }
+
+    // 本日
+    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
+    const todayResult = calcDayRate(todayEntries);
+    const todayTotal = todayResult.occ + todayResult.vac;
+
+    // 当月（日別に集計して合算）
+    const monthEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)).startsWith(currentMonth));
+    const monthResult = calcDayRate(monthEntries);
+    const monthTotal = monthResult.occ + monthResult.vac;
+
+    // 当月の営業日数
+    const monthDays = new Set(monthEntries.filter(e => e.pickupTime && e.dropoffTime).map(e => e.date || toDateStr(e.timestamp))).size;
+
     return {
-      occupiedMin: occupied,
-      vacantMin: vacant,
-      rate: total > 0 ? Math.round((occupied / total) * 100) : 0,
-      rideCount: todayEntries.length,
+      occupiedMin: todayResult.occ,
+      vacantMin: todayResult.vac,
+      rate: todayTotal > 0 ? Math.round((todayResult.occ / todayTotal) * 100) : 0,
+      rideCount: todayResult.count,
+      monthOccupiedMin: monthResult.occ,
+      monthVacantMin: monthResult.vac,
+      monthRate: monthTotal > 0 ? Math.round((monthResult.occ / monthTotal) * 100) : 0,
+      monthRideCount: monthResult.count,
+      monthDays: monthDays,
     };
   }
 

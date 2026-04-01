@@ -1491,18 +1491,38 @@ window.DashboardPage = () => {
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: 'var(--color-accent)' } }, 'local_taxi'),
         React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '実車率')
       ),
-      React.createElement('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' } },
-        React.createElement('span', { style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-accent)' } }, `${utilization.rate}%`),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-          `実車${utilization.occupiedMin}分 / 空車${utilization.vacantMin}分`
+      // 本日と当月を横並び表示
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '8px' } },
+        // 本日
+        React.createElement('div', { style: { textAlign: 'center' } },
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, '本日'),
+          React.createElement('div', { style: { fontSize: '1.8rem', fontWeight: 700, color: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)' } }, `${utilization.rate}%`),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' } },
+            `実車${utilization.occupiedMin}分 / 空車${utilization.vacantMin}分`
+          ),
+          React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '6px', overflow: 'hidden', marginTop: '6px' } },
+            React.createElement('div', { style: {
+              width: `${utilization.rate}%`, height: '100%', borderRadius: '8px',
+              background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
+              transition: 'width 0.5s ease',
+            } })
+          )
+        ),
+        // 当月
+        React.createElement('div', { style: { textAlign: 'center' } },
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, `当月（${utilization.monthDays}日間）`),
+          React.createElement('div', { style: { fontSize: '1.8rem', fontWeight: 700, color: utilization.monthRate >= 50 ? '#10b981' : utilization.monthRate >= 30 ? '#f59e0b' : '#ef4444' } }, `${utilization.monthRate}%`),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' } },
+            `実車${utilization.monthOccupiedMin}分 / 空車${utilization.monthVacantMin}分`
+          ),
+          React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '6px', overflow: 'hidden', marginTop: '6px' } },
+            React.createElement('div', { style: {
+              width: `${utilization.monthRate}%`, height: '100%', borderRadius: '8px',
+              background: utilization.monthRate >= 50 ? '#10b981' : utilization.monthRate >= 30 ? '#f59e0b' : '#ef4444',
+              transition: 'width 0.5s ease',
+            } })
+          )
         )
-      ),
-      React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '8px', overflow: 'hidden' } },
-        React.createElement('div', { style: {
-          width: `${utilization.rate}%`, height: '100%', borderRadius: '8px',
-          background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
-          transition: 'width 0.5s ease',
-        } })
       ),
       // GPS実車率（cruisingPerfがある場合）
       cruisingPerf && cruisingPerf.overall && cruisingPerf.overall.totalMin > 0 && React.createElement('div', {

@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.56.0</title>
+  <title>タクシー売上サポート v3.57.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.56.0',
+  VERSION: '3.57.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -5432,26 +5432,51 @@ window.DataService = (() => {
 
   function getUtilizationRate() {
     const entries = getEntries();
-    const today = toDateStr(new Date().toISOString());
-    const todayEntries = entries
-      .filter(e => toDateStr(e.timestamp) === today && e.pickupTime && e.dropoffTime)
-      .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
-    let occupied = 0, vacant = 0;
-    todayEntries.forEach((e, i) => {
-      const p = _timeToMinutes(e.pickupTime);
-      const d = _timeToMinutes(e.dropoffTime);
-      if (p !== null && d !== null && d > p) occupied += d - p;
-      if (i < todayEntries.length - 1) {
-        const nextP = _timeToMinutes(todayEntries[i + 1].pickupTime);
-        if (d !== null && nextP !== null && nextP > d) vacant += nextP - d;
-      }
-    });
-    const total = occupied + vacant;
+    const now = new Date();
+    const today = toDateStr(now.toISOString());
+    const currentMonth = today.slice(0, 7);
+
+    // 日別の実車率を計算するヘルパー
+    function calcDayRate(dayEntries) {
+      const sorted = dayEntries
+        .filter(e => e.pickupTime && e.dropoffTime)
+        .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+      let occ = 0, vac = 0;
+      sorted.forEach((e, i) => {
+        const p = _timeToMinutes(e.pickupTime);
+        const d = _timeToMinutes(e.dropoffTime);
+        if (p !== null && d !== null && d > p) occ += d - p;
+        if (i < sorted.length - 1) {
+          const nextP = _timeToMinutes(sorted[i + 1].pickupTime);
+          if (d !== null && nextP !== null && nextP > d) vac += nextP - d;
+        }
+      });
+      return { occ, vac, count: sorted.length };
+    }
+
+    // 本日
+    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
+    const todayResult = calcDayRate(todayEntries);
+    const todayTotal = todayResult.occ + todayResult.vac;
+
+    // 当月（日別に集計して合算）
+    const monthEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)).startsWith(currentMonth));
+    const monthResult = calcDayRate(monthEntries);
+    const monthTotal = monthResult.occ + monthResult.vac;
+
+    // 当月の営業日数
+    const monthDays = new Set(monthEntries.filter(e => e.pickupTime && e.dropoffTime).map(e => e.date || toDateStr(e.timestamp))).size;
+
     return {
-      occupiedMin: occupied,
-      vacantMin: vacant,
-      rate: total > 0 ? Math.round((occupied / total) * 100) : 0,
-      rideCount: todayEntries.length,
+      occupiedMin: todayResult.occ,
+      vacantMin: todayResult.vac,
+      rate: todayTotal > 0 ? Math.round((todayResult.occ / todayTotal) * 100) : 0,
+      rideCount: todayResult.count,
+      monthOccupiedMin: monthResult.occ,
+      monthVacantMin: monthResult.vac,
+      monthRate: monthTotal > 0 ? Math.round((monthResult.occ / monthTotal) * 100) : 0,
+      monthRideCount: monthResult.count,
+      monthDays: monthDays,
     };
   }
 
@@ -18360,18 +18385,38 @@ window.DashboardPage = () => {
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: 'var(--color-accent)' } }, 'local_taxi'),
         React.createElement('span', { style: { fontWeight: 600, fontSize: 'var(--font-size-sm)' } }, '実車率')
       ),
-      React.createElement('div', { style: { display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '8px' } },
-        React.createElement('span', { style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-accent)' } }, `${utilization.rate}%`),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-          `実車${utilization.occupiedMin}分 / 空車${utilization.vacantMin}分`
+      // 本日と当月を横並び表示
+      React.createElement('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '8px' } },
+        // 本日
+        React.createElement('div', { style: { textAlign: 'center' } },
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, '本日'),
+          React.createElement('div', { style: { fontSize: '1.8rem', fontWeight: 700, color: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)' } }, `${utilization.rate}%`),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' } },
+            `実車${utilization.occupiedMin}分 / 空車${utilization.vacantMin}分`
+          ),
+          React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '6px', overflow: 'hidden', marginTop: '6px' } },
+            React.createElement('div', { style: {
+              width: `${utilization.rate}%`, height: '100%', borderRadius: '8px',
+              background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
+              transition: 'width 0.5s ease',
+            } })
+          )
+        ),
+        // 当月
+        React.createElement('div', { style: { textAlign: 'center' } },
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' } }, `当月（${utilization.monthDays}日間）`),
+          React.createElement('div', { style: { fontSize: '1.8rem', fontWeight: 700, color: utilization.monthRate >= 50 ? '#10b981' : utilization.monthRate >= 30 ? '#f59e0b' : '#ef4444' } }, `${utilization.monthRate}%`),
+          React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' } },
+            `実車${utilization.monthOccupiedMin}分 / 空車${utilization.monthVacantMin}分`
+          ),
+          React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '6px', overflow: 'hidden', marginTop: '6px' } },
+            React.createElement('div', { style: {
+              width: `${utilization.monthRate}%`, height: '100%', borderRadius: '8px',
+              background: utilization.monthRate >= 50 ? '#10b981' : utilization.monthRate >= 30 ? '#f59e0b' : '#ef4444',
+              transition: 'width 0.5s ease',
+            } })
+          )
         )
-      ),
-      React.createElement('div', { style: { background: 'rgba(255,255,255,0.1)', borderRadius: '8px', height: '8px', overflow: 'hidden' } },
-        React.createElement('div', { style: {
-          width: `${utilization.rate}%`, height: '100%', borderRadius: '8px',
-          background: utilization.rate >= 50 ? 'var(--color-accent)' : 'var(--color-warning)',
-          transition: 'width 0.5s ease',
-        } })
       ),
       // GPS実車率（cruisingPerfがある場合）
       cruisingPerf && cruisingPerf.overall && cruisingPerf.overall.totalMin > 0 && React.createElement('div', {
