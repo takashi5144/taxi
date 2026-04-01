@@ -910,149 +910,7 @@ window.DashboardPage = () => {
       )
     ),
 
-    // フィルタ表示ラベル
-    dayTypeFilter && React.createElement('div', {
-      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
-    },
-      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
-      dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
-    ),
-
-    // リアルタイム時給
-    hourlyRate !== null && React.createElement(Card, {
-      style: {
-        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(249,168,37,0.15), rgba(255,152,0,0.08))',
-        border: '1px solid rgba(249,168,37,0.3)',
-        textAlign: 'center',
-      },
-    },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)' } }, 'speed'),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'リアルタイム時給')
-      ),
-      React.createElement('div', {
-        style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-secondary)' },
-      }, `¥${hourlyRate.toLocaleString()}/h`)
-    ),
-
-    // === 夜勤専用セクション ===
-    shiftMode === 'night' && nightData && React.createElement(React.Fragment, null,
-      // 深夜割増ステータス
-      React.createElement('div', {
-        style: {
-          marginBottom: 'var(--space-md)', padding: '12px 16px', borderRadius: 'var(--border-radius)',
-          background: nightData.isLateNight ? 'rgba(124,77,255,0.15)' : 'rgba(255,255,255,0.04)',
-          border: nightData.isLateNight ? '2px solid rgba(124,77,255,0.4)' : '1px solid var(--border-color)',
-          textAlign: 'center',
-        }
-      },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: nightData.isLateNight ? '#b388ff' : 'var(--text-muted)' } }, 'nightlight'),
-          React.createElement('span', { style: { fontSize: '16px', fontWeight: 700, color: nightData.isLateNight ? '#b388ff' : 'var(--text-secondary)' } },
-            nightData.isLateNight ? '深夜割増中（22:00〜5:00 +20%）' : `深夜割増まで ${(() => { const m = (22 - nightData.nowH) * 60 - new Date().getMinutes(); return m > 0 ? m + '分' : '—'; })()}`
-          )
-        )
-      ),
-
-      // 夜間売上サマリー
-      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#b388ff' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'nightlight'),
-          '夜間売上（17:00〜翌5:00）'
-        ),
-        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' } },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '夜間売上'),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: '#b388ff' } }, `¥${nightData.nightTotal.toLocaleString()}`)
-          ),
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '夜間件数'),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700 } }, `${nightData.nightEntries.length}件`)
-          ),
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '深夜帯'),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: '#ce93d8' } }, `${nightData.nightLateEntries.length}件`)
-          )
-        )
-      ),
-
-      // ホテル需要予測
-      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#4fc3f7' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'hotel'),
-          'ホテル需要',
-          nightData.currentPeak && React.createElement('span', {
-            style: { fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(79,195,247,0.2)', color: '#4fc3f7', fontWeight: 600 }
-          }, nightData.currentPeak === 'evening' ? '夕食外出ピーク' : nightData.currentPeak === 'night' ? '帰館ピーク' : nightData.currentPeak === 'checkin' ? 'チェックインピーク' : '')
-        ),
-        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-          ...nightData.hotels.filter(h => h.demandLevel === 'very_high' || h.demandLevel === 'high').map(h =>
-            React.createElement('div', { key: h.name, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)' } },
-              React.createElement('span', { style: { fontSize: '12px' } }, h.name),
-              React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: h.demandLevel === 'very_high' ? '#ff5252' : '#ffa726' } },
-                h.demandLevel === 'very_high' ? '需要：高' : '需要：中'
-              )
-            )
-          )
-        )
-      ),
-
-      // 繁華街需要 + おすすめ待機スポット
-      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#ffa726' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'location_on'),
-          `おすすめ待機スポット（${nightData.nowH}時台）`
-        ),
-        // 繁華街需要バー
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '6px 8px', borderRadius: '6px', background: 'rgba(255,167,38,0.08)' } },
-          React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)', minWidth: '60px' } }, '繁華街'),
-          React.createElement('div', { style: { flex: 1, height: '14px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' } },
-            React.createElement('div', { style: { height: '100%', width: `${nightData.downtownDemand}%`, background: nightData.downtownDemand > 50 ? '#ffa726' : nightData.downtownDemand > 20 ? '#66bb6a' : 'rgba(255,255,255,0.2)', borderRadius: '4px', transition: 'width 0.3s' } })
-          ),
-          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, minWidth: '30px', textAlign: 'right' } }, `${nightData.downtownDemand}`)
-        ),
-        // スポットリスト
-        nightData.topSpots.length > 0 ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-          ...nightData.topSpots.map((sp, i) =>
-            React.createElement('div', { key: sp.name, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' } },
-              React.createElement('span', { style: { fontSize: '14px', fontWeight: 700, color: i === 0 ? '#ffa726' : 'var(--text-muted)', minWidth: '20px' } }, `${i + 1}`),
-              React.createElement('span', { style: { fontSize: '12px', flex: 1 } }, sp.name),
-              React.createElement('div', { style: { width: '60px', height: '10px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' } },
-                React.createElement('div', { style: { height: '100%', width: `${sp.demand}%`, background: sp.demand > 40 ? '#ffa726' : sp.demand > 20 ? '#66bb6a' : 'rgba(255,255,255,0.3)', borderRadius: '3px' } })
-              ),
-              React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, minWidth: '25px', textAlign: 'right' } }, sp.demand)
-            )
-          )
-        ) : React.createElement('div', { style: { textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '12px' } }, 'この時間帯は需要データがありません')
-      ),
-
-      // 終バス・最終便情報
-      nightData.lastTransit.length > 0 && React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#81c784' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'directions_bus'),
-          '終バス・最終便'
-        ),
-        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-          ...nightData.lastTransit.map(t =>
-            React.createElement('div', { key: t.name, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', background: t.minsLeft <= 30 && t.minsLeft > 0 ? 'rgba(255,82,82,0.08)' : 'rgba(255,255,255,0.04)' } },
-              React.createElement('div', null,
-                React.createElement('div', { style: { fontSize: '12px' } }, t.name),
-                t.note && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, t.note)
-              ),
-              React.createElement('div', { style: { textAlign: 'right' } },
-                React.createElement('div', { style: { fontSize: '13px', fontWeight: 700 } }, t.time),
-                React.createElement('div', { style: { fontSize: '10px', color: t.minsLeft <= 30 && t.minsLeft > 0 ? '#ff5252' : 'var(--text-muted)', fontWeight: t.minsLeft <= 30 ? 700 : 400 } },
-                  t.minsLeft > 0 ? `あと${t.minsLeft}分` : '到着済み'
-                )
-              )
-            )
-          )
-        )
-      )
-    ),
-
-    // 本日の売上合計（Revenue.jsxから移動）
+    // 本日の売上合計（最上部表示）
     React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
       // 合計金額セクション
       React.createElement('div', { style: { textAlign: 'center', paddingBottom: 'var(--space-sm)', marginBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-color)' } },
@@ -1367,6 +1225,149 @@ window.DashboardPage = () => {
         ),
         React.createElement('span', { style: { color: 'var(--text-muted)' } },
           `当月${monthData.count}件 ¥${monthData.total.toLocaleString()}`
+        )
+      )
+    ),
+
+
+    // フィルタ表示ラベル
+    dayTypeFilter && React.createElement('div', {
+      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
+    },
+      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
+      dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
+    ),
+
+    // リアルタイム時給
+    hourlyRate !== null && React.createElement(Card, {
+      style: {
+        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
+        background: 'linear-gradient(135deg, rgba(249,168,37,0.15), rgba(255,152,0,0.08))',
+        border: '1px solid rgba(249,168,37,0.3)',
+        textAlign: 'center',
+      },
+    },
+      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)' } }, 'speed'),
+        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'リアルタイム時給')
+      ),
+      React.createElement('div', {
+        style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-secondary)' },
+      }, `¥${hourlyRate.toLocaleString()}/h`)
+    ),
+
+    // === 夜勤専用セクション ===
+    shiftMode === 'night' && nightData && React.createElement(React.Fragment, null,
+      // 深夜割増ステータス
+      React.createElement('div', {
+        style: {
+          marginBottom: 'var(--space-md)', padding: '12px 16px', borderRadius: 'var(--border-radius)',
+          background: nightData.isLateNight ? 'rgba(124,77,255,0.15)' : 'rgba(255,255,255,0.04)',
+          border: nightData.isLateNight ? '2px solid rgba(124,77,255,0.4)' : '1px solid var(--border-color)',
+          textAlign: 'center',
+        }
+      },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: nightData.isLateNight ? '#b388ff' : 'var(--text-muted)' } }, 'nightlight'),
+          React.createElement('span', { style: { fontSize: '16px', fontWeight: 700, color: nightData.isLateNight ? '#b388ff' : 'var(--text-secondary)' } },
+            nightData.isLateNight ? '深夜割増中（22:00〜5:00 +20%）' : `深夜割増まで ${(() => { const m = (22 - nightData.nowH) * 60 - new Date().getMinutes(); return m > 0 ? m + '分' : '—'; })()}`
+          )
+        )
+      ),
+
+      // 夜間売上サマリー
+      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#b388ff' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'nightlight'),
+          '夜間売上（17:00〜翌5:00）'
+        ),
+        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' } },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '夜間売上'),
+            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: '#b388ff' } }, `¥${nightData.nightTotal.toLocaleString()}`)
+          ),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '夜間件数'),
+            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700 } }, `${nightData.nightEntries.length}件`)
+          ),
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '深夜帯'),
+            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: '#ce93d8' } }, `${nightData.nightLateEntries.length}件`)
+          )
+        )
+      ),
+
+      // ホテル需要予測
+      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#4fc3f7' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'hotel'),
+          'ホテル需要',
+          nightData.currentPeak && React.createElement('span', {
+            style: { fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(79,195,247,0.2)', color: '#4fc3f7', fontWeight: 600 }
+          }, nightData.currentPeak === 'evening' ? '夕食外出ピーク' : nightData.currentPeak === 'night' ? '帰館ピーク' : nightData.currentPeak === 'checkin' ? 'チェックインピーク' : '')
+        ),
+        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+          ...nightData.hotels.filter(h => h.demandLevel === 'very_high' || h.demandLevel === 'high').map(h =>
+            React.createElement('div', { key: h.name, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)' } },
+              React.createElement('span', { style: { fontSize: '12px' } }, h.name),
+              React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: h.demandLevel === 'very_high' ? '#ff5252' : '#ffa726' } },
+                h.demandLevel === 'very_high' ? '需要：高' : '需要：中'
+              )
+            )
+          )
+        )
+      ),
+
+      // 繁華街需要 + おすすめ待機スポット
+      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#ffa726' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'location_on'),
+          `おすすめ待機スポット（${nightData.nowH}時台）`
+        ),
+        // 繁華街需要バー
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '6px 8px', borderRadius: '6px', background: 'rgba(255,167,38,0.08)' } },
+          React.createElement('span', { style: { fontSize: '12px', color: 'var(--text-secondary)', minWidth: '60px' } }, '繁華街'),
+          React.createElement('div', { style: { flex: 1, height: '14px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' } },
+            React.createElement('div', { style: { height: '100%', width: `${nightData.downtownDemand}%`, background: nightData.downtownDemand > 50 ? '#ffa726' : nightData.downtownDemand > 20 ? '#66bb6a' : 'rgba(255,255,255,0.2)', borderRadius: '4px', transition: 'width 0.3s' } })
+          ),
+          React.createElement('span', { style: { fontSize: '12px', fontWeight: 700, minWidth: '30px', textAlign: 'right' } }, `${nightData.downtownDemand}`)
+        ),
+        // スポットリスト
+        nightData.topSpots.length > 0 ? React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+          ...nightData.topSpots.map((sp, i) =>
+            React.createElement('div', { key: sp.name, style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px' } },
+              React.createElement('span', { style: { fontSize: '14px', fontWeight: 700, color: i === 0 ? '#ffa726' : 'var(--text-muted)', minWidth: '20px' } }, `${i + 1}`),
+              React.createElement('span', { style: { fontSize: '12px', flex: 1 } }, sp.name),
+              React.createElement('div', { style: { width: '60px', height: '10px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' } },
+                React.createElement('div', { style: { height: '100%', width: `${sp.demand}%`, background: sp.demand > 40 ? '#ffa726' : sp.demand > 20 ? '#66bb6a' : 'rgba(255,255,255,0.3)', borderRadius: '3px' } })
+              ),
+              React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, minWidth: '25px', textAlign: 'right' } }, sp.demand)
+            )
+          )
+        ) : React.createElement('div', { style: { textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '12px' } }, 'この時間帯は需要データがありません')
+      ),
+
+      // 終バス・最終便情報
+      nightData.lastTransit.length > 0 && React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#81c784' } },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'directions_bus'),
+          '終バス・最終便'
+        ),
+        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+          ...nightData.lastTransit.map(t =>
+            React.createElement('div', { key: t.name, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', background: t.minsLeft <= 30 && t.minsLeft > 0 ? 'rgba(255,82,82,0.08)' : 'rgba(255,255,255,0.04)' } },
+              React.createElement('div', null,
+                React.createElement('div', { style: { fontSize: '12px' } }, t.name),
+                t.note && React.createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, t.note)
+              ),
+              React.createElement('div', { style: { textAlign: 'right' } },
+                React.createElement('div', { style: { fontSize: '13px', fontWeight: 700 } }, t.time),
+                React.createElement('div', { style: { fontSize: '10px', color: t.minsLeft <= 30 && t.minsLeft > 0 ? '#ff5252' : 'var(--text-muted)', fontWeight: t.minsLeft <= 30 ? 700 : 400 } },
+                  t.minsLeft > 0 ? `あと${t.minsLeft}分` : '到着済み'
+                )
+              )
+            )
+          )
         )
       )
     ),
