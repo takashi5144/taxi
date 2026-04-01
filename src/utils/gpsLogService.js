@@ -300,9 +300,9 @@ window.GpsLogService = (() => {
   let _rtPendingStandby = null; // 待機終了後の乗車チェック待ち { ...standbyData, movedAt }
   let _rtLastEntryCount = 0; // 直前の売上記録数（乗車検出用）
 
-  /** リアルタイム待機検出: GPS受信のたびに呼ばれる */
+  /** リアルタイム待機検出: 自動計測を無効化 */
   function _rtDetectStandby(lat, lng, now) {
-    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+    return;
     // まず前回の未確定待機をチェック
     _rtCheckPendingStandby(now);
 
@@ -376,40 +376,10 @@ window.GpsLogService = (() => {
     _rtPendingStandby = null;
   }
 
-  /** リアルタイム待機状態のフラッシュ（終業時・休憩開始時に呼ぶ） */
+  /** リアルタイム待機状態のフラッシュ（自動計測無効化済み） */
   function flushRealtimeStandby() {
-    const now = Date.now();
-    // アンカー中の待機を確定
-    if (_rtAnchor) {
-      const duration = _rtAnchor.lastTime - _rtAnchor.startTime;
-      if (duration >= RT_STANDBY_MIN_MS) {
-        const catInfo = _classifyStandbyCategory(_rtAnchor.lat, _rtAnchor.lng);
-        const standby = {
-          lat: _rtAnchor.lat, lng: _rtAnchor.lng,
-          startTime: _rtAnchor.startTime,
-          endTime: _rtAnchor.lastTime,
-          durationMin: Math.round(duration / 60000 * 10) / 10,
-          movedAt: now,
-          ...catInfo,
-        };
-        // 直近に売上追加がなければ空車待機として記録
-        let currentCount = 0;
-        try { currentCount = DataService.getEntries().length; } catch {}
-        if (currentCount <= _rtLastEntryCount) {
-          _autoRecordVacantStandby(standby);
-        }
-      }
-      _rtAnchor = null;
-    }
-    // ペンディング中の待機もチェック
-    if (_rtPendingStandby) {
-      let currentCount = 0;
-      try { currentCount = DataService.getEntries().length; } catch {}
-      if (currentCount <= _rtLastEntryCount) {
-        _autoRecordVacantStandby(_rtPendingStandby);
-      }
-      _rtPendingStandby = null;
-    }
+    _rtAnchor = null;
+    _rtPendingStandby = null;
   }
 
   /** タイムスタンプをHH:MM形式に変換 */
