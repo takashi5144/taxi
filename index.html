@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.55.0</title>
+  <title>タクシー売上サポート v3.56.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.55.0',
+  VERSION: '3.56.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -4551,7 +4551,7 @@ window.DataService = (() => {
       const weather = (e.weather || '').replace(/,/g, '、');
       const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'didi' ? 'DIDI決済' : '現金';
       const discountAmount = e.discountAmount || 0;
-      const discountTypeMap = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
+      const discountTypeMap = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'チケット' };
       const discountType = (e.discounts && Array.isArray(e.discounts) && e.discounts.length > 0)
         ? e.discounts.map(d => d.type === 'coupon' && d.sheets ? `${discountTypeMap[d.type]}(¥${d.unitPrice || d.amount}×${d.sheets}枚=¥${d.amount})` : `${discountTypeMap[d.type] || d.type}(¥${d.amount})`).join('/')
         : discountTypeMap[e.discountType] || (e.discountType || '');
@@ -22085,10 +22085,10 @@ window.RevenuePage = () => {
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '割引（複数選択可）'),
             React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-              ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
+              ...['disability', 'longDistance', 'coupon'].map(dtype => {
                 const selected = dtype in (form.discounts || {});
-                const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
+                const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン' };
+                const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer' };
                 return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                   React.createElement('button', {
                     type: 'button',
@@ -22682,10 +22682,10 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '割引（複数選択可）'),
               React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
+                ...['disability', 'longDistance', 'coupon'].map(dtype => {
                   const sel = dtype in (editForm.discounts || {});
-                  const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                  const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
+                  const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン' };
+                  const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer' };
                   return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                     React.createElement('button', {
                       type: 'button',
@@ -22924,7 +22924,7 @@ window.RevenuePage = () => {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
               (() => {
-                const typeLabels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                const typeLabels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'チケット' };
                 if (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.length > 0) {
                   const realDiscounts = entry.discounts.filter(d => d.type !== 'ticket' && d.type !== 'coupon');
                   const paymentDiscounts = entry.discounts.filter(d => d.type === 'ticket' || d.type === 'coupon');
@@ -32106,7 +32106,7 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '割引'),
           React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' } },
-            ...[ { type: 'disability', label: '♿ 障害者割引' }, { type: 'longDistance', label: '🛣️ 遠距離割' }, { type: 'coupon', label: '🎟️ クーポン' }, { type: 'ticket', label: '🎫 タクシーチケット' } ].map(dt => {
+            ...[ { type: 'disability', label: '♿ 障害者割引' }, { type: 'longDistance', label: '🛣️ 遠距離割' }, { type: 'coupon', label: '🎟️ クーポン' } ].map(dt => {
               const d = editForm.discounts || {};
               const active = d[dt.type] != null;
               return React.createElement('button', {
@@ -32729,7 +32729,6 @@ window.DataManagePage = () => {
                   ...[
                     { value: 'disability', label: '障害者割引', icon: 'accessible' },
                     { value: 'coupon', label: 'クーポン', icon: 'local_offer' },
-                    { value: 'ticket', label: 'タクシーチケット', icon: 'confirmation_number' },
                   ].map(d => {
                     const selected = d.value in (addForm.discounts || {});
                     return React.createElement('div', { key: d.value, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: d.value === 'coupon' ? 'wrap' : 'nowrap' } },
@@ -35331,6 +35330,47 @@ window.GatheringMemoPage = () => {
     if (changed) {
       localStorage.setItem('taxi_app_revenue', JSON.stringify(entries));
       if (window.AppLogger) AppLogger.info('4月2日の売上を4月1日に移行しました');
+    }
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch (e) { /* ignore */ }
+})();
+
+// ワンタイム: 割引type='ticket'のデータをpaymentMethod='ticket'に変換
+(function migrateTicketDiscountToPayment() {
+  const MIGRATION_KEY = 'taxi_migration_ticket_discount_to_payment_done';
+  if (localStorage.getItem(MIGRATION_KEY)) return;
+  try {
+    const entries = JSON.parse(localStorage.getItem('taxi_app_revenue') || '[]');
+    let changed = false;
+    entries.forEach(e => {
+      if (e.discounts && Array.isArray(e.discounts)) {
+        const ticketDiscount = e.discounts.find(d => d.type === 'ticket');
+        if (ticketDiscount) {
+          // paymentMethodをticketに変更
+          e.paymentMethod = 'ticket';
+          // discountsからticketを除去
+          e.discounts = e.discounts.filter(d => d.type !== 'ticket');
+          // discountType文字列も更新
+          if (e.discountType) {
+            e.discountType = e.discountType.split(',').filter(t => t !== 'ticket').join(',');
+          }
+          // discountAmountからチケット分を差し引き
+          if (e.discountAmount && ticketDiscount.amount) {
+            e.discountAmount = Math.max(0, e.discountAmount - ticketDiscount.amount);
+          }
+          changed = true;
+        }
+      }
+      // discountType文字列のみにticketがある場合も対応
+      if (e.discountType && e.discountType.includes('ticket') && e.paymentMethod !== 'ticket') {
+        e.paymentMethod = 'ticket';
+        e.discountType = e.discountType.split(',').filter(t => t !== 'ticket').join(',');
+        changed = true;
+      }
+    });
+    if (changed) {
+      localStorage.setItem('taxi_app_revenue', JSON.stringify(entries));
+      if (window.AppLogger) AppLogger.info('チケット割引データをチケット払いに変換しました');
     }
     localStorage.setItem(MIGRATION_KEY, '1');
   } catch (e) { /* ignore */ }

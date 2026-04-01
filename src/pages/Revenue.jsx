@@ -1598,10 +1598,10 @@ window.RevenuePage = () => {
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { className: 'form-label' }, '割引（複数選択可）'),
             React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
-              ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
+              ...['disability', 'longDistance', 'coupon'].map(dtype => {
                 const selected = dtype in (form.discounts || {});
-                const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
+                const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン' };
+                const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer' };
                 return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                   React.createElement('button', {
                     type: 'button',
@@ -2195,10 +2195,10 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '割引（複数選択可）'),
               React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-                ...['disability', 'longDistance', 'coupon', 'ticket'].map(dtype => {
+                ...['disability', 'longDistance', 'coupon'].map(dtype => {
                   const sel = dtype in (editForm.discounts || {});
-                  const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
-                  const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer', ticket: 'confirmation_number' };
+                  const labels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン' };
+                  const icons = { disability: 'accessible', longDistance: 'route', coupon: 'local_offer' };
                   return React.createElement('div', { key: dtype, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: dtype === 'coupon' ? 'wrap' : 'nowrap' } },
                     React.createElement('button', {
                       type: 'button',
@@ -2437,7 +2437,7 @@ window.RevenuePage = () => {
               style: { fontSize: '10px', marginTop: '3px', padding: '3px 6px', borderRadius: '4px', background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }
             },
               (() => {
-                const typeLabels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'タクシーチケット' };
+                const typeLabels = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'チケット' };
                 if (entry.discounts && Array.isArray(entry.discounts) && entry.discounts.length > 0) {
                   const realDiscounts = entry.discounts.filter(d => d.type !== 'ticket' && d.type !== 'coupon');
                   const paymentDiscounts = entry.discounts.filter(d => d.type === 'ticket' || d.type === 'coupon');

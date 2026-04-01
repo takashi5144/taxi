@@ -2157,7 +2157,7 @@ window.DataManagePage = () => {
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '割引'),
           React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' } },
-            ...[ { type: 'disability', label: '♿ 障害者割引' }, { type: 'longDistance', label: '🛣️ 遠距離割' }, { type: 'coupon', label: '🎟️ クーポン' }, { type: 'ticket', label: '🎫 タクシーチケット' } ].map(dt => {
+            ...[ { type: 'disability', label: '♿ 障害者割引' }, { type: 'longDistance', label: '🛣️ 遠距離割' }, { type: 'coupon', label: '🎟️ クーポン' } ].map(dt => {
               const d = editForm.discounts || {};
               const active = d[dt.type] != null;
               return React.createElement('button', {
@@ -2780,7 +2780,6 @@ window.DataManagePage = () => {
                   ...[
                     { value: 'disability', label: '障害者割引', icon: 'accessible' },
                     { value: 'coupon', label: 'クーポン', icon: 'local_offer' },
-                    { value: 'ticket', label: 'タクシーチケット', icon: 'confirmation_number' },
                   ].map(d => {
                     const selected = d.value in (addForm.discounts || {});
                     return React.createElement('div', { key: d.value, style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: d.value === 'coupon' ? 'wrap' : 'nowrap' } },

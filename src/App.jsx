@@ -25,6 +25,47 @@
   } catch (e) { /* ignore */ }
 })();
 
+// ワンタイム: 割引type='ticket'のデータをpaymentMethod='ticket'に変換
+(function migrateTicketDiscountToPayment() {
+  const MIGRATION_KEY = 'taxi_migration_ticket_discount_to_payment_done';
+  if (localStorage.getItem(MIGRATION_KEY)) return;
+  try {
+    const entries = JSON.parse(localStorage.getItem('taxi_app_revenue') || '[]');
+    let changed = false;
+    entries.forEach(e => {
+      if (e.discounts && Array.isArray(e.discounts)) {
+        const ticketDiscount = e.discounts.find(d => d.type === 'ticket');
+        if (ticketDiscount) {
+          // paymentMethodをticketに変更
+          e.paymentMethod = 'ticket';
+          // discountsからticketを除去
+          e.discounts = e.discounts.filter(d => d.type !== 'ticket');
+          // discountType文字列も更新
+          if (e.discountType) {
+            e.discountType = e.discountType.split(',').filter(t => t !== 'ticket').join(',');
+          }
+          // discountAmountからチケット分を差し引き
+          if (e.discountAmount && ticketDiscount.amount) {
+            e.discountAmount = Math.max(0, e.discountAmount - ticketDiscount.amount);
+          }
+          changed = true;
+        }
+      }
+      // discountType文字列のみにticketがある場合も対応
+      if (e.discountType && e.discountType.includes('ticket') && e.paymentMethod !== 'ticket') {
+        e.paymentMethod = 'ticket';
+        e.discountType = e.discountType.split(',').filter(t => t !== 'ticket').join(',');
+        changed = true;
+      }
+    });
+    if (changed) {
+      localStorage.setItem('taxi_app_revenue', JSON.stringify(entries));
+      if (window.AppLogger) AppLogger.info('チケット割引データをチケット払いに変換しました');
+    }
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch (e) { /* ignore */ }
+})();
+
 // App.jsx - ルートコンポーネント（ハッシュルーティング対応）
 window.App = () => {
   const { currentPage, navigate } = useAppContext();
