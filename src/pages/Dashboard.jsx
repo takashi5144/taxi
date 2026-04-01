@@ -1258,45 +1258,6 @@ window.DashboardPage = () => {
 
     // === 夜勤専用セクション ===
     shiftMode === 'night' && nightData && React.createElement(React.Fragment, null,
-      // 深夜割増ステータス
-      React.createElement('div', {
-        style: {
-          marginBottom: 'var(--space-md)', padding: '12px 16px', borderRadius: 'var(--border-radius)',
-          background: nightData.isLateNight ? 'rgba(124,77,255,0.15)' : 'rgba(255,255,255,0.04)',
-          border: nightData.isLateNight ? '2px solid rgba(124,77,255,0.4)' : '1px solid var(--border-color)',
-          textAlign: 'center',
-        }
-      },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px', color: nightData.isLateNight ? '#b388ff' : 'var(--text-muted)' } }, 'nightlight'),
-          React.createElement('span', { style: { fontSize: '16px', fontWeight: 700, color: nightData.isLateNight ? '#b388ff' : 'var(--text-secondary)' } },
-            nightData.isLateNight ? '深夜割増中（22:00〜5:00 +20%）' : `深夜割増まで ${(() => { const m = (22 - nightData.nowH) * 60 - new Date().getMinutes(); return m > 0 ? m + '分' : '—'; })()}`
-          )
-        )
-      ),
-
-      // 夜間売上サマリー
-      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#b388ff' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'nightlight'),
-          '夜間売上（17:00〜翌5:00）'
-        ),
-        React.createElement('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' } },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '夜間売上'),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: '#b388ff' } }, `¥${nightData.nightTotal.toLocaleString()}`)
-          ),
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '夜間件数'),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700 } }, `${nightData.nightEntries.length}件`)
-          ),
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' } }, '深夜帯'),
-            React.createElement('div', { style: { fontSize: '18px', fontWeight: 700, color: '#ce93d8' } }, `${nightData.nightLateEntries.length}件`)
-          )
-        )
-      ),
-
       // ホテル需要予測
       React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#4fc3f7' } },
