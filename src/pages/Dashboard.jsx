@@ -596,9 +596,9 @@ window.DashboardPage = () => {
   // 純粋な未収（クーポンサブとチケットエントリを除く）
   const todayPureUncollectedEntries = todayUncollectedEntries.filter(e => !(e.memo && e.memo.includes('クーポン未収')));
   const todayPureUncollected = todayPureUncollectedEntries.reduce((sum, e) => sum + e.amount, 0);
-  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + todayTicketPay + Math.abs(todayDiscountDisability.total) + todayDiscountTicket.total;
+  const todayUncollectedTotal = todayUncollected + todayDidi + todayUber + Math.abs(todayDiscountDisability.total);
   const todayUncollectedTotalExCoupon = todayUncollectedTotal - todayCouponUncollected;
-  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayTicketPayEntries.length + todayDiscountDisability.count + todayDiscountTicket.count;
+  const todayUncollectedTotalCount = todayUncollectedEntries.length + todayDidiEntries.length + todayUberEntries.length + todayDiscountDisability.count;
   const currentMonth = getLocalDateString().slice(0, 7);
   const monthData = useMemo(() => {
     const entries = DataService.getEntries();
@@ -1079,8 +1079,6 @@ window.DashboardPage = () => {
           todayDidiEntries.length > 0 && React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
           todayUberEntries.length > 0 && React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`),
           todayDiscountDisability.count > 0 && React.createElement('span', null, `障害者割引: ${todayDiscountDisability.count}件 +¥${Math.abs(todayDiscountDisability.total).toLocaleString()}`),
-          todayTicketPayEntries.length > 0 && React.createElement('span', null, `チケット払: ${todayTicketPayEntries.length}件 ¥${todayTicketPay.toLocaleString()}`),
-          todayDiscountTicket.count > 0 && React.createElement('span', null, `チケット割: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
           todayCouponUncollected > 0 && React.createElement('span', null, `うちクーポン: ¥${todayCouponUncollected.toLocaleString()}`)
         )
       ),
@@ -1088,7 +1086,7 @@ window.DashboardPage = () => {
       expandedPayment === 'uncollected_total' && (() => {
         const _isCpn = (e) => e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収');
         // クーポンサブを除外した一覧
-        const allUncollected = [...todayUncollectedEntries.filter(e => !_isCpn(e)), ...todayDidiEntries, ...todayUberEntries, ...todayTicketPayEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
+        const allUncollected = [...todayUncollectedEntries.filter(e => !_isCpn(e)), ...todayDidiEntries, ...todayUberEntries].sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
         // クーポンサブのparentIdマップ
         const cpnMap = {};
         todayCouponEntries.forEach(c => {
@@ -1223,6 +1221,9 @@ window.DashboardPage = () => {
         ),
         React.createElement('span', { style: { color: '#fff' } },
           `Uber: ${todayUberEntries.length}件`
+        ),
+        React.createElement('span', { style: { color: '#4fc3f7' } },
+          `チケット: ${todayTicketPayEntries.length}件`
         ),
         React.createElement('span', { style: { color: 'var(--text-muted)' } },
           `当月${monthData.count}件 ¥${monthData.total.toLocaleString()}`
