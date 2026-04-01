@@ -1139,6 +1139,7 @@ window.DataManagePage = () => {
   const [filterUser, setFilterUser] = useState(false);    // ユーザーフィルター
   const [filterPickup, setFilterPickup] = useState('');   // 乗車地フィルター
   const [filterDropoff, setFilterDropoff] = useState(''); // 降車地フィルター
+  const [filterPayType, setFilterPayType] = useState(''); // 支払種別フィルター（ticket/coupon/disability）
   const [showAddForm, setShowAddForm] = useState(false);
   const todayDefault = getLocalDateString();
   const [addForm, setAddForm] = useState({ date: todayDefault, weather: '', amount: '', pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', discounts: {} });
@@ -1893,6 +1894,15 @@ window.DataManagePage = () => {
     if (filterDropoff) {
       result = result.filter(e => (e.dropoff || '').includes(filterDropoff));
     }
+    if (filterPayType) {
+      if (filterPayType === 'ticket') {
+        result = result.filter(e => e.paymentMethod === 'ticket');
+      } else if (filterPayType === 'coupon') {
+        result = result.filter(e => e.couponAmount > 0 || (e.discounts && Array.isArray(e.discounts) && e.discounts.some(d => d.type === 'coupon')));
+      } else if (filterPayType === 'disability') {
+        result = result.filter(e => (e.discounts && Array.isArray(e.discounts) && e.discounts.some(d => d.type === 'disability')) || (e.discountType && e.discountType.includes('disability')));
+      }
+    }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(e =>
@@ -1902,7 +1912,7 @@ window.DataManagePage = () => {
       );
     }
     return result;
-  }, [revenueEntries, search, filterSource, filterPurpose, filterUser, filterPickup, filterDropoff]);
+  }, [revenueEntries, search, filterSource, filterPurpose, filterUser, filterPickup, filterDropoff, filterPayType]);
 
   // ユーザータブ用フィルター（isRegisteredUser=trueのみ）
   const filteredUser = useMemo(() => {
@@ -2574,6 +2584,23 @@ window.DataManagePage = () => {
           React.createElement('option', { key: loc.name, value: loc.name }, `${loc.name} (${loc.count})`)
         )
       ),
+      // チケット・クーポン・障害者割フィルター
+      React.createElement('select', {
+        value: filterPayType,
+        onChange: e => setFilterPayType(e.target.value),
+        style: {
+          padding: '5px 8px', borderRadius: '6px', fontSize: '12px',
+          border: filterPayType ? '1px solid #4fc3f7' : '1px solid rgba(255,255,255,0.15)',
+          background: filterPayType ? 'rgba(79,195,247,0.15)' : 'var(--bg-secondary)',
+          color: filterPayType ? '#4fc3f7' : 'var(--text-primary)',
+          cursor: 'pointer', outline: 'none',
+        },
+      },
+        React.createElement('option', { value: '' }, '種別: すべて'),
+        React.createElement('option', { value: 'ticket' }, 'チケット'),
+        React.createElement('option', { value: 'coupon' }, 'クーポン'),
+        React.createElement('option', { value: 'disability' }, '障害者割')
+      ),
       // ユーザーフィルター
       React.createElement('button', {
         onClick: () => setFilterUser(!filterUser),
@@ -2591,8 +2618,8 @@ window.DataManagePage = () => {
         'ユーザー'
       ),
       // フィルタークリア
-      (filterSource || filterPurpose || filterUser || filterPickup || filterDropoff) && React.createElement('button', {
-        onClick: () => { setFilterSource(''); setFilterPurpose(''); setFilterUser(false); setFilterPickup(''); setFilterDropoff(''); },
+      (filterSource || filterPurpose || filterUser || filterPickup || filterDropoff || filterPayType) && React.createElement('button', {
+        onClick: () => { setFilterSource(''); setFilterPurpose(''); setFilterUser(false); setFilterPickup(''); setFilterDropoff(''); setFilterPayType(''); },
         style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px' },
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'close'),
@@ -2850,7 +2877,7 @@ window.DataManagePage = () => {
 
       React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
         React.createElement('div', { style: { fontSize: '13px', color: 'var(--text-secondary)' } },
-          `${filteredRevenue.length}件${(search || filterSource || filterPurpose || filterUser || filterPickup || filterDropoff) ? ` (全${revenueEntries.length}件中)` : ''}`
+          `${filteredRevenue.length}件${(search || filterSource || filterPurpose || filterUser || filterPickup || filterDropoff || filterPayType) ? ` (全${revenueEntries.length}件中)` : ''}`
         ),
         React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
           React.createElement(Button, {
