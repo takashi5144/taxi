@@ -1526,11 +1526,17 @@ window.DashboardPage = () => {
     ),
 
     // ============================================================
-    // 時間帯別 実車/非実車グラフ
+    // 時間帯別 実車/非実車グラフ（日勤/夜勤で表示時間帯を切替）
     // ============================================================
     (() => {
       if (!hourlyOccupancy || !hourlyOccupancy.hours) return null;
-      const { hours, days } = hourlyOccupancy;
+      const allHours = hourlyOccupancy.hours;
+      const { days } = hourlyOccupancy;
+      // 日勤: 6時〜18時、夜勤: 17時〜翌6時（17,18,...,23,0,1,...,6）
+      const dayHourRange = [6,7,8,9,10,11,12,13,14,15,16,17];
+      const nightHourRange = [17,18,19,20,21,22,23,0,1,2,3,4,5,6];
+      const activeRange = shiftMode === 'night' ? nightHourRange : dayHourRange;
+      const hours = activeRange.map(h => allHours[h]);
       const maxMin = Math.max(...hours.map(h => h.work), 1);
       const hasData = hours.some(h => h.work > 0);
       if (!hasData) return null;
@@ -1538,7 +1544,7 @@ window.DashboardPage = () => {
         style: { marginBottom: 'var(--space-md)', padding: 'var(--space-lg)' },
       },
         // ヘッダー
-        React.createElement(SectionHeader, { sectionKey: 'hourly-occupancy', icon: 'schedule', title: '時間帯別 実車状況', iconColor: '#10b981' }),
+        React.createElement(SectionHeader, { sectionKey: 'hourly-occupancy', icon: 'schedule', title: shiftMode === 'night' ? '時間帯別 実車状況（夜勤 17〜6時）' : '時間帯別 実車状況（日勤 6〜17時）', iconColor: '#10b981' }),
         !collapsedSections['hourly-occupancy'] && React.createElement('div', { style: { display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' } },
           React.createElement('div', { style: { display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', padding: '2px' } },
             ...['month', 'all'].map(m =>
