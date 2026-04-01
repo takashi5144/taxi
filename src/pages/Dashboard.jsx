@@ -944,7 +944,7 @@ window.DashboardPage = () => {
           { key: 'uncollected', label: '未収', icon: 'pending', entries: todayUncollectedEntries, total: todayUncollected, color: 'var(--color-error)', bg: 'rgba(229,57,53,0.08)', border: 'rgba(229,57,53,0.2)' },
           { key: 'didi', label: 'DIDI決済', icon: 'smartphone', entries: todayDidiEntries, total: todayDidi, color: 'var(--color-warning)', bg: 'rgba(255,152,0,0.08)', border: 'rgba(255,152,0,0.2)' },
           { key: 'uber', label: 'Uber', icon: 'hail', entries: todayUberEntries, total: todayUber, color: '#fff', bg: 'rgba(0,0,0,0.15)', border: 'rgba(255,255,255,0.15)' },
-          { key: 'ticket', label: 'チケット', icon: 'confirmation_number', entries: todayTicketEntries, total: todayTicketPay + todayDiscountTicket.total + todayDiscountCoupon.total, color: '#4fc3f7', bg: 'rgba(79,195,247,0.08)', border: 'rgba(79,195,247,0.2)', isTicket: true },
+          { key: 'ticket', label: 'チケット', icon: 'confirmation_number', entries: todayTicketPayEntries, total: todayTicketPay + todayDiscountCoupon.total, color: '#4fc3f7', bg: 'rgba(79,195,247,0.08)', border: 'rgba(79,195,247,0.2)', isTicket: true },
           { key: 'discount', label: '割引', icon: 'discount', entries: todayDiscountEntries, total: todayDiscount, color: '#ce93d8', bg: 'rgba(156,39,176,0.08)', border: 'rgba(156,39,176,0.2)', isDiscount: true },
         ];
         const gridEl = React.createElement('div', {
@@ -995,7 +995,6 @@ window.DashboardPage = () => {
             },
               React.createElement('div', { style: { fontSize: 11, color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 } },
                 todayTicketPayEntries.length > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット払: ${todayTicketPayEntries.length}件 ¥${todayTicketPay.toLocaleString()}`),
-                todayDiscountTicket.count > 0 && React.createElement('span', { style: { color: '#4fc3f7' } }, `チケット割: ${todayDiscountTicket.count}件 ¥${todayDiscountTicket.total.toLocaleString()}`),
                 todayDiscountCoupon.count > 0 && React.createElement('span', { style: { color: '#a78bfa' } }, `クーポン: ${todayDiscountCoupon.sheets}枚 ¥${todayDiscountCoupon.total.toLocaleString()}`)
               )
             )
@@ -1173,9 +1172,6 @@ window.DashboardPage = () => {
           ),
           React.createElement('span', { style: { color: '#a78bfa' } },
             `クーポン: ${todayDiscountCoupon.sheets}枚 -¥${todayDiscountCoupon.total.toLocaleString()}`
-          ),
-          React.createElement('span', { style: { color: '#a78bfa' } },
-            `チケット: ${todayDiscountTicket.count}件 -¥${todayDiscountTicket.total.toLocaleString()}`
           )
         )
       ),
