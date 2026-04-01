@@ -112,6 +112,54 @@
   }
 }
 
+/* スマホ向けインラインスタイル上書き */
+@media (max-width: 767px) {
+  /* カード内のグリッドを適切に折り返す */
+  .card div[style*="grid-template-columns: repeat(3"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .card div[style*="gridTemplateColumns"][style*="repeat(3"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* テーブルの水平スクロール対応 */
+  .card table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* フレックスの折り返し */
+  .card div[style*="display: flex"][style*="gap"] {
+    flex-wrap: wrap;
+  }
+
+  /* カード内パディング調整 */
+  .card {
+    padding: var(--space-md) !important;
+    overflow: hidden;
+  }
+
+  /* 長いテキストの折り返し */
+  .card span, .card div {
+    word-break: break-word;
+  }
+
+  /* フォーム入力のタッチ最適化 */
+  input, select, textarea, button {
+    min-height: 38px;
+    font-size: 16px !important;
+  }
+
+  /* 小さいボタン・バッジは除外 */
+  button[style*="padding: '2px"],
+  button[style*="fontSize: '10px"],
+  span[style*="fontSize: '10px"] {
+    font-size: inherit !important;
+    min-height: auto;
+  }
+}
+
 /* 小型モバイル */
 @media (max-width: 375px) {
   .bottom-nav__item {
@@ -121,6 +169,20 @@
 
   .bottom-nav__item .material-icons-round {
     font-size: 20px;
+  }
+
+  /* さらに小さい画面ではパディングを縮小 */
+  .main-content {
+    padding: var(--space-sm) !important;
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-sm)) !important;
+  }
+
+  .card {
+    padding: var(--space-sm) !important;
+  }
+
+  .page-title {
+    font-size: var(--font-size-base) !important;
   }
 }
 

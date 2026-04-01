@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.52.0</title>
+  <title>タクシー売上サポート v3.53.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -102,6 +102,8 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 #root {
@@ -790,6 +792,54 @@ a:hover {
   }
 }
 
+/* スマホ向けインラインスタイル上書き */
+@media (max-width: 767px) {
+  /* カード内のグリッドを適切に折り返す */
+  .card div[style*="grid-template-columns: repeat(3"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .card div[style*="gridTemplateColumns"][style*="repeat(3"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* テーブルの水平スクロール対応 */
+  .card table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* フレックスの折り返し */
+  .card div[style*="display: flex"][style*="gap"] {
+    flex-wrap: wrap;
+  }
+
+  /* カード内パディング調整 */
+  .card {
+    padding: var(--space-md) !important;
+    overflow: hidden;
+  }
+
+  /* 長いテキストの折り返し */
+  .card span, .card div {
+    word-break: break-word;
+  }
+
+  /* フォーム入力のタッチ最適化 */
+  input, select, textarea, button {
+    min-height: 38px;
+    font-size: 16px !important;
+  }
+
+  /* 小さいボタン・バッジは除外 */
+  button[style*="padding: '2px"],
+  button[style*="fontSize: '10px"],
+  span[style*="fontSize: '10px"] {
+    font-size: inherit !important;
+    min-height: auto;
+  }
+}
+
 /* 小型モバイル */
 @media (max-width: 375px) {
   .bottom-nav__item {
@@ -799,6 +849,20 @@ a:hover {
 
   .bottom-nav__item .material-icons-round {
     font-size: 20px;
+  }
+
+  /* さらに小さい画面ではパディングを縮小 */
+  .main-content {
+    padding: var(--space-sm) !important;
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-sm)) !important;
+  }
+
+  .card {
+    padding: var(--space-sm) !important;
+  }
+
+  .page-title {
+    font-size: var(--font-size-base) !important;
   }
 }
 
@@ -1296,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.52.0',
+  VERSION: '3.53.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17754,7 +17818,8 @@ window.DashboardPage = () => {
         ];
         const gridEl = React.createElement('div', {
           key: 'pay-grid',
-          style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
+          className: 'grid grid--2',
+          style: { marginBottom: 'var(--space-sm)' },
         },
           ...payCards.filter(c => !c.isDiscount || c.total > 0).map(c => React.createElement('div', {
             key: c.key,

@@ -949,7 +949,8 @@ window.DashboardPage = () => {
         ];
         const gridEl = React.createElement('div', {
           key: 'pay-grid',
-          style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-sm)' },
+          className: 'grid grid--2',
+          style: { marginBottom: 'var(--space-sm)' },
         },
           ...payCards.filter(c => !c.isDiscount || c.total > 0).map(c => React.createElement('div', {
             key: c.key,
