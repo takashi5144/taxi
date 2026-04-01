@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.47.1</title>
+  <title>タクシー売上サポート v3.48.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1296,7 +1296,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.47.1',
+  VERSION: '3.48.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -20496,8 +20496,20 @@ window.MapViewPage = () => {
 window.RevenuePage = () => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  // 本日の日付をデフォルト値に
-  const todayDefault = getLocalDateString();
+  // アクティブシフトがある場合はシフト開始日を返す（日付またぎ対応）
+  const getShiftDateOrToday = () => {
+    try {
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift && activeShift.startTime) {
+        return getLocalDateString(new Date(activeShift.startTime));
+      }
+    } catch (e) { /* ignore */ }
+    return getLocalDateString();
+  };
+
+  // 本日の日付をデフォルト値に（シフト中は始業日）
+  const todayDefault = getShiftDateOrToday();
 
   const getNowTime = TaxiApp.utils.getNowTime;
 
@@ -20606,8 +20618,8 @@ window.RevenuePage = () => {
     const handleVisibility = () => {
       if (!document.hidden) {
         setRefreshKey(k => k + 1);
-        // 日付が変わっていたらフォームの日付を自動更新
-        const currentDate = getLocalDateString();
+        // 日付が変わっていたらフォームの日付を自動更新（シフト中は始業日を維持）
+        const currentDate = getShiftDateOrToday();
         setForm(prev => {
           if (prev.date !== currentDate) {
             return { ...prev, date: currentDate };
@@ -21101,7 +21113,7 @@ window.RevenuePage = () => {
       }
     }
 
-    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
+    setForm({ date: getShiftDateOrToday(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
     setMapPickerField(null);
