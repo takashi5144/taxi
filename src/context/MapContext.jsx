@@ -211,18 +211,55 @@ window.MapProvider = ({ children }) => {
     };
   }, [isTracking]);
 
-  // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
-  // startTrackingRef経由で呼び出すことで依存配列を空にし、無限ループを防止
+  // 始業中かつGPS追跡が有効なら自動でGPS追跡を開始
   useEffect(() => {
+    const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false';
     let shifts = [];
     try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
     const activeShift = shifts.find(s => !s.endTime);
-    if ('geolocation' in navigator && !watchIdRef.current && activeShift) {
+    if ('geolocation' in navigator && !watchIdRef.current && activeShift && gpsBgEnabled) {
       AppLogger.info('GPS追跡を自動開始（始業中）');
       startTrackingRef.current();
     }
+
+    // GPS設定変更を監視（Settings.jsxでのトグル切替をリアルタイム反映）
+    const handleGpsToggle = (e) => {
+      if (e.key === APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) {
+        const enabled = e.newValue !== 'false';
+        if (enabled) {
+          let sh = [];
+          try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
+          if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
+            startTrackingRef.current();
+          }
+        } else {
+          if (isTrackingRef.current) {
+            stopTrackingRef.current();
+          }
+        }
+      }
+    };
+    window.addEventListener('storage', handleGpsToggle);
+    // カスタムイベントでも監視（同一タブ内の変更用）
+    const handleGpsCustom = (e) => {
+      const enabled = e.detail;
+      if (enabled) {
+        let sh = [];
+        try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
+        if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
+          startTrackingRef.current();
+        }
+      } else {
+        if (isTrackingRef.current) {
+          stopTrackingRef.current();
+        }
+      }
+    };
+    window.addEventListener('taxi-gps-toggle', handleGpsCustom);
+
     return () => {
-      // アプリ全体アンマウント時のクリーンアップ
+      window.removeEventListener('storage', handleGpsToggle);
+      window.removeEventListener('taxi-gps-toggle', handleGpsCustom);
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;

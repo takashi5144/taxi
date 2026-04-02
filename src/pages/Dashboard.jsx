@@ -420,9 +420,10 @@ window.DashboardPage = () => {
       DataService.syncShiftsToCloud();
       setShiftInfo({ active: true, startTime: now.toISOString() });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // GPS追跡を開始
-      if (!geo.isTracking) geo.startTracking();
-      GpsLogService.startWeatherPolling();
+      // GPS追跡を開始（設定で有効な場合のみ）
+      const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false';
+      if (gpsBgEnabled && !geo.isTracking) geo.startTracking();
+      if (gpsBgEnabled) GpsLogService.startWeatherPolling();
       AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     } catch (e) {
       AppLogger.error('始業処理に失敗', e.message);

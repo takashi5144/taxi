@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.60.1</title>
+  <title>タクシー売上サポート v3.61.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.60.1',
+  VERSION: '3.61.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -13530,18 +13530,55 @@ window.MapProvider = ({ children }) => {
     };
   }, [isTracking]);
 
-  // 始業中なら自動でGPS追跡を開始（MapProviderはアプリ全体を包むため、ページ遷移で途切れない）
-  // startTrackingRef経由で呼び出すことで依存配列を空にし、無限ループを防止
+  // 始業中かつGPS追跡が有効なら自動でGPS追跡を開始
   useEffect(() => {
+    const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false';
     let shifts = [];
     try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
     const activeShift = shifts.find(s => !s.endTime);
-    if ('geolocation' in navigator && !watchIdRef.current && activeShift) {
+    if ('geolocation' in navigator && !watchIdRef.current && activeShift && gpsBgEnabled) {
       AppLogger.info('GPS追跡を自動開始（始業中）');
       startTrackingRef.current();
     }
+
+    // GPS設定変更を監視（Settings.jsxでのトグル切替をリアルタイム反映）
+    const handleGpsToggle = (e) => {
+      if (e.key === APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) {
+        const enabled = e.newValue !== 'false';
+        if (enabled) {
+          let sh = [];
+          try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
+          if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
+            startTrackingRef.current();
+          }
+        } else {
+          if (isTrackingRef.current) {
+            stopTrackingRef.current();
+          }
+        }
+      }
+    };
+    window.addEventListener('storage', handleGpsToggle);
+    // カスタムイベントでも監視（同一タブ内の変更用）
+    const handleGpsCustom = (e) => {
+      const enabled = e.detail;
+      if (enabled) {
+        let sh = [];
+        try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
+        if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
+          startTrackingRef.current();
+        }
+      } else {
+        if (isTrackingRef.current) {
+          stopTrackingRef.current();
+        }
+      }
+    };
+    window.addEventListener('taxi-gps-toggle', handleGpsCustom);
+
     return () => {
-      // アプリ全体アンマウント時のクリーンアップ
+      window.removeEventListener('storage', handleGpsToggle);
+      window.removeEventListener('taxi-gps-toggle', handleGpsCustom);
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -17355,9 +17392,10 @@ window.DashboardPage = () => {
       DataService.syncShiftsToCloud();
       setShiftInfo({ active: true, startTime: now.toISOString() });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // GPS追跡を開始
-      if (!geo.isTracking) geo.startTracking();
-      GpsLogService.startWeatherPolling();
+      // GPS追跡を開始（設定で有効な場合のみ）
+      const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false';
+      if (gpsBgEnabled && !geo.isTracking) geo.startTracking();
+      if (gpsBgEnabled) GpsLogService.startWeatherPolling();
       AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     } catch (e) {
       AppLogger.error('始業処理に失敗', e.message);
@@ -29400,6 +29438,8 @@ window.SettingsPage = () => {
     const next = !gpsBgEnabled;
     setGpsBgEnabled(next);
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, next ? 'true' : 'false');
+    // MapContextにリアルタイム通知
+    window.dispatchEvent(new CustomEvent('taxi-gps-toggle', { detail: next }));
   }, [gpsBgEnabled]);
 
   const handleSave = () => {

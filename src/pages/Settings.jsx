@@ -78,6 +78,8 @@ window.SettingsPage = () => {
     const next = !gpsBgEnabled;
     setGpsBgEnabled(next);
     localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, next ? 'true' : 'false');
+    // MapContextにリアルタイム通知
+    window.dispatchEvent(new CustomEvent('taxi-gps-toggle', { detail: next }));
   }, [gpsBgEnabled]);
 
   const handleSave = () => {
