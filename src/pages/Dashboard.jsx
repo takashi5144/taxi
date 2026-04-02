@@ -2803,18 +2803,24 @@ window.DashboardPage = () => {
         // 時間帯セレクタ
         React.createElement('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } },
           React.createElement('span', { style: { fontSize: '10px', color: 'var(--text-muted)' } }, '時間帯:'),
-          ...Array.from({ length: 11 }, (_, i) => 7 + i).map(h =>
-            React.createElement('button', {
-              key: `sh-${h}`,
-              onClick: () => setStrategyHour(h),
-              style: {
-                padding: '2px 5px', borderRadius: '4px', border: 'none', cursor: 'pointer',
-                fontSize: '10px', fontWeight: h === strategyHour ? 700 : 400, fontFamily: 'var(--font-family)',
-                background: h === strategyHour ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.06)',
-                color: h === strategyHour ? '#10b981' : 'var(--text-muted)',
-              },
-            }, String(h))
-          )
+          ...(() => {
+            // 日勤: 7〜17時、夜勤: 16〜翌5時(16,17,...,23,0,1,2,3,4,5)
+            const hours = shiftMode === 'night'
+              ? [16,17,18,19,20,21,22,23,0,1,2,3,4,5]
+              : Array.from({ length: 11 }, (_, i) => 7 + i);
+            return hours.map(h =>
+              React.createElement('button', {
+                key: `sh-${h}`,
+                onClick: () => setStrategyHour(h),
+                style: {
+                  padding: '2px 5px', borderRadius: '4px', border: 'none', cursor: 'pointer',
+                  fontSize: '10px', fontWeight: h === strategyHour ? 700 : 400, fontFamily: 'var(--font-family)',
+                  background: h === strategyHour ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.06)',
+                  color: h === strategyHour ? '#10b981' : 'var(--text-muted)',
+                },
+              }, String(h))
+            );
+          })()
         )
       ),
 
