@@ -213,7 +213,7 @@ window.MapProvider = ({ children }) => {
 
   // 始業中かつGPS追跡が有効なら自動でGPS追跡を開始
   useEffect(() => {
-    const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false';
+    const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true';
     let shifts = [];
     try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
     const activeShift = shifts.find(s => !s.endTime);
@@ -225,7 +225,7 @@ window.MapProvider = ({ children }) => {
     // GPS設定変更を監視（Settings.jsxでのトグル切替をリアルタイム反映）
     const handleGpsToggle = (e) => {
       if (e.key === APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) {
-        const enabled = e.newValue !== 'false';
+        const enabled = e.newValue === 'true';
         if (enabled) {
           let sh = [];
           try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}

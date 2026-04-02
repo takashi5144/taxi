@@ -53,7 +53,7 @@ window.SettingsPage = () => {
   const { currentPosition, isTracking, accuracy } = useMapContext();
   const [gpsPermission, setGpsPermission] = useState('unknown');
   const [gpsRecordCount, setGpsRecordCount] = useState(0);
-  const [gpsBgEnabled, setGpsBgEnabled] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) !== 'false');
+  const [gpsBgEnabled, setGpsBgEnabled] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true');
 
   // GPS権限チェック
   useEffect(() => {
