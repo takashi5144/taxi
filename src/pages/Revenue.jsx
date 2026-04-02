@@ -9,20 +9,8 @@
 window.RevenuePage = () => {
   const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-  // アクティブシフトがある場合はシフト開始日を返す（日付またぎ対応）
-  const getShiftDateOrToday = () => {
-    try {
-      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-      const activeShift = shifts.find(s => !s.endTime);
-      if (activeShift && activeShift.startTime) {
-        return getLocalDateString(new Date(activeShift.startTime));
-      }
-    } catch (e) { /* ignore */ }
-    return getLocalDateString();
-  };
-
-  // 本日の日付をデフォルト値に（シフト中は始業日）
-  const todayDefault = getShiftDateOrToday();
+  // 本日の日付をデフォルト値に
+  const todayDefault = getLocalDateString();
 
   const getNowTime = TaxiApp.utils.getNowTime;
 
@@ -133,7 +121,7 @@ window.RevenuePage = () => {
       if (!document.hidden) {
         setRefreshKey(k => k + 1);
         // 日付が変わっていたらフォームの日付を自動更新（シフト中は始業日を維持）
-        const currentDate = getShiftDateOrToday();
+        const currentDate = getLocalDateString();
         setForm(prev => {
           if (prev.date !== currentDate) {
             return { ...prev, date: currentDate };
@@ -627,7 +615,7 @@ window.RevenuePage = () => {
       }
     }
 
-    setForm({ date: getShiftDateOrToday(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
+    setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
     setStandbyEnabled(false);
