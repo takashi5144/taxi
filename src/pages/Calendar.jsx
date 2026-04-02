@@ -84,23 +84,52 @@ window.CalendarPage = () => {
     DataService.syncWorkStatusToCloud(newStatus);
   }, []);
 
-  // 売上データを日別に集計
+  // 売上データを日別に集計（シフト基準: 日付またぎはシフト開始日に合算）
   const dailyRevenue = useMemo(() => {
     const entries = DataService.getEntries();
+    const allShifts = (() => { try { return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { return []; } })();
+
+    // シフト開始日→終了時刻のマップを作成（日付またぎ判定用）
+    // 各エントリのtimestampがどのシフトに属するかを判定し、シフト開始日に集計
+    const shiftRanges = allShifts
+      .filter(s => s.startTime)
+      .map(s => ({
+        startDate: getLocalDateString(new Date(s.startTime)),
+        start: new Date(s.startTime),
+        end: s.endTime ? new Date(s.endTime) : null,
+      }))
+      .sort((a, b) => a.start - b.start);
+
+    // エントリのtimestampからシフト開始日を特定
+    function getShiftDate(entry) {
+      if (entry.timestamp) {
+        const ts = new Date(entry.timestamp);
+        for (let i = shiftRanges.length - 1; i >= 0; i--) {
+          const sr = shiftRanges[i];
+          if (ts >= sr.start && (sr.end === null || ts <= sr.end)) {
+            return sr.startDate;
+          }
+        }
+      }
+      return entry.date;
+    }
+
     const map = {};
     entries.forEach(e => {
       if (!e.date) return;
-      if (!map[e.date]) map[e.date] = { total: 0, count: 0 };
-      // クーポン別エントリは除外（couponAmountで加算するため二重計上防止）
+      // クーポン別エントリは除外
       if (e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収')) return;
-      // 遠距離割は売上から除外（実際に受け取れない金額のため）
+      // シフト開始日を基準に集計
+      const assignDate = getShiftDate(e);
+      if (!map[assignDate]) map[assignDate] = { total: 0, count: 0 };
+      // 遠距離割は売上から除外
       const longDistAmt = (() => {
         if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
         if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
         return 0;
       })();
-      map[e.date].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - longDistAmt;
-      map[e.date].count += 1;
+      map[assignDate].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - longDistAmt;
+      map[assignDate].count += 1;
     });
     return map;
   }, [currentMonth, refreshKey]);
@@ -236,8 +265,27 @@ window.CalendarPage = () => {
       return isoToLocalDate(b.startTime) === selectedDate;
     });
 
-    // 売上エントリ
-    const dayEntries = window.DataService ? DataService.getEntries().filter(e => e.date === selectedDate) : [];
+    // 売上エントリ（シフト基準: 日付またぎの場合はシフト開始日に紐づくエントリも含む）
+    const allEntries = window.DataService ? DataService.getEntries() : [];
+    const allShiftsData = shifts;
+    // selectedDateに開始したシフトの終了時刻を取得
+    const dayShiftEnd = (() => {
+      const s = allShiftsData.find(s => s.startTime && getLocalDateString(new Date(s.startTime)) === selectedDate);
+      if (s && s.endTime) return new Date(s.endTime);
+      return null;
+    })();
+    const dayEntries = allEntries.filter(e => {
+      if (e.date === selectedDate) return true;
+      // シフトが日付をまたいだ場合: シフト開始日=selectedDate でtimestampがシフト範囲内
+      if (dayShiftEnd && e.timestamp) {
+        const dayShiftStart = allShiftsData.find(s => s.startTime && getLocalDateString(new Date(s.startTime)) === selectedDate);
+        if (dayShiftStart) {
+          const ts = new Date(e.timestamp);
+          if (ts >= new Date(dayShiftStart.startTime) && ts <= dayShiftEnd) return true;
+        }
+      }
+      return false;
+    });
     dayEntries.sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
 
     return { ...day, shifts: dayShifts, breaks: dayBreaks, entries: dayEntries };
