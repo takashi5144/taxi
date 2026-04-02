@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.63.0</title>
+  <title>タクシー売上サポート v3.64.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.63.0',
+  VERSION: '3.64.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -11295,7 +11295,7 @@ window.GpsLogService = (() => {
   const MIN_MOVE_METERS = 5;     // この距離以上動かないと記録しない
 
   // --- 天気キャッシュ ---
-  const WEATHER_POLL_MS = 300000; // 5分間隔で天気取得
+  const WEATHER_POLL_MS = 1800000; // 30分間隔で天気取得（通信量削減）
   let _weatherCache = null;       // { w: '晴れ', tp: 5.2, wc: 1, ts: Date.now() }
   let _weatherTimer = null;
 
@@ -13819,38 +13819,11 @@ window.AppProvider = ({ children }) => {
     }
   }, []);
 
-  // ── 自動同期（SYNC_SECRET設定時のみ） ──
+  // ── クラウド同期（起動時の1回のみ。通信量削減のためポーリング・タブ復帰同期は無効） ──
   useEffect(() => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
     if (!secret) return;
-
-    // A. アプリ起動時に自動同期
     DataService.autoSync();
-
-    // B. ページ復帰時（タブ切替から戻った時）に自動同期（最低30秒の間隔を空ける）
-    let lastSyncTime = Date.now();
-    const MIN_SYNC_INTERVAL = 30 * 1000;
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        const now = Date.now();
-        if (now - lastSyncTime >= MIN_SYNC_INTERVAL) {
-          lastSyncTime = now;
-          DataService.autoSync();
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    // C. 5分間隔の定期同期
-    const intervalId = setInterval(() => {
-      lastSyncTime = Date.now();
-      DataService.autoSync();
-    }, 5 * 60 * 1000);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      clearInterval(intervalId);
-    };
   }, []);
 
 

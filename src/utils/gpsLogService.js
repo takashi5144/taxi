@@ -20,7 +20,7 @@ window.GpsLogService = (() => {
   const MIN_MOVE_METERS = 5;     // この距離以上動かないと記録しない
 
   // --- 天気キャッシュ ---
-  const WEATHER_POLL_MS = 300000; // 5分間隔で天気取得
+  const WEATHER_POLL_MS = 1800000; // 30分間隔で天気取得（通信量削減）
   let _weatherCache = null;       // { w: '晴れ', tp: 5.2, wc: 1, ts: Date.now() }
   let _weatherTimer = null;
 

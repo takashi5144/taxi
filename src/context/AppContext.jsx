@@ -62,38 +62,11 @@ window.AppProvider = ({ children }) => {
     }
   }, []);
 
-  // ── 自動同期（SYNC_SECRET設定時のみ） ──
+  // ── クラウド同期（起動時の1回のみ。通信量削減のためポーリング・タブ復帰同期は無効） ──
   useEffect(() => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
     if (!secret) return;
-
-    // A. アプリ起動時に自動同期
     DataService.autoSync();
-
-    // B. ページ復帰時（タブ切替から戻った時）に自動同期（最低30秒の間隔を空ける）
-    let lastSyncTime = Date.now();
-    const MIN_SYNC_INTERVAL = 30 * 1000;
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        const now = Date.now();
-        if (now - lastSyncTime >= MIN_SYNC_INTERVAL) {
-          lastSyncTime = now;
-          DataService.autoSync();
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    // C. 5分間隔の定期同期
-    const intervalId = setInterval(() => {
-      lastSyncTime = Date.now();
-      DataService.autoSync();
-    }, 5 * 60 * 1000);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      clearInterval(intervalId);
-    };
   }, []);
 
 
