@@ -771,6 +771,39 @@ window.DataService = (() => {
 
   const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
 
+  // バッチ同期モード: trueの場合、_syncToCloudを即座に実行せず終業時にまとめて同期
+  let _batchSyncMode = true; // デフォルトでバッチモード有効
+  const _batchSyncDirty = new Set(); // 変更があったタイプを記録
+
+  function _markDirtyForSync(type) {
+    _batchSyncDirty.add(type);
+  }
+
+  // 全ダーティタイプを一括同期（終業時に呼ぶ）
+  async function syncAllToCloud() {
+    const types = [..._batchSyncDirty];
+    _batchSyncDirty.clear();
+    // 常にshiftsとbreaksも同期
+    if (!types.includes('shifts')) types.push('shifts');
+    if (!types.includes('breaks')) types.push('breaks');
+
+    for (const type of types) {
+      try {
+        let entries = [];
+        if (type === 'revenue') entries = _getRawEntries();
+        else if (type === 'rival') entries = getRivalEntries();
+        else if (type === 'gathering') entries = getGatheringMemos();
+        else if (type === 'shifts') entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+        else if (type === 'breaks') entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        else continue;
+        await _syncToCloud(type, entries, 0);
+      } catch (e) {
+        AppLogger.warn('一括同期エラー (' + type + '): ' + e.message);
+      }
+    }
+    AppLogger.info('終業時クラウド一括同期完了: ' + types.join(', '));
+  }
+
   // オフライン同期キュー: ネットワーク障害時に後で再試行
   const _pendingSyncQueue = [];
   let _pendingSyncProcessing = false;
@@ -804,6 +837,15 @@ window.DataService = (() => {
       AppLogger.info('ネットワーク復帰: 保留中の同期を処理');
       _processPendingSync();
     });
+  }
+
+  // バッチモード対応のラッパー: 即時同期またはダーティマーク
+  function _syncToCloudOrDefer(type, entries) {
+    if (_batchSyncMode) {
+      _markDirtyForSync(type);
+      return;
+    }
+    _syncToCloud(type, entries, 0);
   }
 
   async function _syncToCloud(type, entries, _retryCount) {
@@ -1006,7 +1048,7 @@ window.DataService = (() => {
       const secret = _getSyncSecret();
       if (!secret) return;
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-      await _syncToCloud('shifts', entries);
+      _syncToCloudOrDefer("shifts", entries);
     } catch (e) {
       AppLogger.warn('シフトクラウド同期エラー: ' + e.message);
     }
@@ -1017,7 +1059,7 @@ window.DataService = (() => {
       const secret = _getSyncSecret();
       if (!secret) return;
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-      await _syncToCloud('breaks', entries);
+      _syncToCloudOrDefer("breaks", entries);
     } catch (e) {
       AppLogger.warn('休憩クラウド同期エラー: ' + e.message);
     }
@@ -2172,7 +2214,7 @@ window.DataService = (() => {
     AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr}${couponStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
     // 自動ファイル保存
     autoSaveToFile();
-    _syncToCloud('revenue', entries);
+    _syncToCloudOrDefer('revenue', entries);
     _notifyDataChanged('revenue');
     return { success: true, entry, couponEntry };
   }
@@ -2183,7 +2225,7 @@ window.DataService = (() => {
     saveEntries(filtered);
     AppLogger.info('売上記録を削除しました');
     autoSaveToFile();
-    _syncToCloud('revenue', filtered);
+    _syncToCloudOrDefer('revenue', filtered);
     _notifyDataChanged('revenue');
     return true;
   }
@@ -2222,7 +2264,7 @@ window.DataService = (() => {
     saveEntries(filtered);
     AppLogger.info('売上記録をゴミ箱に移動しました');
     autoSaveToFile();
-    _syncToCloud('revenue', filtered);
+    _syncToCloudOrDefer('revenue', filtered);
     _notifyDataChanged('revenue');
     return true;
   }
@@ -2239,7 +2281,7 @@ window.DataService = (() => {
     saveRivalEntries(filtered);
     AppLogger.info('他社乗車記録をゴミ箱に移動しました');
     autoSaveRivalToFile();
-    _syncToCloud('rival', filtered);
+    _syncToCloudOrDefer('rival', filtered);
     _notifyDataChanged('rival');
     return true;
   }
@@ -2260,7 +2302,7 @@ window.DataService = (() => {
       entries.unshift(item);
       saveEntries(entries);
       autoSaveToFile();
-      _syncToCloud('revenue', entries);
+      _syncToCloudOrDefer('revenue', entries);
       _notifyDataChanged('revenue');
       AppLogger.info('売上記録をゴミ箱から復元しました');
     } else if (type === 'rival') {
@@ -2268,7 +2310,7 @@ window.DataService = (() => {
       entries.unshift(item);
       saveRivalEntries(entries);
       autoSaveRivalToFile();
-      _syncToCloud('rival', entries);
+      _syncToCloudOrDefer('rival', entries);
       _notifyDataChanged('rival');
       AppLogger.info('他社乗車記録をゴミ箱から復元しました');
     }
@@ -2347,14 +2389,14 @@ window.DataService = (() => {
     saveEntries(entries);
     AppLogger.info('売上記録を更新しました');
     autoSaveToFile();
-    _syncToCloud('revenue', entries);
+    _syncToCloudOrDefer('revenue', entries);
     _notifyDataChanged('revenue');
     return { success: true, entry: entries[idx] };
   }
 
   function clearAllEntries() {
     saveEntries([]);
-    _syncToCloud('revenue', []);
+    _syncToCloudOrDefer('revenue', []);
     AppLogger.info('全売上データを削除しました');
     _notifyDataChanged('revenue');
     return true;
@@ -2422,7 +2464,7 @@ window.DataService = (() => {
     const holidayStr = dateInfo.holiday ? ` [${dateInfo.holiday}]` : '';
     AppLogger.info(`他社乗車記録追加: ${entry.location} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
     autoSaveRivalToFile();
-    _syncToCloud('rival', entries);
+    _syncToCloudOrDefer('rival', entries);
     _notifyDataChanged('rival');
     return { success: true, entry };
   }
@@ -2433,7 +2475,7 @@ window.DataService = (() => {
     saveRivalEntries(filtered);
     AppLogger.info('他社乗車記録を削除しました');
     autoSaveRivalToFile();
-    _syncToCloud('rival', filtered);
+    _syncToCloudOrDefer('rival', filtered);
     _notifyDataChanged('rival');
     return true;
   }
@@ -2447,14 +2489,14 @@ window.DataService = (() => {
     saveRivalEntries(entries);
     AppLogger.info('他社乗車記録を更新しました');
     autoSaveRivalToFile();
-    _syncToCloud('rival', entries);
+    _syncToCloudOrDefer('rival', entries);
     _notifyDataChanged('rival');
     return { success: true, entry: entries[idx] };
   }
 
   function clearAllRivalEntries() {
     saveRivalEntries([]);
-    _syncToCloud('rival', []);
+    _syncToCloudOrDefer('rival', []);
     AppLogger.info('全他社乗車データを削除しました');
     _notifyDataChanged('rival');
     return true;
@@ -2603,7 +2645,7 @@ window.DataService = (() => {
     entries.unshift(entry);
     saveGatheringMemos(entries);
     autoSaveGatheringToFile();
-    _syncToCloud('gathering', entries);
+    _syncToCloudOrDefer('gathering', entries);
     _notifyDataChanged('gathering');
     return { success: true, entry };
   }
@@ -2622,7 +2664,7 @@ window.DataService = (() => {
     entries[idx] = { ...entries[idx], ...updates };
     saveGatheringMemos(entries);
     autoSaveGatheringToFile();
-    _syncToCloud('gathering', entries);
+    _syncToCloudOrDefer('gathering', entries);
     _notifyDataChanged('gathering');
     return { success: true, entry: entries[idx] };
   }
@@ -2632,14 +2674,14 @@ window.DataService = (() => {
     const filtered = entries.filter(e => e.id !== id);
     saveGatheringMemos(filtered);
     autoSaveGatheringToFile();
-    _syncToCloud('gathering', filtered);
+    _syncToCloudOrDefer('gathering', filtered);
     _notifyDataChanged('gathering');
     return true;
   }
 
   function clearAllGatheringMemos() {
     saveGatheringMemos([]);
-    _syncToCloud('gathering', []);
+    _syncToCloudOrDefer('gathering', []);
     AppLogger.info('全集客メモを削除しました');
     _notifyDataChanged('gathering');
     return true;
@@ -7389,6 +7431,7 @@ window.DataService = (() => {
     syncWorkStatusFromCloud,
     syncShiftsToCloud,
     syncBreaksToCloud,
+    syncAllToCloud,
     syncShiftsFromCloud,
     syncBreaksFromCloud,
 

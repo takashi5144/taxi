@@ -439,7 +439,6 @@ window.DashboardPage = () => {
       if (ab) {
         ab.endTime = now.toISOString();
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
-        DataService.syncBreaksToCloud();
       }
       setBreakInfo({ active: false, startTime: null });
       const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
@@ -447,7 +446,6 @@ window.DashboardPage = () => {
       if (activeShift) {
         activeShift.endTime = now.toISOString();
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
-        DataService.syncShiftsToCloud();
         AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
       }
       setShiftInfo({ active: false, startTime: null });
@@ -456,6 +454,8 @@ window.DashboardPage = () => {
       if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
       if (geo.isTracking) geo.stopTracking();
       GpsLogService.stopWeatherPolling();
+      // 終業時にクラウド一括同期
+      DataService.syncAllToCloud();
       AppLogger.info('GPS追跡を停止（終業）');
     } catch (e) {
       AppLogger.error('終業処理に失敗', e.message);
