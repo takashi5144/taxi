@@ -14,13 +14,22 @@ function getPageFromHash() {
 window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [apiKey, setApiKeyState] = useState(AppStorage.getApiKey());
+  const [apiKeyRaw, setApiKeyState] = useState(AppStorage.getApiKey());
+  const [apiKeyEnabled, setApiKeyEnabledState] = useState(() => localStorage.getItem('taxi_api_key_enabled') === 'true');
   const [geminiApiKey, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
+
+  // APIキーが有効な場合のみ返す（オフの場合は空文字）
+  const apiKey = apiKeyEnabled ? apiKeyRaw : '';
 
   const setApiKey = useCallback((key) => {
     AppStorage.setApiKey(key);
     setApiKeyState(key);
     AppLogger.info('Google Maps APIキーが更新されました');
+  }, []);
+
+  const setApiKeyEnabled = useCallback((enabled) => {
+    setApiKeyEnabledState(enabled);
+    localStorage.setItem('taxi_api_key_enabled', enabled ? 'true' : 'false');
   }, []);
 
   const setGeminiApiKey = useCallback((key) => {
@@ -101,6 +110,8 @@ window.AppProvider = ({ children }) => {
     setSidebarOpen,
     apiKey,
     setApiKey,
+    apiKeyEnabled,
+    setApiKeyEnabled,
     geminiApiKey,
     setGeminiApiKey,
   };

@@ -2,7 +2,7 @@
 // Settings.jsx - 設定ページ
 window.SettingsPage = () => {
   const { useState } = React;
-  const { apiKey, setApiKey, geminiApiKey, setGeminiApiKey } = useAppContext();
+  const { apiKey, setApiKey, apiKeyEnabled, setApiKeyEnabled, geminiApiKey, setGeminiApiKey } = useAppContext();
   const [inputKey, setInputKey] = useState(apiKey);
   const [saved, setSaved] = useState(false);
   const [geminiInputKey, setGeminiInputKey] = useState(geminiApiKey);
@@ -137,8 +137,36 @@ window.SettingsPage = () => {
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
           '保存しました'
         ),
-        apiKey && React.createElement('span', { className: 'badge badge--success' }, 'APIキー設定済み'),
-        !apiKey && React.createElement('span', { className: 'badge badge--warning' }, 'デモモード')
+        apiKeyEnabled && React.createElement('span', { className: 'badge badge--success' }, 'API有効'),
+        !apiKeyEnabled && React.createElement('span', { className: 'badge badge--warning' }, 'APIオフ')
+      ),
+
+      // APIキー使用のオン/オフトグル
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' },
+      },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'Google Maps APIを使用'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'オフの場合、地図表示なし・住所はNominatim(無料)で取得')
+        ),
+        React.createElement('button', {
+          onClick: () => setApiKeyEnabled(!apiKeyEnabled),
+          style: {
+            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
+            background: apiKeyEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
+            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          },
+        },
+          React.createElement('span', {
+            style: {
+              position: 'absolute', top: '3px',
+              left: apiKeyEnabled ? '24px' : '3px',
+              width: '20px', height: '20px', borderRadius: '50%',
+              background: '#fff', transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            },
+          })
+        )
       ),
 
       // トラブルシューティング
