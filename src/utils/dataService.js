@@ -1127,50 +1127,67 @@ window.DataService = (() => {
     const entries = getEntries();
     const today = getLocalDateString();
 
-    // アクティブシフト（未終業）があればシフト開始日を基準日とする
+    // 直近のシフト（アクティブまたは最後に終了したシフト）を基準にする
     let shiftStartDate = today;
-    let activeShiftStart = null;
+    let shiftEndTime = null;
     try {
       const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      // まずアクティブシフトを探す
       const activeShift = shifts.find(s => !s.endTime);
       if (activeShift && activeShift.startTime) {
         shiftStartDate = getLocalDateString(new Date(activeShift.startTime));
-        activeShiftStart = new Date(activeShift.startTime);
+      } else {
+        // 終了済みの直近シフトを探す（今日または昨日に開始されたもの）
+        const recentShifts = shifts
+          .filter(s => s.startTime && s.endTime)
+          .sort((a, b) => b.startTime.localeCompare(a.startTime));
+        if (recentShifts.length > 0) {
+          const lastShift = recentShifts[0];
+          const lastShiftDate = getLocalDateString(new Date(lastShift.startTime));
+          const lastShiftEndDate = getLocalDateString(new Date(lastShift.endTime));
+          // 直近シフトの終業日が今日なら、そのシフトの開始日を基準にする
+          if (lastShiftEndDate === today || lastShiftDate === today) {
+            shiftStartDate = lastShiftDate;
+            shiftEndTime = new Date(lastShift.endTime);
+          }
+        }
       }
     } catch(e) {}
 
-    // シフト開始日以降の全エントリを集計（日付またぎ対応）
+    // シフト開始日〜今日のエントリを集計
+    // 終業済みの場合はシフト終了時刻以前のエントリのみ
     const todayEntries = entries.filter(e => {
       const d = e.date || toDateStr(e.timestamp);
-      // シフト開始日と同じ日、またはそれ以降（アクティブシフト中のみ）
-      if (d === shiftStartDate) return true;
-      if (activeShiftStart && d > shiftStartDate && d <= today) return true;
-      return false;
+      if (d < shiftStartDate || d > today) return false;
+      // 終業済みシフトの場合、終業時刻より後のエントリは除外
+      if (shiftEndTime && e.timestamp) {
+        const entryTime = new Date(e.timestamp);
+        if (entryTime > shiftEndTime) return false;
+      }
+      return true;
     });
 
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);
     const rideCount = todayEntries.length;
     const avgAmount = rideCount > 0 ? Math.round(totalAmount / rideCount) : 0;
 
-    // 稼働時間の計算（シフト始業〜終業の合計 − 休憩時間、未終業は現在時刻まで）
+    // 稼働時間の計算
     let workMinutes = 0;
     let breakMinutes = 0;
     try {
       const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
       shifts.forEach(s => {
         if (!s.startTime) return;
-        const start = new Date(s.startTime);
-        const sDate = toDateStr(s.startTime);
-        // シフト開始日以降のシフトのみ
+        const sDate = getLocalDateString(new Date(s.startTime));
         if (sDate < shiftStartDate || sDate > today) return;
+        const start = new Date(s.startTime);
         const end = s.endTime ? new Date(s.endTime) : new Date();
         workMinutes += Math.round((end - start) / 60000);
       });
-      // 休憩時間を差し引く
       const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       breaks.forEach(b => {
         if (!b.startTime) return;
-        const bDate = toDateStr(b.startTime);
+        const bDate = getLocalDateString(new Date(b.startTime));
         if (bDate < shiftStartDate || bDate > today) return;
         const bStart = new Date(b.startTime);
         const bEnd = b.endTime ? new Date(b.endTime) : new Date();
