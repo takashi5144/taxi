@@ -1126,7 +1126,27 @@ window.DataService = (() => {
   function getTodaySummary() {
     const entries = getEntries();
     const today = getLocalDateString();
-    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
+
+    // アクティブシフト（未終業）があればシフト開始日を基準日とする
+    let shiftStartDate = today;
+    let activeShiftStart = null;
+    try {
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (activeShift && activeShift.startTime) {
+        shiftStartDate = getLocalDateString(new Date(activeShift.startTime));
+        activeShiftStart = new Date(activeShift.startTime);
+      }
+    } catch(e) {}
+
+    // シフト開始日以降の全エントリを集計（日付またぎ対応）
+    const todayEntries = entries.filter(e => {
+      const d = e.date || toDateStr(e.timestamp);
+      // シフト開始日と同じ日、またはそれ以降（アクティブシフト中のみ）
+      if (d === shiftStartDate) return true;
+      if (activeShiftStart && d > shiftStartDate && d <= today) return true;
+      return false;
+    });
 
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);
     const rideCount = todayEntries.length;
@@ -1140,7 +1160,9 @@ window.DataService = (() => {
       shifts.forEach(s => {
         if (!s.startTime) return;
         const start = new Date(s.startTime);
-        if (toDateStr(s.startTime) !== today) return;
+        const sDate = toDateStr(s.startTime);
+        // シフト開始日以降のシフトのみ
+        if (sDate < shiftStartDate || sDate > today) return;
         const end = s.endTime ? new Date(s.endTime) : new Date();
         workMinutes += Math.round((end - start) / 60000);
       });
@@ -1148,7 +1170,8 @@ window.DataService = (() => {
       const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       breaks.forEach(b => {
         if (!b.startTime) return;
-        if (toDateStr(b.startTime) !== today) return;
+        const bDate = toDateStr(b.startTime);
+        if (bDate < shiftStartDate || bDate > today) return;
         const bStart = new Date(b.startTime);
         const bEnd = b.endTime ? new Date(b.endTime) : new Date();
         breakMinutes += Math.round((bEnd - bStart) / 60000);
@@ -1165,6 +1188,7 @@ window.DataService = (() => {
       workTime: `${workHours}h ${workMins}m`,
       workMinutes,
       entries: todayEntries,
+      shiftStartDate: shiftStartDate,
     };
   }
 
