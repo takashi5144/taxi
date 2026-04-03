@@ -915,7 +915,7 @@ window.DashboardPage = () => {
     React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
       // 合計金額セクション
       React.createElement('div', { style: { textAlign: 'center', paddingBottom: 'var(--space-sm)', marginBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-color)' } },
-        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: 4 } }, '本日の売上合計'),
+        React.createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: 4 } }, `${todaySummary.shiftStartDate || getLocalDateString()}の売上合計`),
         React.createElement('div', {
           style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '4px 0' },
         }, `¥${todayTotal.toLocaleString()}`),
