@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.65.0</title>
+  <title>タクシー売上サポート v3.66.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.65.0',
+  VERSION: '3.66.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -13807,10 +13807,12 @@ window.AppProvider = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [apiKeyRaw, setApiKeyState] = useState(AppStorage.getApiKey());
   const [apiKeyEnabled, setApiKeyEnabledState] = useState(() => localStorage.getItem('taxi_api_key_enabled') === 'true');
-  const [geminiApiKey, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
+  const [geminiApiKeyRaw, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
+  const [geminiApiKeyEnabled, setGeminiApiKeyEnabledState] = useState(() => localStorage.getItem('taxi_gemini_api_key_enabled') === 'true');
 
   // APIキーが有効な場合のみ返す（オフの場合は空文字）
   const apiKey = apiKeyEnabled ? apiKeyRaw : '';
+  const geminiApiKey = geminiApiKeyEnabled ? geminiApiKeyRaw : '';
 
   const setApiKey = useCallback((key) => {
     AppStorage.setApiKey(key);
@@ -13827,6 +13829,11 @@ window.AppProvider = ({ children }) => {
     AppStorage.setGeminiApiKey(key);
     setGeminiApiKeyState(key);
     AppLogger.info('Gemini APIキーが更新されました');
+  }, []);
+
+  const setGeminiApiKeyEnabled = useCallback((enabled) => {
+    setGeminiApiKeyEnabledState(enabled);
+    localStorage.setItem('taxi_gemini_api_key_enabled', enabled ? 'true' : 'false');
   }, []);
 
   // ページ遷移（ハッシュを更新 → hashchangeで状態も更新）
@@ -13878,6 +13885,8 @@ window.AppProvider = ({ children }) => {
     setApiKeyEnabled,
     geminiApiKey,
     setGeminiApiKey,
+    geminiApiKeyEnabled,
+    setGeminiApiKeyEnabled,
   };
 
   return React.createElement(AppContext.Provider, { value }, children);
@@ -29423,7 +29432,7 @@ window.AnalyticsPage = () => {
 // Settings.jsx - 設定ページ
 window.SettingsPage = () => {
   const { useState } = React;
-  const { apiKey, setApiKey, apiKeyEnabled, setApiKeyEnabled, geminiApiKey, setGeminiApiKey } = useAppContext();
+  const { apiKey, setApiKey, apiKeyEnabled, setApiKeyEnabled, geminiApiKey, setGeminiApiKey, geminiApiKeyEnabled, setGeminiApiKeyEnabled } = useAppContext();
   const [inputKey, setInputKey] = useState(apiKey);
   const [saved, setSaved] = useState(false);
   const [geminiInputKey, setGeminiInputKey] = useState(geminiApiKey);
@@ -29697,8 +29706,36 @@ window.SettingsPage = () => {
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
           '保存しました'
         ),
-        geminiApiKey && React.createElement('span', { className: 'badge badge--success' }, 'APIキー設定済み'),
-        !geminiApiKey && React.createElement('span', { className: 'badge badge--warning' }, '未設定')
+        geminiApiKeyEnabled && React.createElement('span', { className: 'badge badge--success' }, 'API有効'),
+        !geminiApiKeyEnabled && React.createElement('span', { className: 'badge badge--warning' }, 'APIオフ')
+      ),
+
+      // Gemini APIキー使用のオン/オフトグル
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' },
+      },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'Gemini APIを使用'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'オフの場合、AI検索・需要予測などが無効')
+        ),
+        React.createElement('button', {
+          onClick: () => setGeminiApiKeyEnabled(!geminiApiKeyEnabled),
+          style: {
+            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
+            background: geminiApiKeyEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
+            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          },
+        },
+          React.createElement('span', {
+            style: {
+              position: 'absolute', top: '3px',
+              left: geminiApiKeyEnabled ? '24px' : '3px',
+              width: '20px', height: '20px', borderRadius: '50%',
+              background: '#fff', transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            },
+          })
+        )
       ),
 
       geminiTestResult && React.createElement('div', {

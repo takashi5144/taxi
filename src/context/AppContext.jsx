@@ -16,10 +16,12 @@ window.AppProvider = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [apiKeyRaw, setApiKeyState] = useState(AppStorage.getApiKey());
   const [apiKeyEnabled, setApiKeyEnabledState] = useState(() => localStorage.getItem('taxi_api_key_enabled') === 'true');
-  const [geminiApiKey, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
+  const [geminiApiKeyRaw, setGeminiApiKeyState] = useState(AppStorage.getGeminiApiKey());
+  const [geminiApiKeyEnabled, setGeminiApiKeyEnabledState] = useState(() => localStorage.getItem('taxi_gemini_api_key_enabled') === 'true');
 
   // APIキーが有効な場合のみ返す（オフの場合は空文字）
   const apiKey = apiKeyEnabled ? apiKeyRaw : '';
+  const geminiApiKey = geminiApiKeyEnabled ? geminiApiKeyRaw : '';
 
   const setApiKey = useCallback((key) => {
     AppStorage.setApiKey(key);
@@ -36,6 +38,11 @@ window.AppProvider = ({ children }) => {
     AppStorage.setGeminiApiKey(key);
     setGeminiApiKeyState(key);
     AppLogger.info('Gemini APIキーが更新されました');
+  }, []);
+
+  const setGeminiApiKeyEnabled = useCallback((enabled) => {
+    setGeminiApiKeyEnabledState(enabled);
+    localStorage.setItem('taxi_gemini_api_key_enabled', enabled ? 'true' : 'false');
   }, []);
 
   // ページ遷移（ハッシュを更新 → hashchangeで状態も更新）
@@ -87,6 +94,8 @@ window.AppProvider = ({ children }) => {
     setApiKeyEnabled,
     geminiApiKey,
     setGeminiApiKey,
+    geminiApiKeyEnabled,
+    setGeminiApiKeyEnabled,
   };
 
   return React.createElement(AppContext.Provider, { value }, children);

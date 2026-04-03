@@ -2,7 +2,7 @@
 // Settings.jsx - 設定ページ
 window.SettingsPage = () => {
   const { useState } = React;
-  const { apiKey, setApiKey, apiKeyEnabled, setApiKeyEnabled, geminiApiKey, setGeminiApiKey } = useAppContext();
+  const { apiKey, setApiKey, apiKeyEnabled, setApiKeyEnabled, geminiApiKey, setGeminiApiKey, geminiApiKeyEnabled, setGeminiApiKeyEnabled } = useAppContext();
   const [inputKey, setInputKey] = useState(apiKey);
   const [saved, setSaved] = useState(false);
   const [geminiInputKey, setGeminiInputKey] = useState(geminiApiKey);
@@ -276,8 +276,36 @@ window.SettingsPage = () => {
           React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'check_circle'),
           '保存しました'
         ),
-        geminiApiKey && React.createElement('span', { className: 'badge badge--success' }, 'APIキー設定済み'),
-        !geminiApiKey && React.createElement('span', { className: 'badge badge--warning' }, '未設定')
+        geminiApiKeyEnabled && React.createElement('span', { className: 'badge badge--success' }, 'API有効'),
+        !geminiApiKeyEnabled && React.createElement('span', { className: 'badge badge--warning' }, 'APIオフ')
+      ),
+
+      // Gemini APIキー使用のオン/オフトグル
+      React.createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' },
+      },
+        React.createElement('div', null,
+          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'Gemini APIを使用'),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'オフの場合、AI検索・需要予測などが無効')
+        ),
+        React.createElement('button', {
+          onClick: () => setGeminiApiKeyEnabled(!geminiApiKeyEnabled),
+          style: {
+            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
+            background: geminiApiKeyEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
+            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+          },
+        },
+          React.createElement('span', {
+            style: {
+              position: 'absolute', top: '3px',
+              left: geminiApiKeyEnabled ? '24px' : '3px',
+              width: '20px', height: '20px', borderRadius: '50%',
+              background: '#fff', transition: 'left 0.2s',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            },
+          })
+        )
       ),
 
       geminiTestResult && React.createElement('div', {
