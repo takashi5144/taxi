@@ -20,25 +20,25 @@ window.GpsLogService = (() => {
   const MIN_MOVE_METERS = 5;     // この距離以上動かないと記録しない
 
   // --- 天気キャッシュ ---
-  const WEATHER_POLL_MS = 1800000; // 30分間隔で天気取得（通信量削減）
   let _weatherCache = null;       // { w: '晴れ', tp: 5.2, wc: 1, ts: Date.now() }
-  let _weatherTimer = null;
+  let _hourlyWeather = null;      // 時間帯別天気データ { '2026-04-03T17:00': { w, tp, wc }, ... }
 
   // WMO天気コードを天候カテゴリに変換（共通ユーティリティ委譲）
   const _wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '曇り');
 
-  /** Open-Meteo APIから現在地の天気を取得しキャッシュ更新 */
-  function _fetchWeather() {
+  /** Open-Meteo APIから全時間帯の天気を一括取得（始業時に1回のみ） */
+  function _fetchWeatherAll() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         _lastKnownPosition = { lat, lng };
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&timezone=Asia/Tokyo`;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&hourly=temperature_2m,weathercode&timezone=Asia/Tokyo&forecast_days=2`;
         fetch(url)
           .then(r => r.ok ? r.json() : Promise.reject(r.status))
           .then(data => {
+            // 現在の天気
             const cw = data.current_weather;
             if (cw) {
               _weatherCache = {
@@ -49,26 +49,59 @@ window.GpsLogService = (() => {
               };
               AppLogger.info(`天気取得: ${_weatherCache.w} ${_weatherCache.tp}℃ (WMO:${_weatherCache.wc})`);
             }
+            // 時間帯別データをキャッシュ
+            if (data.hourly && data.hourly.time) {
+              _hourlyWeather = {};
+              data.hourly.time.forEach((t, i) => {
+                _hourlyWeather[t] = {
+                  w: _wmoToWeather(data.hourly.weathercode[i]),
+                  tp: Math.round(data.hourly.temperature_2m[i] * 10) / 10,
+                  wc: data.hourly.weathercode[i],
+                };
+              });
+              AppLogger.info(`時間帯別天気: ${Object.keys(_hourlyWeather).length}時間分取得`);
+            }
           })
           .catch(err => {
-            AppLogger.warn(`天気API取得失敗: ${err}（前回キャッシュを維持）`);
+            AppLogger.warn(`天気API取得失敗: ${err}`);
           });
       },
       (err) => {
-        AppLogger.warn(`天気用位置取得失敗: ${err.message}（前回キャッシュを維持）`);
+        AppLogger.warn(`天気用位置取得失敗: ${err.message}`);
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
     );
   }
 
-  /** 天気ポーリング開始（即時1回 + 5分間隔） */
-  function startWeatherPolling() {
-    stopWeatherPolling();
-    _fetchWeather();
-    _weatherTimer = setInterval(_fetchWeather, WEATHER_POLL_MS);
-    AppLogger.info('天気ポーリング開始（5分間隔）');
+  /** 現在時刻に最も近い天気キャッシュを返す */
+  function _updateWeatherFromCache() {
+    if (!_hourlyWeather) return;
+    const now = new Date();
+    const key = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + 'T' +
+      String(now.getHours()).padStart(2, '0') + ':00';
+    const hourData = _hourlyWeather[key];
+    if (hourData) {
+      _weatherCache = {
+        w: hourData.w,
+        tp: hourData.tp,
+        wc: hourData.wc,
+        ts: Date.now(),
+      };
+    }
   }
 
+  /** 天気ポーリング開始（始業時に1回API取得、以降はキャッシュから更新） */
+  function startWeatherPolling() {
+    stopWeatherPolling();
+    _fetchWeatherAll();
+    // 1時間ごとにキャッシュから現在時刻の天気に更新（API通信なし）
+    _weatherTimer = setInterval(_updateWeatherFromCache, 3600000);
+    AppLogger.info('天気取得: 始業時に1回取得（全時間帯キャッシュ）');
+  }
+
+  let _weatherTimer = null;
   /** 天気ポーリング停止 */
   function stopWeatherPolling() {
     if (_weatherTimer) {
@@ -76,6 +109,7 @@ window.GpsLogService = (() => {
       _weatherTimer = null;
     }
     _weatherCache = null;
+    _hourlyWeather = null;
   }
 
   // --- IndexedDB ---
