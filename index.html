@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.66.0</title>
+  <title>タクシー売上サポート v3.67.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.66.0',
+  VERSION: '3.67.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -5518,48 +5518,101 @@ window.DataService = (() => {
     const now = new Date();
     const today = toDateStr(now.toISOString());
     const currentMonth = today.slice(0, 7);
+    const allShifts = (() => { try { return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { return []; } })();
+    const allBreaks = (() => { try { return JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]'); } catch { return []; } })();
 
-    // 日別の実車率を計算するヘルパー
-    function calcDayRate(dayEntries) {
-      const sorted = dayEntries
-        .filter(e => e.pickupTime && e.dropoffTime)
-        .sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
-      let occ = 0, vac = 0;
-      sorted.forEach((e, i) => {
-        const p = _timeToMinutes(e.pickupTime);
-        const d = _timeToMinutes(e.dropoffTime);
-        if (p !== null && d !== null && d > p) occ += d - p;
-        if (i < sorted.length - 1) {
-          const nextP = _timeToMinutes(sorted[i + 1].pickupTime);
-          if (d !== null && nextP !== null && nextP > d) vac += nextP - d;
-        }
+    // 指定日のシフト勤務時間（分）を計算（休憩除く）
+    function getWorkMinForDate(dateStr) {
+      let workMin = 0, breakMin = 0;
+      allShifts.forEach(s => {
+        if (!s.startTime) return;
+        const sDate = getLocalDateString(new Date(s.startTime));
+        if (sDate !== dateStr) return;
+        const start = new Date(s.startTime);
+        const end = s.endTime ? new Date(s.endTime) : (sDate === today ? now : new Date(s.startTime));
+        workMin += Math.round((end - start) / 60000);
       });
-      return { occ, vac, count: sorted.length };
+      allBreaks.forEach(b => {
+        if (!b.startTime) return;
+        const bDate = getLocalDateString(new Date(b.startTime));
+        if (bDate !== dateStr) return;
+        const bStart = new Date(b.startTime);
+        const bEnd = b.endTime ? new Date(b.endTime) : (bDate === today ? now : new Date(b.startTime));
+        breakMin += Math.round((bEnd - bStart) / 60000);
+      });
+      return Math.max(0, workMin - breakMin);
     }
 
-    // 本日
-    const todayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === today);
-    const todayResult = calcDayRate(todayEntries);
-    const todayTotal = todayResult.occ + todayResult.vac;
+    // 実車時間の合計（分）を計算
+    function calcOccupiedMin(dayEntries) {
+      let occ = 0, count = 0;
+      dayEntries.forEach(e => {
+        if (!e.pickupTime || !e.dropoffTime) return;
+        const p = _timeToMinutes(e.pickupTime);
+        const d = _timeToMinutes(e.dropoffTime);
+        if (p !== null && d !== null && d > p) {
+          occ += d - p;
+          count++;
+        }
+      });
+      return { occ, count };
+    }
 
-    // 当月（日別に集計して合算）
-    const monthEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)).startsWith(currentMonth));
-    const monthResult = calcDayRate(monthEntries);
-    const monthTotal = monthResult.occ + monthResult.vac;
+    // 本日: シフト開始日基準（日またぎ対応）
+    let todayShiftDate = today;
+    const activeShift = allShifts.find(s => !s.endTime);
+    if (activeShift && activeShift.startTime) {
+      todayShiftDate = getLocalDateString(new Date(activeShift.startTime));
+    } else {
+      const recentShifts = allShifts.filter(s => s.startTime && s.endTime).sort((a, b) => b.startTime.localeCompare(a.startTime));
+      if (recentShifts.length > 0) {
+        const last = recentShifts[0];
+        const lastEndDate = getLocalDateString(new Date(last.endTime));
+        if (lastEndDate === today || getLocalDateString(new Date(last.startTime)) === today) {
+          todayShiftDate = getLocalDateString(new Date(last.startTime));
+        }
+      }
+    }
 
-    // 当月の営業日数
-    const monthDays = new Set(monthEntries.filter(e => e.pickupTime && e.dropoffTime).map(e => e.date || toDateStr(e.timestamp))).size;
+    // 本日のエントリ（シフト開始日〜今日）
+    const todayEntries = entries.filter(e => {
+      const d = e.date || toDateStr(e.timestamp);
+      return d >= todayShiftDate && d <= today;
+    });
+    const todayOcc = calcOccupiedMin(todayEntries);
+    const todayWorkMin = getWorkMinForDate(todayShiftDate);
+    const todayVacant = Math.max(0, todayWorkMin - todayOcc.occ);
+
+    // 当月: 全営業日の合計
+    const monthShiftDates = new Set();
+    allShifts.forEach(s => {
+      if (!s.startTime) return;
+      const sDate = getLocalDateString(new Date(s.startTime));
+      if (sDate.startsWith(currentMonth)) monthShiftDates.add(sDate);
+    });
+    let monthOcc = 0, monthWorkMin = 0, monthCount = 0;
+    monthShiftDates.forEach(dateStr => {
+      const dayWork = getWorkMinForDate(dateStr);
+      const dayEntries = entries.filter(e => (e.date || toDateStr(e.timestamp)) === dateStr);
+      const dayOcc = calcOccupiedMin(dayEntries);
+      monthWorkMin += dayWork;
+      monthOcc += dayOcc.occ;
+      monthCount += dayOcc.count;
+    });
+    const monthVacant = Math.max(0, monthWorkMin - monthOcc);
 
     return {
-      occupiedMin: todayResult.occ,
-      vacantMin: todayResult.vac,
-      rate: todayTotal > 0 ? Math.round((todayResult.occ / todayTotal) * 100) : 0,
-      rideCount: todayResult.count,
-      monthOccupiedMin: monthResult.occ,
-      monthVacantMin: monthResult.vac,
-      monthRate: monthTotal > 0 ? Math.round((monthResult.occ / monthTotal) * 100) : 0,
-      monthRideCount: monthResult.count,
-      monthDays: monthDays,
+      occupiedMin: todayOcc.occ,
+      vacantMin: todayVacant,
+      rate: todayWorkMin > 0 ? Math.round((todayOcc.occ / todayWorkMin) * 100) : 0,
+      rideCount: todayOcc.count,
+      workMin: todayWorkMin,
+      monthOccupiedMin: monthOcc,
+      monthVacantMin: monthVacant,
+      monthRate: monthWorkMin > 0 ? Math.round((monthOcc / monthWorkMin) * 100) : 0,
+      monthRideCount: monthCount,
+      monthDays: monthShiftDates.size,
+      monthWorkMin: monthWorkMin,
     };
   }
 
