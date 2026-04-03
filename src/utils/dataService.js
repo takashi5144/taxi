@@ -1196,17 +1196,22 @@ window.DataService = (() => {
       }
     } catch(e) {}
 
-    // シフト開始日〜今日のエントリを集計
-    // 終業済みの場合はシフト終了時刻以前のエントリのみ
+    // シフト開始日のエントリを集計（shiftDateフィールド優先）
     const todayEntries = entries.filter(e => {
-      const d = e.date || toDateStr(e.timestamp);
-      if (d < shiftStartDate || d > today) return false;
-      // 終業済みシフトの場合、終業時刻より後のエントリは除外
-      if (shiftEndTime && e.timestamp) {
-        const entryTime = new Date(e.timestamp);
-        if (entryTime > shiftEndTime) return false;
+      // shiftDateが明示的に設定されている場合、それを使う
+      const aggregateDate = e.shiftDate || e.date || toDateStr(e.timestamp);
+      if (aggregateDate === shiftStartDate) return true;
+      // shiftDateがない場合、従来のシフト範囲ロジックで判定
+      if (!e.shiftDate) {
+        const d = e.date || toDateStr(e.timestamp);
+        if (d < shiftStartDate || d > today) return false;
+        if (shiftEndTime && e.timestamp) {
+          const entryTime = new Date(e.timestamp);
+          if (entryTime > shiftEndTime) return false;
+        }
+        return true;
       }
-      return true;
+      return false;
     });
 
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);

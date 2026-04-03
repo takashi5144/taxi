@@ -100,8 +100,11 @@ window.CalendarPage = () => {
       }))
       .sort((a, b) => a.start - b.start);
 
-    // エントリのtimestampからシフト開始日を特定
+    // エントリの合算日を特定（shiftDateフィールド優先）
     function getShiftDate(entry) {
+      // shiftDateが明示的に設定されていればそれを使う
+      if (entry.shiftDate) return entry.shiftDate;
+      // 従来のシフト範囲ロジック
       if (entry.timestamp) {
         const ts = new Date(entry.timestamp);
         for (let i = shiftRanges.length - 1; i >= 0; i--) {

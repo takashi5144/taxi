@@ -1415,6 +1415,7 @@ window.DataManagePage = () => {
         standbyLocation: si.locationName || '',
         standbyStartTime: si.startTime || '',
         standbyEndTime: si.endTime || '',
+        shiftDate: entry.shiftDate || entry.date || '',
       });
     } else if (type === 'vacant') {
       setEditForm({ date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', memo: entry.memo || '' });
@@ -2092,6 +2093,40 @@ window.DataManagePage = () => {
               info.holiday && React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: '#ef4444', padding: '1px 8px', borderRadius: '3px', background: 'rgba(239,68,68,0.12)' } }, '🎌 ' + info.holiday)
             );
           })()
+        ),
+        // 合算日
+        editForm.shiftDate !== undefined && React.createElement('div', { style: { marginBottom: '8px' } },
+          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '合算日（どの日の売上に集計するか）'),
+          React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+            React.createElement('input', {
+              type: 'date', value: editForm.shiftDate || '',
+              onChange: e => setEditForm(f => ({ ...f, shiftDate: e.target.value })),
+              style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', colorScheme: 'dark', boxSizing: 'border-box' },
+            }),
+            React.createElement('button', {
+              onClick: () => setEditForm(f => ({ ...f, shiftDate: f.date })),
+              style: {
+                padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', background: editForm.shiftDate === editForm.date ? 'var(--color-accent)' : 'rgba(255,255,255,0.08)',
+                color: editForm.shiftDate === editForm.date ? '#fff' : 'var(--text-muted)',
+              },
+            }, '当日'),
+            React.createElement('button', {
+              onClick: () => {
+                const d = new Date(editForm.date);
+                d.setDate(d.getDate() - 1);
+                setEditForm(f => ({ ...f, shiftDate: getLocalDateString(d) }));
+              },
+              style: {
+                padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', background: editForm.shiftDate !== editForm.date ? '#ffa726' : 'rgba(255,255,255,0.08)',
+                color: editForm.shiftDate !== editForm.date ? '#fff' : 'var(--text-muted)',
+              },
+            }, '前日')
+          ),
+          editForm.shiftDate && editForm.shiftDate !== editForm.date && React.createElement('div', {
+            style: { marginTop: '4px', fontSize: '10px', color: '#ffa726' },
+          }, editForm.shiftDate + 'の売上として集計されます')
         ),
         // 天候
         React.createElement('div', { style: { marginBottom: '8px' } },

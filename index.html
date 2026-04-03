@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.67.0</title>
+  <title>タクシー売上サポート v3.68.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.67.0',
+  VERSION: '3.68.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3803,17 +3803,22 @@ window.DataService = (() => {
       }
     } catch(e) {}
 
-    // シフト開始日〜今日のエントリを集計
-    // 終業済みの場合はシフト終了時刻以前のエントリのみ
+    // シフト開始日のエントリを集計（shiftDateフィールド優先）
     const todayEntries = entries.filter(e => {
-      const d = e.date || toDateStr(e.timestamp);
-      if (d < shiftStartDate || d > today) return false;
-      // 終業済みシフトの場合、終業時刻より後のエントリは除外
-      if (shiftEndTime && e.timestamp) {
-        const entryTime = new Date(e.timestamp);
-        if (entryTime > shiftEndTime) return false;
+      // shiftDateが明示的に設定されている場合、それを使う
+      const aggregateDate = e.shiftDate || e.date || toDateStr(e.timestamp);
+      if (aggregateDate === shiftStartDate) return true;
+      // shiftDateがない場合、従来のシフト範囲ロジックで判定
+      if (!e.shiftDate) {
+        const d = e.date || toDateStr(e.timestamp);
+        if (d < shiftStartDate || d > today) return false;
+        if (shiftEndTime && e.timestamp) {
+          const entryTime = new Date(e.timestamp);
+          if (entryTime > shiftEndTime) return false;
+        }
+        return true;
       }
-      return true;
+      return false;
     });
 
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);
@@ -20822,6 +20827,7 @@ window.RevenuePage = () => {
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
   const [standbyEnabled, setStandbyEnabled] = useState(false); // 待機情報オン/オフ
+  const [aggregateDate, setAggregateDate] = useState('today'); // 'today'=当日合算 / 'previous'=前日合算
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
@@ -21343,6 +21349,15 @@ window.RevenuePage = () => {
       };
     }
 
+    // 合算日の設定（前日合算の場合、shiftDateを前日にする）
+    if (aggregateDate === 'previous') {
+      const d = new Date(formWithCoords.date || getLocalDateString());
+      d.setDate(d.getDate() - 1);
+      formWithCoords.shiftDate = getLocalDateString(d);
+    } else {
+      formWithCoords.shiftDate = formWithCoords.date || getLocalDateString();
+    }
+
     // DataServiceのaddEntryに完全委譲（バリデーション含む）
     const result = DataService.addEntry(formWithCoords);
     if (!result.success) {
@@ -21416,6 +21431,7 @@ window.RevenuePage = () => {
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
     setStandbyEnabled(false);
+    setAggregateDate('today');
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -22212,6 +22228,47 @@ window.RevenuePage = () => {
                 )
               );
             })()
+          ),
+
+          // 合算日の選択（当日/前日）
+          React.createElement('div', {
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-md)',
+              padding: '8px 12px', borderRadius: '8px',
+              background: aggregateDate === 'previous' ? 'rgba(255,167,38,0.08)' : 'rgba(255,255,255,0.03)',
+              border: aggregateDate === 'previous' ? '1px solid rgba(255,167,38,0.25)' : '1px solid rgba(255,255,255,0.08)',
+            },
+          },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '16px', color: aggregateDate === 'previous' ? '#ffa726' : 'var(--text-muted)' },
+            }, 'date_range'),
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' } }, '合算日:'),
+            React.createElement('button', {
+              onClick: () => setAggregateDate('today'),
+              style: {
+                padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '12px', fontWeight: aggregateDate === 'today' ? 700 : 400,
+                background: aggregateDate === 'today' ? 'var(--color-accent)' : 'rgba(255,255,255,0.08)',
+                color: aggregateDate === 'today' ? '#fff' : 'var(--text-muted)',
+              },
+            }, '当日'),
+            React.createElement('button', {
+              onClick: () => setAggregateDate('previous'),
+              style: {
+                padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '12px', fontWeight: aggregateDate === 'previous' ? 700 : 400,
+                background: aggregateDate === 'previous' ? '#ffa726' : 'rgba(255,255,255,0.08)',
+                color: aggregateDate === 'previous' ? '#fff' : 'var(--text-muted)',
+              },
+            }, '前日'),
+            aggregateDate === 'previous' && React.createElement('span', {
+              style: { fontSize: '10px', color: '#ffa726', marginLeft: 'auto' },
+            }, (() => {
+              const d = new Date(form.date || getLocalDateString());
+              d.setDate(d.getDate() - 1);
+              return getLocalDateString(d) + 'に合算';
+            })())
           ),
 
           // 天候（自動取得 + 手動変更可）
@@ -24874,8 +24931,11 @@ window.CalendarPage = () => {
       }))
       .sort((a, b) => a.start - b.start);
 
-    // エントリのtimestampからシフト開始日を特定
+    // エントリの合算日を特定（shiftDateフィールド優先）
     function getShiftDate(entry) {
+      // shiftDateが明示的に設定されていればそれを使う
+      if (entry.shiftDate) return entry.shiftDate;
+      // 従来のシフト範囲ロジック
       if (entry.timestamp) {
         const ts = new Date(entry.timestamp);
         for (let i = shiftRanges.length - 1; i >= 0; i--) {
@@ -31768,6 +31828,7 @@ window.DataManagePage = () => {
         standbyLocation: si.locationName || '',
         standbyStartTime: si.startTime || '',
         standbyEndTime: si.endTime || '',
+        shiftDate: entry.shiftDate || entry.date || '',
       });
     } else if (type === 'vacant') {
       setEditForm({ date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', memo: entry.memo || '' });
@@ -32445,6 +32506,40 @@ window.DataManagePage = () => {
               info.holiday && React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: '#ef4444', padding: '1px 8px', borderRadius: '3px', background: 'rgba(239,68,68,0.12)' } }, '🎌 ' + info.holiday)
             );
           })()
+        ),
+        // 合算日
+        editForm.shiftDate !== undefined && React.createElement('div', { style: { marginBottom: '8px' } },
+          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '合算日（どの日の売上に集計するか）'),
+          React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } },
+            React.createElement('input', {
+              type: 'date', value: editForm.shiftDate || '',
+              onChange: e => setEditForm(f => ({ ...f, shiftDate: e.target.value })),
+              style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,167,38,0.3)', background: 'rgba(255,167,38,0.06)', color: 'var(--text-primary)', fontSize: '13px', colorScheme: 'dark', boxSizing: 'border-box' },
+            }),
+            React.createElement('button', {
+              onClick: () => setEditForm(f => ({ ...f, shiftDate: f.date })),
+              style: {
+                padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', background: editForm.shiftDate === editForm.date ? 'var(--color-accent)' : 'rgba(255,255,255,0.08)',
+                color: editForm.shiftDate === editForm.date ? '#fff' : 'var(--text-muted)',
+              },
+            }, '当日'),
+            React.createElement('button', {
+              onClick: () => {
+                const d = new Date(editForm.date);
+                d.setDate(d.getDate() - 1);
+                setEditForm(f => ({ ...f, shiftDate: getLocalDateString(d) }));
+              },
+              style: {
+                padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', background: editForm.shiftDate !== editForm.date ? '#ffa726' : 'rgba(255,255,255,0.08)',
+                color: editForm.shiftDate !== editForm.date ? '#fff' : 'var(--text-muted)',
+              },
+            }, '前日')
+          ),
+          editForm.shiftDate && editForm.shiftDate !== editForm.date && React.createElement('div', {
+            style: { marginTop: '4px', fontSize: '10px', color: '#ffa726' },
+          }, editForm.shiftDate + 'の売上として集計されます')
         ),
         // 天候
         React.createElement('div', { style: { marginBottom: '8px' } },

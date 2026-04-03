@@ -25,6 +25,7 @@ window.RevenuePage = () => {
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
   const [standbyEnabled, setStandbyEnabled] = useState(false); // 待機情報オン/オフ
+  const [aggregateDate, setAggregateDate] = useState('today'); // 'today'=当日合算 / 'previous'=前日合算
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
@@ -546,6 +547,15 @@ window.RevenuePage = () => {
       };
     }
 
+    // 合算日の設定（前日合算の場合、shiftDateを前日にする）
+    if (aggregateDate === 'previous') {
+      const d = new Date(formWithCoords.date || getLocalDateString());
+      d.setDate(d.getDate() - 1);
+      formWithCoords.shiftDate = getLocalDateString(d);
+    } else {
+      formWithCoords.shiftDate = formWithCoords.date || getLocalDateString();
+    }
+
     // DataServiceのaddEntryに完全委譲（バリデーション含む）
     const result = DataService.addEntry(formWithCoords);
     if (!result.success) {
@@ -619,6 +629,7 @@ window.RevenuePage = () => {
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
     setStandbyEnabled(false);
+    setAggregateDate('today');
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -1415,6 +1426,47 @@ window.RevenuePage = () => {
                 )
               );
             })()
+          ),
+
+          // 合算日の選択（当日/前日）
+          React.createElement('div', {
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-md)',
+              padding: '8px 12px', borderRadius: '8px',
+              background: aggregateDate === 'previous' ? 'rgba(255,167,38,0.08)' : 'rgba(255,255,255,0.03)',
+              border: aggregateDate === 'previous' ? '1px solid rgba(255,167,38,0.25)' : '1px solid rgba(255,255,255,0.08)',
+            },
+          },
+            React.createElement('span', {
+              className: 'material-icons-round',
+              style: { fontSize: '16px', color: aggregateDate === 'previous' ? '#ffa726' : 'var(--text-muted)' },
+            }, 'date_range'),
+            React.createElement('span', { style: { fontSize: '12px', fontWeight: 500, color: 'var(--text-secondary)' } }, '合算日:'),
+            React.createElement('button', {
+              onClick: () => setAggregateDate('today'),
+              style: {
+                padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '12px', fontWeight: aggregateDate === 'today' ? 700 : 400,
+                background: aggregateDate === 'today' ? 'var(--color-accent)' : 'rgba(255,255,255,0.08)',
+                color: aggregateDate === 'today' ? '#fff' : 'var(--text-muted)',
+              },
+            }, '当日'),
+            React.createElement('button', {
+              onClick: () => setAggregateDate('previous'),
+              style: {
+                padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '12px', fontWeight: aggregateDate === 'previous' ? 700 : 400,
+                background: aggregateDate === 'previous' ? '#ffa726' : 'rgba(255,255,255,0.08)',
+                color: aggregateDate === 'previous' ? '#fff' : 'var(--text-muted)',
+              },
+            }, '前日'),
+            aggregateDate === 'previous' && React.createElement('span', {
+              style: { fontSize: '10px', color: '#ffa726', marginLeft: 'auto' },
+            }, (() => {
+              const d = new Date(form.date || getLocalDateString());
+              d.setDate(d.getDate() - 1);
+              return getLocalDateString(d) + 'に合算';
+            })())
           ),
 
           // 天候（自動取得 + 手動変更可）
