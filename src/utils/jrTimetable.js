@@ -105,6 +105,85 @@ function getUpcomingArrivals(count, shiftMode) {
   return upcoming;
 }
 
+// === 都市間バス 旭川駅前 到着時刻表（2026年4月ダイヤベース） ===
+const BUS_ASAHIKAWA_ARRIVALS = [
+  // 高速あさひかわ号（札幌→旭川）
+  { time: '09:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '09:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '10:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '10:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '11:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '11:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '12:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '12:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '13:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '13:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '14:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '14:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '15:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '15:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '16:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '16:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '17:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '17:25', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '17:45', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '18:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '18:25', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '18:45', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '19:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '19:25', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '19:45', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '20:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '20:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '20:50', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '21:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '21:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '21:55', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '22:15', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '22:55', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '23:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  // 特急オホーツク号（紋別→旭川）
+  { time: '09:45', type: '特急', name: '特急オホーツク号', from: '紋別', line: '特急オホーツク号', company: '道北バス' },
+  { time: '14:45', type: '特急', name: '特急オホーツク号', from: '紋別', line: '特急オホーツク号', company: '道北バス' },
+  { time: '18:30', type: '特急', name: '特急オホーツク号', from: '紋別', line: '特急オホーツク号', company: '道北バス' },
+  // ノースライナー号（帯広→旭川）
+  { time: '11:30', type: '特急', name: 'ノースライナー号', from: '帯広', line: 'ノースライナー号', company: '道北バス' },
+  { time: '18:00', type: '特急', name: 'ノースライナー号', from: '帯広', line: 'ノースライナー号', company: '道北バス' },
+  // サンライズ号（釧路→北見→旭川）
+  { time: '12:40', type: '特急', name: 'サンライズ号', from: '釧路', line: 'サンライズ号', company: '道北バス' },
+  { time: '19:00', type: '特急', name: 'サンライズ号', from: '釧路', line: 'サンライズ号', company: '道北バス' },
+];
+
+BUS_ASAHIKAWA_ARRIVALS.sort((a, b) => a.time.localeCompare(b.time));
+
+/**
+ * 現在時刻以降のバス到着を取得
+ */
+function getUpcomingBusArrivals(count, shiftMode) {
+  count = count || 5;
+  shiftMode = shiftMode || 'day';
+  const now = new Date();
+  const nowHH = String(now.getHours()).padStart(2, '0');
+  const nowMM = String(now.getMinutes()).padStart(2, '0');
+  const nowTime = nowHH + ':' + nowMM;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const rangeStart = shiftMode === 'night' ? '17:00' : '05:00';
+  const rangeEnd = shiftMode === 'night' ? '23:59' : '19:00';
+
+  const upcoming = [];
+  for (let i = 0; i < BUS_ASAHIKAWA_ARRIVALS.length; i++) {
+    const bus = BUS_ASAHIKAWA_ARRIVALS[i];
+    if (bus.time < rangeStart || bus.time > rangeEnd) continue;
+    if (bus.time >= nowTime) {
+      const parts = bus.time.split(':');
+      const busMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+      upcoming.push({ ...bus, minsLeft: busMin - nowMin });
+      if (upcoming.length >= count) break;
+    }
+  }
+  return upcoming;
+}
+
 /**
  * 路線別の色を取得
  */
@@ -114,13 +193,19 @@ function getLineColor(line) {
     case '宗谷本線': return '#4CAF50';
     case '石北本線': return '#FF9800';
     case '富良野線': return '#E040FB';
+    case '高速あさひかわ号': return '#ef5350';
+    case '特急オホーツク号': return '#ff7043';
+    case 'ノースライナー号': return '#66bb6a';
+    case 'サンライズ号': return '#ffa726';
     default: return 'var(--text-secondary)';
   }
 }
 
 window.JrTimetable = {
   arrivals: JR_ASAHIKAWA_ARRIVALS,
+  busArrivals: BUS_ASAHIKAWA_ARRIVALS,
   getUpcomingArrivals: getUpcomingArrivals,
+  getUpcomingBusArrivals: getUpcomingBusArrivals,
   getLineColor: getLineColor,
 };
 })();

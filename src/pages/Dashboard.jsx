@@ -1286,6 +1286,50 @@ window.DashboardPage = () => {
       );
     })(),
 
+    // 都市間バス 旭川駅前 到着情報
+    (() => {
+      if (!window.JrTimetable || !JrTimetable.getUpcomingBusArrivals) return null;
+      const buses = JrTimetable.getUpcomingBusArrivals(6, shiftMode);
+      if (buses.length === 0) return null;
+      return React.createElement(Card, {
+        style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
+      },
+        React.createElement(SectionHeader, { sectionKey: 'bus-arrivals', icon: 'directions_bus', title: shiftMode === 'night' ? '都市間バス 旭川駅前着（17時〜）' : '都市間バス 旭川駅前着（5〜19時）', iconColor: '#ef5350' }),
+        !collapsedSections['bus-arrivals'] && React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+          ...buses.map((t, i) => React.createElement('div', {
+            key: 'bus-' + i,
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px',
+              borderRadius: '8px', background: i === 0 ? 'rgba(239,83,80,0.08)' : 'rgba(255,255,255,0.02)',
+              border: i === 0 ? '1px solid rgba(239,83,80,0.2)' : '1px solid transparent',
+            },
+          },
+            React.createElement('div', { style: { fontSize: '15px', fontWeight: 700, minWidth: '42px', color: i === 0 ? '#ef5350' : 'var(--text-primary)' } }, t.time),
+            React.createElement('span', {
+              style: {
+                fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                background: t.type === '高速' ? 'rgba(239,83,80,0.2)' : 'rgba(255,152,0,0.2)',
+                color: t.type === '高速' ? '#ef5350' : '#ff9800',
+                whiteSpace: 'nowrap',
+              },
+            }, t.type),
+            React.createElement('div', { style: { flex: 1, minWidth: 0 } },
+              React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t.name),
+              React.createElement('div', { style: { fontSize: '10px', color: JrTimetable.getLineColor(t.line) } }, t.from + 'から / ' + t.company)
+            ),
+            React.createElement('div', {
+              style: {
+                fontSize: t.minsLeft <= 10 ? '13px' : '11px',
+                fontWeight: t.minsLeft <= 10 ? 700 : 400,
+                color: t.minsLeft <= 5 ? '#ef5350' : t.minsLeft <= 15 ? '#ffa726' : 'var(--text-muted)',
+                whiteSpace: 'nowrap',
+              },
+            }, t.minsLeft <= 0 ? '到着' : 'あと' + t.minsLeft + '分')
+          ))
+        )
+      );
+    })(),
+
     // フィルタ表示ラベル
     dayTypeFilter && React.createElement('div', {
       style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
