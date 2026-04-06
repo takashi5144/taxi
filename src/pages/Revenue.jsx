@@ -1055,11 +1055,17 @@ window.RevenuePage = () => {
             React.createElement('input', {
               className: 'form-input',
               type: 'text',
-              placeholder: '東京駅',
+              placeholder: '乗車地を入力',
               value: form.pickup,
               onChange: (e) => { setForm({ ...form, pickup: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, pickup: null })); },
+              list: 'pickup-places',
               style: { width: '100%', boxSizing: 'border-box' },
             }),
+            React.createElement('datalist', { id: 'pickup-places' },
+              ...['旭川市神楽昭和通', '旭川駅北口', 'イオンモール旭川駅前', '旭山動物園', 'OMO7旭川', 'プレミアホテルCABIN旭川', 'アートホテル旭川', 'ホテルクレッセント旭川', '9Cホテル旭川', 'ホテルウイング旭川', '旭川市役所', '旭川医科大学病院', '旭川赤十字病院', '市立旭川病院', '旭川厚生病院'].map(name =>
+                React.createElement('option', { key: 'p-' + name, value: name })
+              )
+            ),
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
@@ -1157,11 +1163,17 @@ window.RevenuePage = () => {
             React.createElement('input', {
               className: 'form-input',
               type: 'text',
-              placeholder: '渋谷駅',
+              placeholder: '降車地を入力',
               value: form.dropoff,
               onChange: (e) => { setForm({ ...form, dropoff: e.target.value }); if (!e.target.value) setGpsInfo(prev => ({ ...prev, dropoff: null })); },
+              list: 'dropoff-places',
               style: { width: '100%', boxSizing: 'border-box' },
             }),
+            React.createElement('datalist', { id: 'dropoff-places' },
+              ...['旭川市神楽昭和通', '旭川駅北口', 'イオンモール旭川駅前', '旭山動物園', 'OMO7旭川', 'プレミアホテルCABIN旭川', 'アートホテル旭川', 'ホテルクレッセント旭川', '9Cホテル旭川', 'ホテルウイング旭川', '旭川市役所', '旭川医科大学病院', '旭川赤十字病院', '市立旭川病院', '旭川厚生病院'].map(name =>
+                React.createElement('option', { key: 'd-' + name, value: name })
+              )
+            ),
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
