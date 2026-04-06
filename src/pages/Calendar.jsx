@@ -218,7 +218,7 @@ window.CalendarPage = () => {
 
   // 月間サマリー（休日でない過去日＝勤務日）
   const monthlySummary = useMemo(() => {
-    let workDays = 0, offDays = 0, totalRevenue = 0, workDayRevenue = 0;
+    let workDays = 0, offDays = 0, offCancelDays = 0, holidayWorkDays = 0, totalRevenue = 0, workDayRevenue = 0;
     let futureWorkDays = 0, futureOffDays = 0, totalDaysWithRevenue = 0, allDayRevenue = 0;
     calendarDays.forEach(d => {
       if (!d) return;
@@ -226,6 +226,12 @@ window.CalendarPage = () => {
       if (d.status === 'off') {
         if (isPastOrToday) offDays++;
         else futureOffDays++;
+      } else if (d.status === 'off_cancel') {
+        if (isPastOrToday) { offCancelDays++; workDays++; workDayRevenue += d.revenue; }
+        else futureWorkDays++;
+      } else if (d.status === 'holiday_work') {
+        if (isPastOrToday) { holidayWorkDays++; workDays++; workDayRevenue += d.revenue; }
+        else futureWorkDays++;
       } else if (isPastOrToday) {
         workDays++;
         workDayRevenue += d.revenue;
@@ -241,6 +247,8 @@ window.CalendarPage = () => {
     return {
       workDays,
       offDays,
+      offCancelDays,
+      holidayWorkDays,
       totalRevenue,
       avgDaily: workDays > 0 ? Math.round(workDayRevenue / workDays) : 0,
       remainingWorkDays: futureWorkDays,
@@ -306,13 +314,13 @@ window.CalendarPage = () => {
     setSelectedDate(todayStr);
   }, [todayStr]);
 
-  // 休日切替（休日でなければ勤務扱い）
-  const toggleWorkStatus = useCallback((dateStr) => {
+  // 勤務ステータス切替（off=休日 / off_cancel=休日キャンセル / holiday_work=休日出勤 / 未設定=通常勤務）
+  const setWorkStatusValue = useCallback((dateStr, value) => {
     const newStatus = { ...workStatus };
-    if (newStatus[dateStr] === 'off') {
+    if (!value || value === '') {
       delete newStatus[dateStr];
     } else {
-      newStatus[dateStr] = 'off';
+      newStatus[dateStr] = value;
     }
     saveWorkStatus(newStatus);
   }, [workStatus, saveWorkStatus]);
@@ -569,12 +577,12 @@ window.CalendarPage = () => {
             const m = net % 60;
             return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`;
           })()),
-          // 休日マーク（休日のみ橙ドット表示）
-          d.status === 'off' && createElement('div', {
+          // ステータスマーク（休日=橙 / 休日キャンセル=赤 / 休日出勤=青）
+          (d.status === 'off' || d.status === 'off_cancel' || d.status === 'holiday_work') && createElement('div', {
             style: {
               width: 8, height: 8,
               borderRadius: '50%',
-              background: 'var(--color-warning)',
+              background: d.status === 'off' ? 'var(--color-warning)' : d.status === 'off_cancel' ? '#ef5350' : '#42a5f5',
               margin: '2px auto 0',
             }
           })
@@ -600,19 +608,48 @@ window.CalendarPage = () => {
         )
       ),
 
-      // 休日トグルボタン
+      // 勤務ステータスボタン（休日 / 休日キャンセル / 休日出勤）
       createElement('div', {
-        style: { display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }
+        style: { display: 'flex', gap: '6px', marginBottom: 'var(--space-md)', flexWrap: 'wrap' }
       },
+        // 休日
         createElement('button', {
-          className: 'btn btn--secondary',
-          onClick: () => toggleWorkStatus(selectedDate),
-          style: Object.assign({ flex: 1, padding: '8px 12px' },
-            selectedDayData.status === 'off' ? { background: 'var(--color-warning)', borderColor: 'var(--color-warning)', color: '#fff' } : {}
-          )
+          onClick: () => setWorkStatusValue(selectedDate, selectedDayData.status === 'off' ? '' : 'off'),
+          style: {
+            flex: 1, padding: '8px 10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 600, minWidth: '80px',
+            background: selectedDayData.status === 'off' ? '#ffa726' : 'rgba(255,255,255,0.08)',
+            color: selectedDayData.status === 'off' ? '#fff' : 'var(--text-muted)',
+          }
         },
-          createElement('span', { className: 'material-icons-round', style: { fontSize: 16, marginRight: 4 } }, 'weekend'),
-          selectedDayData.status === 'off' ? '休日' : '休日にする'
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 14, marginRight: 4, verticalAlign: 'middle' } }, 'weekend'),
+          '休日'
+        ),
+        // 休日キャンセル
+        createElement('button', {
+          onClick: () => setWorkStatusValue(selectedDate, selectedDayData.status === 'off_cancel' ? '' : 'off_cancel'),
+          style: {
+            flex: 1, padding: '8px 10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 600, minWidth: '80px',
+            background: selectedDayData.status === 'off_cancel' ? '#ef5350' : 'rgba(255,255,255,0.08)',
+            color: selectedDayData.status === 'off_cancel' ? '#fff' : 'var(--text-muted)',
+          }
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 14, marginRight: 4, verticalAlign: 'middle' } }, 'event_busy'),
+          '休日キャンセル'
+        ),
+        // 休日出勤
+        createElement('button', {
+          onClick: () => setWorkStatusValue(selectedDate, selectedDayData.status === 'holiday_work' ? '' : 'holiday_work'),
+          style: {
+            flex: 1, padding: '8px 10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 600, minWidth: '80px',
+            background: selectedDayData.status === 'holiday_work' ? '#42a5f5' : 'rgba(255,255,255,0.08)',
+            color: selectedDayData.status === 'holiday_work' ? '#fff' : 'var(--text-muted)',
+          }
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 14, marginRight: 4, verticalAlign: 'middle' } }, 'work' ),
+          '休日出勤'
         )
       ),
 
@@ -1143,7 +1180,11 @@ window.CalendarPage = () => {
         ),
         createElement('div', null,
           createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '休日数'),
-          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700 } }, `${monthlySummary.offDays}日`)
+          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700 } }, `${monthlySummary.offDays}日`),
+          (monthlySummary.offCancelDays > 0 || monthlySummary.holidayWorkDays > 0) && createElement('div', { style: { fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' } },
+            monthlySummary.offCancelDays > 0 ? `キャンセル${monthlySummary.offCancelDays}日 ` : '',
+            monthlySummary.holidayWorkDays > 0 ? `休日出勤${monthlySummary.holidayWorkDays}日` : ''
+          )
         ),
         createElement('div', null,
           createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '月間売上合計'),
