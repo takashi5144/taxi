@@ -25,7 +25,10 @@ window.RevenuePage = () => {
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
   const [standbyEnabled, setStandbyEnabled] = useState(false); // 待機情報オン/オフ
-  const [aggregateDate, setAggregateDate] = useState('today'); // 'today'=当日合算 / 'previous'=前日合算
+  const [aggregateDate, setAggregateDate] = useState(() => {
+    const h = new Date().getHours();
+    return (h >= 0 && h < 5) ? 'previous' : 'today';
+  }); // 0〜5時は前日合算がデフォルト
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
   const mapPickerRef = useRef(null);
   const mapPickerInstanceRef = useRef(null);
@@ -629,7 +632,7 @@ window.RevenuePage = () => {
     setGpsInfo({ pickup: null, dropoff: null });
     setCapturedStandby(null);
     setStandbyEnabled(false);
-    setAggregateDate('today');
+    setAggregateDate((() => { const h = new Date().getHours(); return (h >= 0 && h < 5) ? 'previous' : 'today'; })());
     setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
