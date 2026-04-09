@@ -85,13 +85,6 @@ window.DashboardPage = () => {
 
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
 
-  const hourlyRate = useMemo(() => {
-    if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 1) {
-      return Math.round(todaySummary.totalAmount / (todaySummary.workMinutes / 60));
-    }
-    return null;
-  }, [todaySummary]);
-
   const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
   const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
@@ -1337,24 +1330,6 @@ window.DashboardPage = () => {
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
       dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
-    ),
-
-    // リアルタイム時給
-    hourlyRate !== null && React.createElement(Card, {
-      style: {
-        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(249,168,37,0.15), rgba(255,152,0,0.08))',
-        border: '1px solid rgba(249,168,37,0.3)',
-        textAlign: 'center',
-      },
-    },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)' } }, 'speed'),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'リアルタイム時給')
-      ),
-      React.createElement('div', {
-        style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-secondary)' },
-      }, `¥${hourlyRate.toLocaleString()}/h`)
     ),
 
     // === 夜勤専用セクション ===

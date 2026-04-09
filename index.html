@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.73.0</title>
+  <title>タクシー売上サポート v3.74.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.73.0',
+  VERSION: '3.74.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -17202,13 +17202,6 @@ window.DashboardPage = () => {
 
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
 
-  const hourlyRate = useMemo(() => {
-    if (todaySummary.workMinutes > 0 && todaySummary.rideCount >= 1) {
-      return Math.round(todaySummary.totalAmount / (todaySummary.workMinutes / 60));
-    }
-    return null;
-  }, [todaySummary]);
-
   const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
   const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
   const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
@@ -18454,24 +18447,6 @@ window.DashboardPage = () => {
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
       dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
-    ),
-
-    // リアルタイム時給
-    hourlyRate !== null && React.createElement(Card, {
-      style: {
-        marginBottom: 'var(--space-md)', padding: 'var(--space-lg)',
-        background: 'linear-gradient(135deg, rgba(249,168,37,0.15), rgba(255,152,0,0.08))',
-        border: '1px solid rgba(249,168,37,0.3)',
-        textAlign: 'center',
-      },
-    },
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' } },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '28px', color: 'var(--color-secondary)' } }, 'speed'),
-        React.createElement('span', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'リアルタイム時給')
-      ),
-      React.createElement('div', {
-        style: { fontSize: '2rem', fontWeight: 700, color: 'var(--color-secondary)' },
-      }, `¥${hourlyRate.toLocaleString()}/h`)
     ),
 
     // === 夜勤専用セクション ===
