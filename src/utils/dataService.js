@@ -673,13 +673,16 @@ window.DataService = (() => {
   const MAX_STRING_LENGTH = 500;
   function _sanitizeEntry(entry) {
     const stripHtml = (s) => typeof s === 'string' ? s.replace(/<[^>]*>/g, '').slice(0, MAX_STRING_LENGTH) : '';
+    const validDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
     return {
       id: stripHtml(entry.id),
       amount: typeof entry.amount === 'number' && isFinite(entry.amount) ? Math.max(0, Math.min(entry.amount, 1000000)) : 0,
-      date: typeof entry.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) ? entry.date : '',
+      date: validDate(entry.date),
+      shiftDate: validDate(entry.shiftDate) || validDate(entry.date),
       dayOfWeek: stripHtml(entry.dayOfWeek),
       holiday: stripHtml(entry.holiday),
       weather: stripHtml(entry.weather),
+      temperature: entry.temperature != null && isFinite(entry.temperature) ? entry.temperature : null,
       pickup: stripHtml(entry.pickup),
       pickupTime: stripHtml(entry.pickupTime),
       dropoff: stripHtml(entry.dropoff),
@@ -693,6 +696,24 @@ window.DataService = (() => {
       dropoffCoords: entry.dropoffCoords && typeof entry.dropoffCoords.lat === 'number' ? { lat: entry.dropoffCoords.lat, lng: entry.dropoffCoords.lng } : null,
       pickupLandmark: stripHtml(entry.pickupLandmark),
       dropoffLandmark: stripHtml(entry.dropoffLandmark),
+      noPassenger: !!entry.noPassenger,
+      paymentMethod: stripHtml(entry.paymentMethod) || 'cash',
+      discounts: Array.isArray(entry.discounts) ? entry.discounts.map(d => ({ type: stripHtml(d.type), amount: parseInt(d.amount) || 0, unitPrice: d.unitPrice ? parseInt(d.unitPrice) : undefined, sheets: d.sheets ? parseInt(d.sheets) : undefined })) : [],
+      discountAmount: parseInt(entry.discountAmount) || 0,
+      discountType: stripHtml(entry.discountType),
+      couponAmount: parseInt(entry.couponAmount) || 0,
+      couponParentId: stripHtml(entry.couponParentId),
+      waitingTime: stripHtml(entry.waitingTime),
+      isRegisteredUser: !!entry.isRegisteredUser,
+      customerName: stripHtml(entry.customerName),
+      standbyInfo: entry.standbyInfo && typeof entry.standbyInfo === 'object' ? {
+        locationName: stripHtml(entry.standbyInfo.locationName),
+        startTime: stripHtml(entry.standbyInfo.startTime),
+        endTime: stripHtml(entry.standbyInfo.endTime),
+        category: stripHtml(entry.standbyInfo.category),
+        lat: typeof entry.standbyInfo.lat === 'number' ? entry.standbyInfo.lat : undefined,
+        lng: typeof entry.standbyInfo.lng === 'number' ? entry.standbyInfo.lng : undefined,
+      } : null,
       timestamp: typeof entry.timestamp === 'string' ? entry.timestamp.slice(0, 30) : new Date().toISOString(),
     };
   }
@@ -2038,15 +2059,16 @@ window.DataService = (() => {
     const entries = getEntries();
     if (entries.length === 0) return null;
 
-    const header = 'ID,日付,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車ランドマーク,乗車緯度,乗車経度,乗車時間,待機時間,降車地,降車ランドマーク,降車緯度,降車経度,降車時間,人数,性別,用途,配車方法,メモ';
+    const header = 'ID,日付,合算日,曜日,祝日,日時,天候,金額,支払方法,割引額,割引種別,乗車地,乗車ランドマーク,乗車緯度,乗車経度,乗車時間,待機時間,降車地,降車ランドマーク,降車緯度,降車経度,降車時間,人数,性別,用途,配車方法,メモ';
     const rows = entries.map(e => {
       const entryDate = e.date || toDateStr(e.timestamp);
+      const shiftDate = e.shiftDate || entryDate;
       const dateInfo = JapaneseHolidays.getDateInfo(entryDate);
       const dayOfWeek = e.dayOfWeek || dateInfo.dayOfWeek;
       const holiday = e.holiday || dateInfo.holiday || '';
       const dateTime = new Date(e.timestamp).toLocaleString('ja-JP');
       const weather = (e.weather || '').replace(/,/g, '、');
-      const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'didi' ? 'DIDI決済' : '現金';
+      const paymentMethod = e.paymentMethod === 'uncollected' ? '未収' : e.paymentMethod === 'didi' ? 'DIDI決済' : e.paymentMethod === 'uber' ? 'Uber' : '現金';
       const discountAmount = e.discountAmount || 0;
       const discountTypeMap = { disability: '障害者割引', longDistance: '遠距離割', coupon: 'クーポン', ticket: 'チケット' };
       const discountType = (e.discounts && Array.isArray(e.discounts) && e.discounts.length > 0)
@@ -2068,7 +2090,7 @@ window.DataService = (() => {
       const dropoffLng = e.dropoffCoords ? e.dropoffCoords.lng : '';
       const pickupLandmark = (e.pickupLandmark || '').replace(/,/g, '、');
       const dropoffLandmark = (e.dropoffLandmark || '').replace(/,/g, '、');
-      return `${e.id},${entryDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupLandmark},${pickupLat},${pickupLng},${pickupTime},${waitingTime},${dropoff},${dropoffLandmark},${dropoffLat},${dropoffLng},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
+      return `${e.id},${entryDate},${shiftDate},${dayOfWeek},${holiday},${dateTime},${weather},${e.amount},${paymentMethod},${discountAmount},${discountType},${pickup},${pickupLandmark},${pickupLat},${pickupLng},${pickupTime},${waitingTime},${dropoff},${dropoffLandmark},${dropoffLat},${dropoffLng},${dropoffTime},${passengers},${gender},${purpose},${source},${memo}`;
     });
 
     const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM付きUTF-8

@@ -1418,9 +1418,9 @@ window.DataManagePage = () => {
         shiftDate: entry.shiftDate || entry.date || '',
       });
     } else if (type === 'vacant') {
-      setEditForm({ date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', memo: entry.memo || '' });
+      setEditForm({ date: entry.date || '', weather: entry.weather || '', pickup: entry.pickup || '', pickupTime: entry.pickupTime || '', memo: entry.memo || '', shiftDate: entry.shiftDate || entry.date || '' });
     } else {
-      setEditForm({ date: entry.date || '', time: entry.time || '', weather: entry.weather || '', location: entry.location || '', memo: entry.memo || '' });
+      setEditForm({ date: entry.date || '', time: entry.time || '', weather: entry.weather || '', location: entry.location || '', memo: entry.memo || '', shiftDate: entry.shiftDate || entry.date || '' });
     }
     setErrors([]);
   }, []);
