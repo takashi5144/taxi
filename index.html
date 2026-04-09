@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.74.0</title>
+  <title>タクシー売上サポート v3.75.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.74.0',
+  VERSION: '3.75.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3784,18 +3784,19 @@ window.DataService = (() => {
       // まずアクティブシフトを探す
       const activeShift = shifts.find(s => !s.endTime);
       if (activeShift && activeShift.startTime) {
+        // アクティブシフト中は、シフト開始日を基準にする（日付跨ぎ対応）
         shiftStartDate = getLocalDateString(new Date(activeShift.startTime));
       } else {
-        // 終了済みの直近シフトを探す（今日または昨日に開始されたもの）
+        // 終了済みの直近シフトを探す
         const recentShifts = shifts
           .filter(s => s.startTime && s.endTime)
           .sort((a, b) => b.startTime.localeCompare(a.startTime));
         if (recentShifts.length > 0) {
           const lastShift = recentShifts[0];
           const lastShiftDate = getLocalDateString(new Date(lastShift.startTime));
-          const lastShiftEndDate = getLocalDateString(new Date(lastShift.endTime));
-          // 直近シフトの終業日が今日なら、そのシフトの開始日を基準にする
-          if (lastShiftEndDate === today || lastShiftDate === today) {
+          // 完了済みシフトが今日開始の場合のみ、そのシフト基準にする
+          // 前日開始→今日終了の跨ぎシフトは、終了後は today を基準にする
+          if (lastShiftDate === today) {
             shiftStartDate = lastShiftDate;
             shiftEndTime = new Date(lastShift.endTime);
           }

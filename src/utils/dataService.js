@@ -1177,18 +1177,19 @@ window.DataService = (() => {
       // まずアクティブシフトを探す
       const activeShift = shifts.find(s => !s.endTime);
       if (activeShift && activeShift.startTime) {
+        // アクティブシフト中は、シフト開始日を基準にする（日付跨ぎ対応）
         shiftStartDate = getLocalDateString(new Date(activeShift.startTime));
       } else {
-        // 終了済みの直近シフトを探す（今日または昨日に開始されたもの）
+        // 終了済みの直近シフトを探す
         const recentShifts = shifts
           .filter(s => s.startTime && s.endTime)
           .sort((a, b) => b.startTime.localeCompare(a.startTime));
         if (recentShifts.length > 0) {
           const lastShift = recentShifts[0];
           const lastShiftDate = getLocalDateString(new Date(lastShift.startTime));
-          const lastShiftEndDate = getLocalDateString(new Date(lastShift.endTime));
-          // 直近シフトの終業日が今日なら、そのシフトの開始日を基準にする
-          if (lastShiftEndDate === today || lastShiftDate === today) {
+          // 完了済みシフトが今日開始の場合のみ、そのシフト基準にする
+          // 前日開始→今日終了の跨ぎシフトは、終了後は today を基準にする
+          if (lastShiftDate === today) {
             shiftStartDate = lastShiftDate;
             shiftEndTime = new Date(lastShift.endTime);
           }
