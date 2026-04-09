@@ -3665,8 +3665,14 @@ window.DashboardPage = () => {
             (entry.pickupLandmark || entry.dropoffLandmark) && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', opacity: 0.8 } },
               `${entry.pickupLandmark || ''} → ${entry.dropoffLandmark || ''}`
             ),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
-              new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } },
+              new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+              entry.shiftDate && entry.shiftDate !== (entry.date || getLocalDateString(new Date(entry.timestamp))) && React.createElement('span', {
+                style: { fontSize: '9px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: '600' },
+              }, `${entry.shiftDate}合算`),
+              entry.shiftDate && entry.shiftDate === (entry.date || getLocalDateString(new Date(entry.timestamp))) && React.createElement('span', {
+                style: { fontSize: '9px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,200,83,0.12)', color: '#66bb6a', fontWeight: '600' },
+              }, '当日合算')
             )
           ),
           React.createElement('div', { style: { textAlign: 'right' } },

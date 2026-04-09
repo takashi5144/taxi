@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.72.0</title>
+  <title>タクシー売上サポート v3.73.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.72.0',
+  VERSION: '3.73.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -20782,8 +20782,14 @@ window.DashboardPage = () => {
             (entry.pickupLandmark || entry.dropoffLandmark) && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', opacity: 0.8 } },
               `${entry.pickupLandmark || ''} → ${entry.dropoffLandmark || ''}`
             ),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' } },
-              new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' } },
+              new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
+              entry.shiftDate && entry.shiftDate !== (entry.date || getLocalDateString(new Date(entry.timestamp))) && React.createElement('span', {
+                style: { fontSize: '9px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: '600' },
+              }, `${entry.shiftDate}合算`),
+              entry.shiftDate && entry.shiftDate === (entry.date || getLocalDateString(new Date(entry.timestamp))) && React.createElement('span', {
+                style: { fontSize: '9px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(0,200,83,0.12)', color: '#66bb6a', fontWeight: '600' },
+              }, '当日合算')
             )
           ),
           React.createElement('div', { style: { textAlign: 'right' } },
@@ -23310,6 +23316,12 @@ window.RevenuePage = () => {
                   info.holiday && React.createElement('span', {
                     style: { color: '#ef4444', fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(239,68,68,0.1)' },
                   }, info.holiday),
+                  entry.shiftDate && entry.shiftDate !== eDate && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: '600' },
+                  }, `${entry.shiftDate}合算`),
+                  entry.shiftDate && entry.shiftDate === eDate && React.createElement('span', {
+                    style: { fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.12)', color: '#66bb6a', fontWeight: '600' },
+                  }, '当日合算'),
                   entry.weather && React.createElement('span', null, entry.weather),
                   entry.passengers && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' },
