@@ -264,7 +264,7 @@ window.RevenuePage = () => {
     setErrors([]);
 
     // 常に新規GPS位置を取得（乗車地・降車地それぞれでボタンを押した瞬間の位置を使う）
-    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
+    getAccuratePosition({ accuracyThreshold: 20, timeout: 25000, maxWaitAfterFix: 10000, minReadings: 3 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
@@ -757,7 +757,7 @@ window.RevenuePage = () => {
     }
     setEditGpsLoading(prev => ({ ...prev, [field]: true }));
     setEditErrors([]);
-    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000 })
+    getAccuratePosition({ accuracyThreshold: 20, timeout: 25000, maxWaitAfterFix: 10000, minReadings: 3 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;

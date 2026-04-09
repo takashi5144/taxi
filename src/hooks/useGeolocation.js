@@ -18,7 +18,7 @@ window.useGeolocation = () => {
     AppLogger.info('現在地を取得中（高精度モード）...');
 
     // getAccuratePositionを使い、複数回のGPS測位から最良の結果を取得
-    getAccuratePosition({ accuracyThreshold: 100, timeout: 15000, maxWaitAfterFix: 5000 })
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000, minReadings: 3 })
       .then((position) => {
         updatePosition(position);
         const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
@@ -60,6 +60,7 @@ window.getAccuratePosition = (options = {}) => {
     accuracyThreshold = 50,
     timeout = 20000,
     maxWaitAfterFix = 8000,
+    minReadings = 3,         // 最低取得回数（精度改善のため複数回取得）
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -69,6 +70,7 @@ window.getAccuratePosition = (options = {}) => {
     }
 
     let bestPosition = null;
+    let readingCount = 0;
     let watchId = null;
     let overallTimer = null;
     let waitTimer = null;
@@ -87,7 +89,7 @@ window.getAccuratePosition = (options = {}) => {
       if (settled) return;
       settled = true;
       cleanup();
-      AppLogger.info(`GPS確定: 精度${pos.coords.accuracy.toFixed(0)}m (${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)})`);
+      AppLogger.info(`GPS確定: 精度${pos.coords.accuracy.toFixed(0)}m (${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}) [${readingCount}回測位]`);
       resolve(pos);
     };
 
@@ -112,17 +114,29 @@ window.getAccuratePosition = (options = {}) => {
       (position) => {
         if (settled) return;
         const acc = position.coords.accuracy;
-        AppLogger.info(`GPS受信: 精度${acc.toFixed(0)}m lat=${position.coords.latitude.toFixed(6)} lng=${position.coords.longitude.toFixed(6)}`);
+        readingCount++;
+        AppLogger.info(`GPS受信 #${readingCount}: 精度${acc.toFixed(0)}m lat=${position.coords.latitude.toFixed(6)} lng=${position.coords.longitude.toFixed(6)}`);
 
         if (!bestPosition || acc < bestPosition.coords.accuracy) {
           bestPosition = position;
         }
 
-        if (acc <= accuracyThreshold) {
-          doResolve(position);
+        // 閾値以下の精度かつ最低取得回数を満たした場合に即確定
+        if (acc <= accuracyThreshold && readingCount >= minReadings) {
+          doResolve(bestPosition);
           return;
         }
 
+        // 閾値以下でもまだ最低取得回数に達していない場合は待つ
+        if (acc <= accuracyThreshold && readingCount < minReadings) {
+          // 残りの測位を短い待機で待つ（既に良い精度なので長く待たない）
+          if (!waitTimer) {
+            waitTimer = setTimeout(finish, Math.min(maxWaitAfterFix, 3000));
+          }
+          return;
+        }
+
+        // 閾値を超えている場合、最初の測位を受信したら待機タイマー開始
         if (!waitTimer) {
           waitTimer = setTimeout(finish, maxWaitAfterFix);
         }
@@ -136,7 +150,7 @@ window.getAccuratePosition = (options = {}) => {
         // その他のエラー（TIMEOUT/POSITION_UNAVAILABLE）は一時的な場合があるので
         // bestPositionがあればそれを使い、なければ全体タイムアウトに任せる
         AppLogger.warn(`GPS一時エラー: code=${error.code} ${error.message || ''}`);
-        if (bestPosition) {
+        if (bestPosition && readingCount >= minReadings) {
           doResolve(bestPosition);
         }
         // bestPositionがなければoverallTimerのfinish()でrejectされる
