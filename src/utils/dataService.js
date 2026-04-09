@@ -1196,22 +1196,37 @@ window.DataService = (() => {
       }
     } catch(e) {}
 
+    // 現在アクティブなシフトの開始時刻を取得（フォールバック判定用）
+    let activeShiftStartTime = null;
+    try {
+      const _shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const _active = _shifts.find(s => !s.endTime);
+      if (_active && _active.startTime) activeShiftStartTime = new Date(_active.startTime);
+    } catch(e) {}
+
     // シフト開始日のエントリを集計（shiftDateフィールド優先）
     const todayEntries = entries.filter(e => {
       // shiftDateが明示的に設定されている場合、それを使う
-      const aggregateDate = e.shiftDate || e.date || toDateStr(e.timestamp);
-      if (aggregateDate === shiftStartDate) return true;
-      // shiftDateがない場合、従来のシフト範囲ロジックで判定
-      if (!e.shiftDate) {
-        const d = e.date || toDateStr(e.timestamp);
-        if (d < shiftStartDate || d > today) return false;
-        if (shiftEndTime && e.timestamp) {
+      if (e.shiftDate) {
+        return e.shiftDate === shiftStartDate;
+      }
+      // shiftDateがない旧エントリ: dateとtimestampで判定
+      const d = e.date || toDateStr(e.timestamp);
+      if (d === shiftStartDate) {
+        // 新シフト開始後に記録されたエントリのみ含める（前シフトのものを除外）
+        if (activeShiftStartTime && e.timestamp) {
           const entryTime = new Date(e.timestamp);
-          if (entryTime > shiftEndTime) return false;
+          // エントリが前シフト終了前（=新シフト開始前）に作成された場合は除外
+          if (entryTime < activeShiftStartTime && shiftStartDate === today) return false;
         }
         return true;
       }
-      return false;
+      if (d < shiftStartDate || d > today) return false;
+      if (shiftEndTime && e.timestamp) {
+        const entryTime = new Date(e.timestamp);
+        if (entryTime > shiftEndTime) return false;
+      }
+      return true;
     });
 
     const totalAmount = todayEntries.reduce((sum, e) => _isCouponSub(e) ? sum : sum + _meterAmount(e), 0);
@@ -2170,6 +2185,7 @@ window.DataService = (() => {
       isRegisteredUser: form.isRegisteredUser || false,
       customerName: form.customerName || '',
       standbyInfo: form.standbyInfo || null,
+      shiftDate: form.shiftDate || entryDate,
     };
 
     entries.unshift(entry);
@@ -2207,6 +2223,7 @@ window.DataService = (() => {
         couponAmount: 0,
         waitingTime: '',
         timestamp: new Date().toISOString(),
+        shiftDate: form.shiftDate || entryDate,
       };
       entries.unshift(couponEntry);
     }
