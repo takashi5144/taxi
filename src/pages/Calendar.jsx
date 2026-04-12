@@ -124,7 +124,7 @@ window.CalendarPage = () => {
       if (e.paymentMethod === 'uncollected' && e.memo && e.memo.includes('クーポン未収')) return;
       // シフト開始日を基準に集計
       const assignDate = getShiftDate(e);
-      if (!map[assignDate]) map[assignDate] = { total: 0, count: 0 };
+      if (!map[assignDate]) map[assignDate] = { total: 0, count: 0, passengers: 0 };
       // 遠距離割は売上から除外
       const longDistAmt = (() => {
         if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
@@ -133,6 +133,7 @@ window.CalendarPage = () => {
       })();
       map[assignDate].total += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - longDistAmt;
       map[assignDate].count += 1;
+      map[assignDate].passengers += parseInt(e.passengers) || 0;
     });
     return map;
   }, [currentMonth, refreshKey]);
@@ -205,6 +206,7 @@ window.CalendarPage = () => {
         isSaturday: info.isSaturday,
         revenue: rev ? rev.total : 0,
         count: rev ? rev.count : 0,
+        passengers: rev ? rev.passengers : 0,
         status: workStatus[dateStr] || null,
         workMin: Math.round(shiftMin),
         breakMin: Math.round(breakMin),
@@ -276,26 +278,32 @@ window.CalendarPage = () => {
       return isoToLocalDate(b.startTime) === selectedDate;
     });
 
-    // 売上エントリ（シフト基準: 日付またぎの場合はシフト開始日に紐づくエントリも含む）
+    // 売上エントリ（dailyRevenueと同じロジックでshiftDate優先）
     const allEntries = window.DataService ? DataService.getEntries() : [];
     const allShiftsData = shifts;
-    // selectedDateに開始したシフトの終了時刻を取得
-    const dayShiftEnd = (() => {
-      const s = allShiftsData.find(s => s.startTime && getLocalDateString(new Date(s.startTime)) === selectedDate);
-      if (s && s.endTime) return new Date(s.endTime);
-      return null;
-    })();
+    // シフト範囲マップ（shiftDateがない旧エントリ用のフォールバック）
+    const _shiftRanges = allShiftsData
+      .filter(s => s.startTime)
+      .map(s => ({
+        startDate: getLocalDateString(new Date(s.startTime)),
+        start: new Date(s.startTime),
+        end: s.endTime ? new Date(s.endTime) : null,
+      }))
+      .sort((a, b) => a.start - b.start);
     const dayEntries = allEntries.filter(e => {
-      if (e.date === selectedDate) return true;
-      // シフトが日付をまたいだ場合: シフト開始日=selectedDate でtimestampがシフト範囲内
-      if (dayShiftEnd && e.timestamp) {
-        const dayShiftStart = allShiftsData.find(s => s.startTime && getLocalDateString(new Date(s.startTime)) === selectedDate);
-        if (dayShiftStart) {
-          const ts = new Date(e.timestamp);
-          if (ts >= new Date(dayShiftStart.startTime) && ts <= dayShiftEnd) return true;
+      // shiftDateが明示的に設定されている場合、それを使う
+      if (e.shiftDate) return e.shiftDate === selectedDate;
+      // 従来のシフト範囲ロジック
+      if (e.timestamp) {
+        const ts = new Date(e.timestamp);
+        for (let i = _shiftRanges.length - 1; i >= 0; i--) {
+          const sr = _shiftRanges[i];
+          if (ts >= sr.start && (sr.end === null || ts <= sr.end)) {
+            return sr.startDate === selectedDate;
+          }
         }
       }
-      return false;
+      return e.date === selectedDate;
     });
     dayEntries.sort((a, b) => (a.pickupTime || '').localeCompare(b.pickupTime || ''));
 
@@ -562,6 +570,15 @@ window.CalendarPage = () => {
               lineHeight: 1.2,
             }
           }, shortAmount(d.revenue)),
+          // 乗客人数
+          d.passengers > 0 && createElement('div', {
+            style: {
+              fontSize: 8,
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              lineHeight: 1.1,
+            }
+          }, `${d.count}件${d.passengers}人`),
           // 勤務時間（実働）
           (d.workMin - d.breakMin) > 0 && createElement('div', {
             style: {
