@@ -116,6 +116,9 @@ window.MapProvider = ({ children }) => {
 
     lastAcceptedRef.current = { lat: rawLat, lng: rawLng, time: now };
 
+    // 他コンポーネントから直近位置を高速参照できるようグローバルに公開
+    window._mapContextRef = { currentPosition: pos, rawPosition: rawPos, accuracy: rawAccuracy, lastUpdateTime: now };
+
     setCurrentPosition(pos);
     setAccuracy(rawAccuracy);
     setSpeed(position.coords.speed);

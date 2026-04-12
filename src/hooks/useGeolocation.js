@@ -18,7 +18,7 @@ window.useGeolocation = () => {
     AppLogger.info('現在地を取得中（高精度モード）...');
 
     // getAccuratePositionを使い、複数回のGPS測位から最良の結果を取得
-    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000, minReadings: 3 })
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
       .then((position) => {
         updatePosition(position);
         const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
@@ -127,16 +127,21 @@ window.getAccuratePosition = (options = {}) => {
           return;
         }
 
-        // 閾値以下でもまだ最低取得回数に達していない場合は待つ
+        // 閾値以下で最低取得回数に達していない場合、短い待機で残りを待つ
         if (acc <= accuracyThreshold && readingCount < minReadings) {
-          // 残りの測位を短い待機で待つ（既に良い精度なので長く待たない）
           if (!waitTimer) {
-            waitTimer = setTimeout(finish, Math.min(maxWaitAfterFix, 3000));
+            waitTimer = setTimeout(finish, 2000);
           }
           return;
         }
 
-        // 閾値を超えている場合、最初の測位を受信したら待機タイマー開始
+        // 閾値超だが実用十分な精度（≤50m）で2回目以降なら即確定
+        if (acc <= 50 && readingCount >= 2) {
+          doResolve(bestPosition);
+          return;
+        }
+
+        // 閾値を超えている場合、最初の測位で待機タイマー開始
         if (!waitTimer) {
           waitTimer = setTimeout(finish, maxWaitAfterFix);
         }

@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.78.0</title>
+  <title>タクシー売上サポート v3.79.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.78.0',
+  VERSION: '3.79.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -13610,6 +13610,9 @@ window.MapProvider = ({ children }) => {
 
     lastAcceptedRef.current = { lat: rawLat, lng: rawLng, time: now };
 
+    // 他コンポーネントから直近位置を高速参照できるようグローバルに公開
+    window._mapContextRef = { currentPosition: pos, rawPosition: rawPos, accuracy: rawAccuracy, lastUpdateTime: now };
+
     setCurrentPosition(pos);
     setAccuracy(rawAccuracy);
     setSpeed(position.coords.speed);
@@ -14017,7 +14020,7 @@ window.useGeolocation = () => {
     AppLogger.info('現在地を取得中（高精度モード）...');
 
     // getAccuratePositionを使い、複数回のGPS測位から最良の結果を取得
-    getAccuratePosition({ accuracyThreshold: 30, timeout: 20000, maxWaitAfterFix: 8000, minReadings: 3 })
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
       .then((position) => {
         updatePosition(position);
         const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
@@ -14126,16 +14129,21 @@ window.getAccuratePosition = (options = {}) => {
           return;
         }
 
-        // 閾値以下でもまだ最低取得回数に達していない場合は待つ
+        // 閾値以下で最低取得回数に達していない場合、短い待機で残りを待つ
         if (acc <= accuracyThreshold && readingCount < minReadings) {
-          // 残りの測位を短い待機で待つ（既に良い精度なので長く待たない）
           if (!waitTimer) {
-            waitTimer = setTimeout(finish, Math.min(maxWaitAfterFix, 3000));
+            waitTimer = setTimeout(finish, 2000);
           }
           return;
         }
 
-        // 閾値を超えている場合、最初の測位を受信したら待機タイマー開始
+        // 閾値超だが実用十分な精度（≤50m）で2回目以降なら即確定
+        if (acc <= 50 && readingCount >= 2) {
+          doResolve(bestPosition);
+          return;
+        }
+
+        // 閾値を超えている場合、最初の測位で待機タイマー開始
         if (!waitTimer) {
           waitTimer = setTimeout(finish, maxWaitAfterFix);
         }
@@ -21136,7 +21144,6 @@ window.RevenuePage = () => {
   }, [apiKey, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
-  // ボタン押下時は常にその場で新規GPS位置を取得する（キャッシュは使わない）
   const getGpsLocation = useCallback((field) => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -21146,8 +21153,20 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
-    // 常に新規GPS位置を取得（乗車地・降車地それぞれでボタンを押した瞬間の位置を使う）
-    getAccuratePosition({ accuracyThreshold: 20, timeout: 25000, maxWaitAfterFix: 10000, minReadings: 3 })
+    // GPSトラッキング中かつ直近の位置が十分新鮮（3秒以内）で精度が良い場合、即座に使用
+    const { currentPosition, accuracy: trackingAccuracy } = useMapContext.getState ? useMapContext.getState() : {};
+    const mapCtx = window._mapContextRef;
+    if (mapCtx && mapCtx.currentPosition && mapCtx.accuracy != null && mapCtx.accuracy <= 50 && mapCtx.lastUpdateTime && (Date.now() - mapCtx.lastUpdateTime) < 3000) {
+      const lat = mapCtx.currentPosition.lat;
+      const lng = mapCtx.currentPosition.lng;
+      const acc = Math.round(mapCtx.accuracy);
+      AppLogger.info(`GPSトラッキング位置を即座に使用: 精度${acc}m (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+      _reverseGeocodeAndSetForm(lat, lng, acc, field);
+      return;
+    }
+
+    // トラッキング位置が使えない場合、新規GPS取得（高速設定）
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
@@ -21640,7 +21659,7 @@ window.RevenuePage = () => {
     }
     setEditGpsLoading(prev => ({ ...prev, [field]: true }));
     setEditErrors([]);
-    getAccuratePosition({ accuracyThreshold: 20, timeout: 25000, maxWaitAfterFix: 10000, minReadings: 3 })
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;

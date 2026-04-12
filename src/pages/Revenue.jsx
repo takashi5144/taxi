@@ -253,7 +253,6 @@ window.RevenuePage = () => {
   }, [apiKey, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
-  // ボタン押下時は常にその場で新規GPS位置を取得する（キャッシュは使わない）
   const getGpsLocation = useCallback((field) => {
     if (!navigator.geolocation) {
       setErrors(['このブラウザではGPS機能が使えません']);
@@ -263,8 +262,20 @@ window.RevenuePage = () => {
     setGpsLoading(prev => ({ ...prev, [field]: true }));
     setErrors([]);
 
-    // 常に新規GPS位置を取得（乗車地・降車地それぞれでボタンを押した瞬間の位置を使う）
-    getAccuratePosition({ accuracyThreshold: 20, timeout: 25000, maxWaitAfterFix: 10000, minReadings: 3 })
+    // GPSトラッキング中かつ直近の位置が十分新鮮（3秒以内）で精度が良い場合、即座に使用
+    const { currentPosition, accuracy: trackingAccuracy } = useMapContext.getState ? useMapContext.getState() : {};
+    const mapCtx = window._mapContextRef;
+    if (mapCtx && mapCtx.currentPosition && mapCtx.accuracy != null && mapCtx.accuracy <= 50 && mapCtx.lastUpdateTime && (Date.now() - mapCtx.lastUpdateTime) < 3000) {
+      const lat = mapCtx.currentPosition.lat;
+      const lng = mapCtx.currentPosition.lng;
+      const acc = Math.round(mapCtx.accuracy);
+      AppLogger.info(`GPSトラッキング位置を即座に使用: 精度${acc}m (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+      _reverseGeocodeAndSetForm(lat, lng, acc, field);
+      return;
+    }
+
+    // トラッキング位置が使えない場合、新規GPS取得（高速設定）
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
@@ -757,7 +768,7 @@ window.RevenuePage = () => {
     }
     setEditGpsLoading(prev => ({ ...prev, [field]: true }));
     setEditErrors([]);
-    getAccuratePosition({ accuracyThreshold: 20, timeout: 25000, maxWaitAfterFix: 10000, minReadings: 3 })
+    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
       .then((position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
