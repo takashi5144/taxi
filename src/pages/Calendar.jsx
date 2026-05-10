@@ -848,7 +848,7 @@ window.CalendarPage = () => {
           })(),
 
           // DIDI+Uber合計
-          (dayDidi + dayUber) > 0 && createElement('div', {
+          createElement('div', {
             style: {
               padding: '10px 12px', marginBottom: 'var(--space-sm)',
               borderRadius: 'var(--border-radius)',

@@ -1038,7 +1038,7 @@ window.DashboardPage = () => {
       })(),
 
       // DIDI+Uber合計
-      (todayDidi + todayUber) > 0 && React.createElement('div', {
+      React.createElement('div', {
         style: {
           padding: '12px', borderRadius: 'var(--border-radius)', marginBottom: 'var(--space-sm)',
           background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.25)',
