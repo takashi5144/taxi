@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.81.0</title>
+  <title>タクシー売上サポート v3.82.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.81.0',
+  VERSION: '3.82.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -25827,6 +25827,36 @@ window.CalendarPage = () => {
                 ))
             );
           })(),
+
+          // DIDI+Uber合計
+          (dayDidi + dayUber) > 0 && createElement('div', {
+            style: {
+              padding: '10px 12px', marginBottom: 'var(--space-sm)',
+              borderRadius: 'var(--border-radius)',
+              background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.25)',
+            },
+          },
+            createElement('div', {
+              style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+            },
+              createElement('div', {
+                style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#ffb74d', fontWeight: 600 },
+              },
+                createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'smartphone'),
+                'DIDI+Uber合計',
+                createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${dayDidiEntries.length + dayUberEntries.length}件`)
+              ),
+              createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ffb74d' } },
+                `¥${(dayDidi + dayUber).toLocaleString()}`
+              )
+            ),
+            createElement('div', {
+              style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
+            },
+              dayDidi > 0 && createElement('span', null, `DIDI: ${dayDidiEntries.length}件 ¥${dayDidi.toLocaleString()}`),
+              dayUber > 0 && createElement('span', null, `Uber: ${dayUberEntries.length}件 ¥${dayUber.toLocaleString()}`)
+            )
+          ),
 
           // 未収合計（クリックで内訳展開）
           createElement('div', {
