@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <title>タクシー売上サポート v3.79.0</title>
+  <title>タクシー売上サポート v3.80.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://maps.googleapis.com" />
@@ -1360,7 +1360,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.79.0',
+  VERSION: '3.80.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -18079,6 +18079,13 @@ window.DashboardPage = () => {
         },
           React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
           React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
+        ),
+        (todayDidi + todayUber) > 0 && React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'center', gap: '12px', fontSize: 'var(--font-size-xs)', marginTop: 4, padding: '3px 0', borderRadius: '4px', background: 'rgba(255,152,0,0.08)' },
+        },
+          React.createElement('span', { style: { color: '#ffb74d', fontWeight: 600 } }, `DIDI+Uber: ¥${(todayDidi + todayUber).toLocaleString()}`),
+          todayDidi > 0 && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `DIDI ¥${todayDidi.toLocaleString()}`),
+          todayUber > 0 && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `Uber ¥${todayUber.toLocaleString()}`)
         ),
         React.createElement('div', {
           style: { display: 'flex', justifyContent: 'center', gap: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 4 },

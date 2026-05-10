@@ -918,6 +918,13 @@ window.DashboardPage = () => {
           React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
           React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
         ),
+        (todayDidi + todayUber) > 0 && React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'center', gap: '12px', fontSize: 'var(--font-size-xs)', marginTop: 4, padding: '3px 0', borderRadius: '4px', background: 'rgba(255,152,0,0.08)' },
+        },
+          React.createElement('span', { style: { color: '#ffb74d', fontWeight: 600 } }, `DIDI+Uber: ¥${(todayDidi + todayUber).toLocaleString()}`),
+          todayDidi > 0 && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `DIDI ¥${todayDidi.toLocaleString()}`),
+          todayUber > 0 && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `Uber ¥${todayUber.toLocaleString()}`)
+        ),
         React.createElement('div', {
           style: { display: 'flex', justifyContent: 'center', gap: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 4 },
         },
