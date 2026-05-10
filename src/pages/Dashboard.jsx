@@ -918,13 +918,6 @@ window.DashboardPage = () => {
           React.createElement('span', null, `税抜: ¥${Math.floor(todayTotal / 1.1).toLocaleString()}`),
           React.createElement('span', { style: { color: 'var(--color-warning)' } }, `消費税: ¥${(todayTotal - Math.floor(todayTotal / 1.1)).toLocaleString()}`)
         ),
-        (todayDidi + todayUber) > 0 && React.createElement('div', {
-          style: { display: 'flex', justifyContent: 'center', gap: '12px', fontSize: 'var(--font-size-xs)', marginTop: 4, padding: '3px 0', borderRadius: '4px', background: 'rgba(255,152,0,0.08)' },
-        },
-          React.createElement('span', { style: { color: '#ffb74d', fontWeight: 600 } }, `DIDI+Uber: ¥${(todayDidi + todayUber).toLocaleString()}`),
-          todayDidi > 0 && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `DIDI ¥${todayDidi.toLocaleString()}`),
-          todayUber > 0 && React.createElement('span', { style: { color: 'var(--text-muted)' } }, `Uber ¥${todayUber.toLocaleString()}`)
-        ),
         React.createElement('div', {
           style: { display: 'flex', justifyContent: 'center', gap: '8px', fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', marginTop: 4 },
         },
@@ -1043,6 +1036,35 @@ window.DashboardPage = () => {
         }, `${expandedCard.label}のデータはありません`) : null;
         return [gridEl, detailEl].filter(Boolean);
       })(),
+
+      // DIDI+Uber合計
+      (todayDidi + todayUber) > 0 && React.createElement('div', {
+        style: {
+          padding: '12px', borderRadius: 'var(--border-radius)', marginBottom: 'var(--space-sm)',
+          background: 'rgba(255,152,0,0.08)', border: '1px solid rgba(255,152,0,0.25)',
+        },
+      },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+        },
+          React.createElement('div', {
+            style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-xs)', color: '#ffb74d', fontWeight: 600 },
+          },
+            React.createElement('span', { className: 'material-icons-round', style: { fontSize: 14 } }, 'smartphone'),
+            'DIDI+Uber合計',
+            React.createElement('span', { style: { fontSize: 11, fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 } }, `${todayDidiEntries.length + todayUberEntries.length}件`)
+          ),
+          React.createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#ffb74d' } },
+            `¥${(todayDidi + todayUber).toLocaleString()}`
+          )
+        ),
+        React.createElement('div', {
+          style: { display: 'flex', gap: '10px', fontSize: 11, color: 'var(--text-muted)', flexWrap: 'wrap' },
+        },
+          todayDidi > 0 && React.createElement('span', null, `DIDI: ${todayDidiEntries.length}件 ¥${todayDidi.toLocaleString()}`),
+          todayUber > 0 && React.createElement('span', null, `Uber: ${todayUberEntries.length}件 ¥${todayUber.toLocaleString()}`)
+        )
+      ),
 
       // 未収合計（クリックで内訳展開）
       React.createElement('div', {
