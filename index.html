@@ -2318,264 +2318,6 @@ window.NotificationService = (() => {
 })();
 
 // ============================================================
-// FILE: src/utils/lightgbmService.js
-// ============================================================
-(function() {
-// LightGBM-style Gradient Boosting Decision Tree for demand prediction
-// ブラウザ内で学習・推論を完結させる軽量GBDT実装。
-// 特徴: histogram-style split finding, leaf-wise growth, L2 regularization
-window.LightGBMService = (() => {
-  const WEATHER_CODE = { '晴れ': 0, '曇り': 1, '雨': 2, '雪': 3, '': 4, '未設定': 4 };
-
-  // ── 単一決定木の構築 ──
-  // residuals を目的変数として、分散削減基準で分割
-  function buildTree(X, residuals, maxDepth, minLeaf, lambda) {
-    const nF = X[0].length;
-
-    function leafVal(idx) {
-      const g = idx.reduce((s, i) => s + residuals[i], 0);
-      return -g / (idx.length + lambda);
-    }
-
-    function split(idx, depth) {
-      if (depth >= maxDepth || idx.length < minLeaf * 2) {
-        return { v: leafVal(idx) };
-      }
-
-      let bestGain = 0, bestF = -1, bestTh = 0, bestLI = null, bestRI = null;
-      const pSum = idx.reduce((s, i) => s + residuals[i], 0);
-      const pH = idx.length;
-      const pScore = (pSum * pSum) / (pH + lambda);
-
-      for (let f = 0; f < nF; f++) {
-        const sorted = [...idx].sort((a, b) => X[a][f] - X[b][f]);
-        let lSum = 0, lH = 0;
-        for (let k = 0; k < sorted.length - 1; k++) {
-          lSum += residuals[sorted[k]];
-          lH++;
-          if (lH < minLeaf || (pH - lH) < minLeaf) continue;
-          if (X[sorted[k]][f] === X[sorted[k + 1]][f]) continue;
-
-          const rSum = pSum - lSum;
-          const rH = pH - lH;
-          const gain = (lSum * lSum) / (lH + lambda) + (rSum * rSum) / (rH + lambda) - pScore;
-
-          if (gain > bestGain) {
-            bestGain = gain;
-            bestF = f;
-            bestTh = (X[sorted[k]][f] + X[sorted[k + 1]][f]) / 2;
-            bestLI = sorted.slice(0, k + 1);
-            bestRI = sorted.slice(k + 1);
-          }
-        }
-      }
-
-      if (bestF === -1) return { v: leafVal(idx) };
-      return {
-        f: bestF, th: bestTh,
-        l: split(bestLI, depth + 1),
-        r: split(bestRI, depth + 1),
-      };
-    }
-
-    return split(Array.from({ length: X.length }, (_, i) => i), 0);
-  }
-
-  function predictOne(node, x) {
-    if ('v' in node) return node.v;
-    return x[node.f] <= node.th ? predictOne(node.l, x) : predictOne(node.r, x);
-  }
-
-  // ── 勾配ブースティング学習 ──
-  function train(X, y, opts = {}) {
-    const { nTrees = 50, maxDepth = 5, lr = 0.1, minLeaf = 2, lambda = 1.0 } = opts;
-    const n = X.length;
-    if (n < 3) return null;
-
-    const base = y.reduce((s, v) => s + v, 0) / n;
-    const preds = new Float64Array(n).fill(base);
-    const trees = [];
-
-    for (let t = 0; t < nTrees; t++) {
-      const residuals = y.map((yi, i) => yi - preds[i]);
-      const tree = buildTree(X, residuals, maxDepth, minLeaf, lambda);
-      trees.push(tree);
-      for (let i = 0; i < n; i++) {
-        preds[i] += lr * predictOne(tree, X[i]);
-      }
-    }
-
-    return { trees, base, lr };
-  }
-
-  function predict(model, x) {
-    if (!model) return 0;
-    let p = model.base;
-    for (const t of model.trees) p += model.lr * predictOne(t, x);
-    return Math.max(0, p);
-  }
-
-  // ── 学習データ準備 ──
-  // 売上データ + 他社乗車データから特徴量を抽出
-  // features: [lat, lng, hour, dayOfWeek, weatherCode]
-  // target: demand weight (金額 or 固定値)
-  function prepareData() {
-    const entries = DataService.getEntries();
-    const rivals = DataService.getRivalEntries();
-    const X = [], y = [];
-
-    entries.forEach(e => {
-      const d = new Date(e.timestamp);
-      const wc = WEATHER_CODE[e.weather] ?? 4;
-      const hr = d.getHours();
-      const dow = d.getDay();
-      const w = e.amount || 1000;
-      if (e.pickupCoords && e.pickupCoords.lat && e.pickupCoords.lng) {
-        X.push([e.pickupCoords.lat, e.pickupCoords.lng, hr, dow, wc]);
-        y.push(w);
-      }
-      if (e.dropoffCoords && e.dropoffCoords.lat && e.dropoffCoords.lng) {
-        X.push([e.dropoffCoords.lat, e.dropoffCoords.lng, hr, dow, wc]);
-        y.push(w);
-      }
-    });
-
-    rivals.forEach(r => {
-      if (!r.locationCoords || !r.locationCoords.lat || !r.locationCoords.lng) return;
-      const hr = r.time ? parseInt(r.time.split(':')[0], 10) : 12;
-      const dow = r.date ? new Date(r.date).getDay() : 0;
-      const wc = WEATHER_CODE[r.weather] ?? 4;
-      X.push([r.locationCoords.lat, r.locationCoords.lng, hr, dow, wc]);
-      y.push(500);
-    });
-
-    if (X.length < 3) return { X, y };
-
-    // 負例（需要ゼロのバックグラウンドサンプル）を追加
-    const latMin = Math.min(...X.map(x => x[0])) - 0.015;
-    const latMax = Math.max(...X.map(x => x[0])) + 0.015;
-    const lngMin = Math.min(...X.map(x => x[1])) - 0.015;
-    const lngMax = Math.max(...X.map(x => x[1])) + 0.015;
-    const nBg = Math.max(X.length * 2, 40);
-    // seeded random for reproducibility
-    let seed = 42;
-    const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; };
-    for (let i = 0; i < nBg; i++) {
-      X.push([
-        latMin + rand() * (latMax - latMin),
-        lngMin + rand() * (lngMax - lngMin),
-        Math.floor(rand() * 24),
-        Math.floor(rand() * 7),
-        Math.floor(rand() * 5),
-      ]);
-      y.push(0);
-    }
-
-    return { X, y };
-  }
-
-  // ── モデル学習（公開API）──
-  function trainModel(opts) {
-    const { X, y } = prepareData();
-    if (X.length < 5) return null;
-    const model = train(X, y, opts);
-    if (model) {
-      AppLogger.info(`LightGBM学習完了: ${model.trees.length}本の木, 学習サンプル${X.length}件`);
-    }
-    return model;
-  }
-
-  // ── グリッド予測（ヒートマップ用）──
-  // bounds: { north, south, east, west }
-  // 現在の条件（hour, dow, weather）で需要スコアを予測
-  function predictGrid(model, bounds, hour, dow, weather, step) {
-    if (!model || !bounds) return [];
-    const wc = WEATHER_CODE[weather] ?? 4;
-    // ステップ幅をバウンド幅に応じて自動調整
-    const latRange = bounds.north - bounds.south;
-    const lngRange = bounds.east - bounds.west;
-    const gridStep = step || Math.max(Math.min(latRange, lngRange) / 60, 0.001);
-    const points = [];
-
-    for (let lat = bounds.south; lat <= bounds.north; lat += gridStep) {
-      for (let lng = bounds.west; lng <= bounds.east; lng += gridStep) {
-        const score = predict(model, [lat, lng, hour, dow, wc]);
-        if (score > 10) {
-          points.push({ lat, lng, weight: score });
-        }
-      }
-    }
-
-    return points;
-  }
-
-  // ── モデル情報 ──
-  function getModelInfo(model) {
-    if (!model) return null;
-    return {
-      nTrees: model.trees.length,
-      basePrediction: Math.round(model.base),
-    };
-  }
-
-  // ── 単価予測モデル学習 ──
-  // features: [lat, lng, hour, dayOfWeek, weatherCode]
-  // target: 金額（¥）
-  function preparePriceData() {
-    const entries = DataService.getEntries();
-    const X = [], y = [];
-
-    entries.forEach(e => {
-      if (!e.pickupCoords || !e.pickupCoords.lat || !e.pickupCoords.lng) return;
-      if (!e.amount || e.amount <= 0) return;
-      const d = new Date(e.timestamp);
-      const wc = WEATHER_CODE[e.weather] ?? 4;
-      const hr = e.pickupTime ? parseInt(e.pickupTime.split(':')[0], 10) : d.getHours();
-      const dow = d.getDay();
-      X.push([e.pickupCoords.lat, e.pickupCoords.lng, hr, dow, wc]);
-      y.push(e.amount);
-    });
-
-    return { X, y };
-  }
-
-  function trainPriceModel(opts) {
-    const { X, y } = preparePriceData();
-    if (X.length < 5) return null;
-    const model = train(X, y, { nTrees: 40, maxDepth: 4, lr: 0.1, minLeaf: 2, lambda: 1.0, ...opts });
-    if (model) {
-      AppLogger.info(`単価予測モデル学習完了: ${model.trees.length}本の木, 学習サンプル${X.length}件`);
-    }
-    return model;
-  }
-
-  // ── 単価予測グリッド ──
-  function predictPriceGrid(model, bounds, hour, dow, weather, step) {
-    if (!model || !bounds) return [];
-    const wc = WEATHER_CODE[weather] ?? 4;
-    const latRange = bounds.north - bounds.south;
-    const lngRange = bounds.east - bounds.west;
-    const gridStep = step || Math.max(Math.min(latRange, lngRange) / 40, 0.002);
-    const points = [];
-
-    for (let lat = bounds.south; lat <= bounds.north; lat += gridStep) {
-      for (let lng = bounds.west; lng <= bounds.east; lng += gridStep) {
-        const price = predict(model, [lat, lng, hour, dow, wc]);
-        if (price > 100) {
-          const tier = price <= 1000 ? 'short' : price <= 1999 ? 'mid' : 'long';
-          points.push({ lat, lng, price: Math.round(price), tier });
-        }
-      }
-    }
-
-    return points;
-  }
-
-  return { trainModel, trainPriceModel, predict, predictGrid, predictPriceGrid, getModelInfo, WEATHER_CODE };
-})();
-})();
-
-// ============================================================
 // FILE: src/utils/dataService.js
 // ============================================================
 (function() {
@@ -10674,6 +10416,227 @@ window.AsahikawaData = (() => {
 })();
 
 // ============================================================
+// FILE: src/utils/jrTimetable.js
+// ============================================================
+(function() {
+// jrTimetable.js - JR旭川駅 到着列車時刻表データ
+// 2026年4月ダイヤベース（JR北海道公式・NAVITIME参照）
+// ※ダイヤ改正時に更新が必要
+
+const JR_ASAHIKAWA_ARRIVALS = [
+  // === 函館本線（札幌方面から）特急 ===
+  { time: '07:56', type: '特急', name: 'ライラック1号', from: '札幌', line: '函館本線' },
+  { time: '08:28', type: '特急', name: 'オホーツク1号', from: '札幌', line: '函館本線' },
+  { time: '08:40', type: '特急', name: 'ライラック3号', from: '札幌', line: '函館本線' },
+  { time: '08:58', type: '特急', name: '宗谷', from: '札幌', line: '函館本線' },
+  { time: '09:25', type: '特急', name: 'ライラック5号', from: '札幌', line: '函館本線' },
+  { time: '10:25', type: '特急', name: 'カムイ7号', from: '札幌', line: '函館本線' },
+  { time: '11:25', type: '特急', name: 'ライラック11号', from: '札幌', line: '函館本線' },
+  { time: '12:25', type: '特急', name: 'ライラック13号', from: '札幌', line: '函館本線' },
+  { time: '13:25', type: '特急', name: 'ライラック17号', from: '札幌', line: '函館本線' },
+  { time: '14:25', type: '特急', name: 'カムイ19号', from: '札幌', line: '函館本線' },
+  { time: '15:25', type: '特急', name: 'カムイ21号', from: '札幌', line: '函館本線' },
+  { time: '15:55', type: '特急', name: 'ライラック23号', from: '札幌', line: '函館本線' },
+  { time: '16:25', type: '特急', name: 'ライラック25号', from: '札幌', line: '函館本線' },
+  { time: '17:05', type: '特急', name: 'オホーツク3号', from: '札幌', line: '函館本線' },
+  { time: '17:25', type: '特急', name: 'ライラック27号', from: '札幌', line: '函館本線' },
+  { time: '17:55', type: '特急', name: 'カムイ29号', from: '札幌', line: '函館本線' },
+  { time: '18:25', type: '特急', name: 'カムイ31号', from: '札幌', line: '函館本線' },
+  { time: '18:55', type: '特急', name: 'ライラック33号', from: '札幌', line: '函館本線' },
+  { time: '19:25', type: '特急', name: 'カムイ35号', from: '札幌', line: '函館本線' },
+  { time: '19:55', type: '特急', name: 'ライラック37号', from: '札幌', line: '函館本線' },
+  { time: '20:25', type: '特急', name: 'ライラック39号', from: '札幌', line: '函館本線' },
+  { time: '21:25', type: '特急', name: 'ライラック41号', from: '札幌', line: '函館本線' },
+  { time: '22:25', type: '特急', name: 'カムイ43号', from: '札幌', line: '函館本線' },
+  { time: '23:25', type: '特急', name: 'カムイ45号', from: '札幌', line: '函館本線' },
+  // 函館本線 普通
+  { time: '08:51', type: '普通', name: '', from: '岩見沢', line: '函館本線' },
+
+  // === 宗谷本線（稚内・名寄方面から） ===
+  { time: '08:08', type: '普通', name: '', from: '名寄', line: '宗谷本線' },
+  { time: '12:06', type: '普通', name: '', from: '名寄', line: '宗谷本線' },
+
+  // === 石北本線（網走・上川方面から） ===
+  { time: '07:01', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '08:31', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '10:01', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '12:38', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '13:48', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '15:08', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '16:31', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '17:31', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '18:32', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '19:05', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '19:54', type: '普通', name: '', from: '上川', line: '石北本線' },
+  { time: '21:57', type: '普通', name: '', from: '上川', line: '石北本線' },
+
+  // === 富良野線（富良野・美瑛方面から） ===
+  { time: '07:12', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '07:30', type: '普通', name: '', from: '美瑛', line: '富良野線' },
+  { time: '08:14', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '08:34', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '09:13', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '10:26', type: '普通', name: '', from: '美瑛', line: '富良野線' },
+  { time: '11:11', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '12:21', type: '普通', name: '', from: '美瑛', line: '富良野線' },
+  { time: '13:02', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '13:43', type: '普通', name: '', from: '美瑛', line: '富良野線' },
+  { time: '14:33', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '16:05', type: '普通', name: '', from: '美瑛', line: '富良野線' },
+  { time: '17:01', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '18:19', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '18:37', type: '普通', name: '', from: '美瑛', line: '富良野線' },
+  { time: '19:13', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '20:27', type: '普通', name: '', from: '富良野', line: '富良野線' },
+  { time: '21:47', type: '普通', name: '', from: '富良野', line: '富良野線' },
+];
+
+// 時刻順にソート
+JR_ASAHIKAWA_ARRIVALS.sort((a, b) => a.time.localeCompare(b.time));
+
+/**
+ * 現在時刻以降の到着列車を取得
+ * @param {number} count - 取得件数（デフォルト5）
+ * @param {string} shiftMode - 'day'=日勤(5:00-19:00) / 'night'=夜勤(17:00以降すべて)
+ * @returns {Array} 到着列車リスト（minsLeft付き）
+ */
+function getUpcomingArrivals(count, shiftMode) {
+  count = count || 5;
+  shiftMode = shiftMode || 'day';
+  const now = new Date();
+  const nowHH = String(now.getHours()).padStart(2, '0');
+  const nowMM = String(now.getMinutes()).padStart(2, '0');
+  const nowTime = nowHH + ':' + nowMM;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  // 日勤: 05:00〜19:00 / 夜勤: 17:00〜終電
+  const rangeStart = shiftMode === 'night' ? '17:00' : '05:00';
+  const rangeEnd = shiftMode === 'night' ? '23:59' : '19:00';
+
+  const upcoming = [];
+  for (let i = 0; i < JR_ASAHIKAWA_ARRIVALS.length; i++) {
+    const train = JR_ASAHIKAWA_ARRIVALS[i];
+    // 時間帯フィルタ
+    if (train.time < rangeStart || train.time > rangeEnd) continue;
+    if (train.time >= nowTime) {
+      const parts = train.time.split(':');
+      const trainMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+      upcoming.push({
+        ...train,
+        minsLeft: trainMin - nowMin,
+      });
+      if (upcoming.length >= count) break;
+    }
+  }
+  return upcoming;
+}
+
+// === 都市間バス 旭川駅前 到着時刻表（2026年4月ダイヤベース） ===
+const BUS_ASAHIKAWA_ARRIVALS = [
+  // 高速あさひかわ号（札幌→旭川）
+  { time: '09:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '09:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '10:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '10:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '11:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '11:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '12:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '12:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '13:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '13:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '14:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '14:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '15:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '15:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '16:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '16:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '17:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '17:25', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '17:45', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '18:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '18:25', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '18:45', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '19:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '19:25', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '19:45', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '20:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '20:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '20:50', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: 'JR北海道バス' },
+  { time: '21:05', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '21:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '21:55', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '22:15', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  { time: '22:55', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '道北バス' },
+  { time: '23:35', type: '高速', name: '高速あさひかわ号', from: '札幌', line: '高速あさひかわ号', company: '中央バス' },
+  // 特急オホーツク号（紋別→旭川）
+  { time: '09:45', type: '特急', name: '特急オホーツク号', from: '紋別', line: '特急オホーツク号', company: '道北バス' },
+  { time: '14:45', type: '特急', name: '特急オホーツク号', from: '紋別', line: '特急オホーツク号', company: '道北バス' },
+  { time: '18:30', type: '特急', name: '特急オホーツク号', from: '紋別', line: '特急オホーツク号', company: '道北バス' },
+  // ノースライナー号（帯広→旭川）
+  { time: '11:30', type: '特急', name: 'ノースライナー号', from: '帯広', line: 'ノースライナー号', company: '道北バス' },
+  { time: '18:00', type: '特急', name: 'ノースライナー号', from: '帯広', line: 'ノースライナー号', company: '道北バス' },
+  // サンライズ号（釧路→北見→旭川）
+  { time: '12:40', type: '特急', name: 'サンライズ号', from: '釧路', line: 'サンライズ号', company: '道北バス' },
+  { time: '19:00', type: '特急', name: 'サンライズ号', from: '釧路', line: 'サンライズ号', company: '道北バス' },
+];
+
+BUS_ASAHIKAWA_ARRIVALS.sort((a, b) => a.time.localeCompare(b.time));
+
+/**
+ * 現在時刻以降のバス到着を取得
+ */
+function getUpcomingBusArrivals(count, shiftMode) {
+  count = count || 5;
+  shiftMode = shiftMode || 'day';
+  const now = new Date();
+  const nowHH = String(now.getHours()).padStart(2, '0');
+  const nowMM = String(now.getMinutes()).padStart(2, '0');
+  const nowTime = nowHH + ':' + nowMM;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const rangeStart = shiftMode === 'night' ? '17:00' : '05:00';
+  const rangeEnd = shiftMode === 'night' ? '23:59' : '19:00';
+
+  const upcoming = [];
+  for (let i = 0; i < BUS_ASAHIKAWA_ARRIVALS.length; i++) {
+    const bus = BUS_ASAHIKAWA_ARRIVALS[i];
+    if (bus.time < rangeStart || bus.time > rangeEnd) continue;
+    if (bus.time >= nowTime) {
+      const parts = bus.time.split(':');
+      const busMin = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+      upcoming.push({ ...bus, minsLeft: busMin - nowMin });
+      if (upcoming.length >= count) break;
+    }
+  }
+  return upcoming;
+}
+
+/**
+ * 路線別の色を取得
+ */
+function getLineColor(line) {
+  switch (line) {
+    case '函館本線': return '#2196F3';
+    case '宗谷本線': return '#4CAF50';
+    case '石北本線': return '#FF9800';
+    case '富良野線': return '#E040FB';
+    case '高速あさひかわ号': return '#ef5350';
+    case '特急オホーツク号': return '#ff7043';
+    case 'ノースライナー号': return '#66bb6a';
+    case 'サンライズ号': return '#ffa726';
+    default: return 'var(--text-secondary)';
+  }
+}
+
+window.JrTimetable = {
+  arrivals: JR_ASAHIKAWA_ARRIVALS,
+  busArrivals: BUS_ASAHIKAWA_ARRIVALS,
+  getUpcomingArrivals: getUpcomingArrivals,
+  getUpcomingBusArrivals: getUpcomingBusArrivals,
+  getLineColor: getLineColor,
+};
+})();
+
+// ============================================================
 // FILE: src/utils/gpsLogService.js
 // ============================================================
 (function() {
@@ -13856,9 +13819,6 @@ window.DashboardPage = () => {
     window.addEventListener('taxi-shift-mode-changed', h);
     return () => window.removeEventListener('taxi-shift-mode-changed', h);
   }, []);
-
-  // 日種別フィルタ: null=全て, 'weekday'=平日, 'holiday'=土日祝
-  const [dayTypeFilter, setDayTypeFilter] = useState(null);
   // 支払方法カード展開: null or 'cash'|'uncollected'|'didi'|'uber'
   const [expandedPayment, setExpandedPayment] = useState(null);
 
@@ -13923,230 +13883,6 @@ window.DashboardPage = () => {
   }, []);
 
   const todaySummary = useMemo(() => DataService.getTodaySummary(), [refreshKey]);
-
-  const utilization = useMemo(() => DataService.getUtilizationRate(), [refreshKey]);
-  const goalProgress = useMemo(() => DataService.getGoalProgress(), [refreshKey]);
-  const topAreas = useMemo(() => DataService.getTopPickupAreasForNow(dayTypeFilter), [refreshKey, dayTypeFilter]);
-  const topPickupClusters = useMemo(() => DataService.getTopPickupClusters(), [refreshKey]);
-  // タイムライン時間帯選択
-  const [timelineHour, setTimelineHour] = useState(new Date().getHours());
-  const timelineClusters = useMemo(() => DataService.getPickupClustersByHour(timelineHour), [refreshKey, timelineHour]);
-  const frequentSpots = useMemo(() => DataService.getFrequentPickupSpots({ dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
-  const frequentSpotsNow = useMemo(() => DataService.getFrequentPickupSpots({ forNow: true, dayType: dayTypeFilter }), [refreshKey, dayTypeFilter]);
-  // 機能8: 逆ジオコーディング（非同期）
-  const [spotsWithGeoNames, setSpotsWithGeoNames] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    setSpotsWithGeoNames(null); // refreshKey変更時に古いデータをクリア
-    DataService.getFrequentPickupSpotsWithNames({ dayType: dayTypeFilter }).then(result => {
-      if (!cancelled) setSpotsWithGeoNames(result);
-    });
-    return () => { cancelled = true; };
-  }, [refreshKey, dayTypeFilter]);
-  // 表示用: geoName があればそちらを優先
-  const displaySpots = useMemo(() => {
-    const base = frequentSpots;
-    if (!spotsWithGeoNames) return base;
-    return base.map((s, i) => {
-      const geo = spotsWithGeoNames[i];
-      return geo && geo.geoName ? { ...s, displayName: geo.geoName, originalName: s.name } : s;
-    });
-  }, [frequentSpots, spotsWithGeoNames]);
-  // スポット詳細の展開状態（修正7: refreshKeyでリセットしない）
-  const expandedSpotIdxRef = useRef(null);
-  const [expandedSpotIdx, setExpandedSpotIdx] = useState(null);
-  const stableSetExpandedSpotIdx = useCallback((v) => { expandedSpotIdxRef.current = v; setExpandedSpotIdx(v); }, []);
-  // 修正6: 全期間スポット初期5件表示
-  const [showAllSpots, setShowAllSpots] = useState(false);
-  // 改善1: topAreas + frequentSpotsNow を統合した「今おすすめスポット」
-  const mergedNowSpots = useMemo(() => {
-    const merged = [];
-    const usedNames = new Set();
-    topAreas.forEach(a => {
-      merged.push({ name: a.name, count: a.count, avgAmount: a.avg, tags: ['高単価'] });
-      usedNames.add(a.name);
-    });
-    frequentSpotsNow.forEach(s => {
-      const dup = [...usedNames].find(n => n.includes(s.name) || s.name.includes(n));
-      if (dup) {
-        const ex = merged.find(m => m.name === dup);
-        if (ex && !ex.tags.includes('頻出')) { ex.tags.push('頻出'); ex.count = Math.max(ex.count, s.count); }
-      } else {
-        merged.push({ name: s.name, count: s.count, avgAmount: s.avgAmount, tags: ['頻出'] });
-        usedNames.add(s.name);
-      }
-    });
-    return merged.slice(0, 5);
-  }, [topAreas, frequentSpotsNow]);
-  const eventAlerts = useMemo(() => DataService.getUpcomingEventAlerts(), [refreshKey]);
-
-  // 待機スポット需要指数
-  const waitingSpotData = useMemo(() => DataService.getWaitingSpotDemandIndex(), [refreshKey]);
-  const revenueForecast = useMemo(() => DataService.getWaitingSpotRevenueForecast(), [refreshKey]);
-
-  // 流しエリア需要指数
-  const cruisingAreaData = useMemo(() => DataService.getCruisingAreaDemandIndex(), [refreshKey]);
-
-  // 日勤集客強化: 病院・天気・タイムライン・アクション提案
-  const hospitalData = useMemo(() => DataService.getHospitalScheduleData(), [refreshKey]);
-  const [weatherImpact, setWeatherImpact] = useState(null);
-  const weatherFetchIdRef = useRef(0);
-  useEffect(() => {
-    const fetchId = ++weatherFetchIdRef.current;
-    GpsLogService.fetchHourlyForecast().then(forecast => {
-      if (fetchId === weatherFetchIdRef.current) {
-        setWeatherImpact(DataService.getWeatherDemandImpact(forecast));
-      }
-    }).catch(() => {
-      if (fetchId === weatherFetchIdRef.current) {
-        setWeatherImpact(DataService.getWeatherDemandImpact(null));
-      }
-    });
-    return () => { weatherFetchIdRef.current++; };
-  }, [refreshKey]);
-  const dayShiftScore = useMemo(() => DataService.getDayShiftDemandScore(weatherImpact), [refreshKey, weatherImpact]);
-  const timeline = useMemo(() => DataService.getDayShiftTimeline(weatherImpact), [refreshKey, weatherImpact]);
-  const nextAction = useMemo(() => DataService.getNextOptimalAction(currentPosition, weatherImpact), [refreshKey, weatherImpact, currentPosition]);
-  const [strategyHour, setStrategyHour] = useState(new Date().getHours());
-  const strategyForHour = useMemo(() => DataService.getStrategySimulation(strategyHour), [refreshKey, strategyHour]);
-  const slowPeriodRoutes = useMemo(() => DataService.getSlowPeriodCruisingRoutes(), [refreshKey, weatherImpact]);
-  const waitVsCruise = useMemo(() => DataService.getWaitingVsCruisingEfficiency(dayTypeFilter), [refreshKey, dayTypeFilter]);
-  const [standbyAnalysis, setStandbyAnalysis] = useState(null);
-  const [standbyAnalysisLoading, setStandbyAnalysisLoading] = useState(false);
-  const [standbyDetailPlace, setStandbyDetailPlace] = useState(null);
-  const [cruisingPerf, setCruisingPerf] = useState(null);
-  const [cruisingPerfLoading, setCruisingPerfLoading] = useState(false);
-  const [cruisingDetailArea, setCruisingDetailArea] = useState(null);
-
-  // 時間帯別実車グラフ
-  const [hourlyMode, setHourlyMode] = useState('month'); // 'month' | 'all'
-  const hourlyOccupancy = useMemo(() => DataService.getHourlyOccupancy(hourlyMode), [refreshKey, hourlyMode]);
-
-  // エリア別レコメンド
-  const areaRecommendation = useMemo(() => DataService.getAreaRecommendation(), [refreshKey]);
-
-  // 日次レポート
-  const dailyReport = useMemo(() => DataService.getDailyReport(), [refreshKey]);
-
-  // 空車対策レコメンド
-  const vacancyAdvice = useMemo(() => DataService.getVacancyCountermeasures(), [refreshKey]);
-
-  // リピーター予測（今日来そうな常連客）
-  const repeaterForecast = useMemo(() => {
-    const entries = DataService.getEntries();
-    const repeaters = entries.filter(e => e.isRegisteredUser);
-    if (repeaters.length === 0) return null;
-    const now = new Date();
-    const todayDow = ['日', '月', '火', '水', '木', '金', '土'][now.getDay()];
-    const currentHour = now.getHours();
-
-    // 顧客ごとにパターン分析
-    const byName = {};
-    repeaters.forEach(e => {
-      const name = e.customerName || '名前なし';
-      if (!byName[name]) byName[name] = { rides: [], days: {}, hours: {}, areas: {}, totalAmount: 0 };
-      const u = byName[name];
-      u.rides.push(e);
-      const _ld = (() => {
-        if (e.discounts && Array.isArray(e.discounts)) { const r = e.discounts.filter(d => d.type === 'longDistance'); if (r.length > 0) return r.reduce((s, d) => s + (d.amount || 0), 0); }
-        if (e.discountType && e.discountType.includes('longDistance') && e.discountAmount) { const t = e.discountType.split(',').filter(t => t && t !== 'longDistance'); if (t.length === 0) return e.discountAmount; }
-        return 0;
-      })();
-      u.totalAmount += (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ld;
-      const dow = e.dayOfWeek || '';
-      if (dow) u.days[dow] = (u.days[dow] || 0) + 1;
-      if (e.pickupTime) {
-        const h = parseInt(e.pickupTime.split(':')[0]);
-        if (!isNaN(h)) u.hours[h] = (u.hours[h] || 0) + 1;
-      }
-      if (e.pickup) u.areas[e.pickup] = (u.areas[e.pickup] || 0) + 1;
-    });
-
-    const predictions = [];
-    Object.entries(byName).forEach(([name, data]) => {
-      const totalRides = data.rides.length;
-      const todayDowCount = data.days[todayDow] || 0;
-      if (todayDowCount === 0 || totalRides < 2) return;
-
-      const dowRate = todayDowCount / totalRides;
-      // この曜日に来る確率が15%以上
-      if (dowRate < 0.15) return;
-
-      const topArea = Object.entries(data.areas).sort((a, b) => b[1] - a[1])[0]?.[0] || '-';
-      const avgAmount = Math.round(data.totalAmount / totalRides);
-
-      // 最頻時間帯
-      const todayHourRides = data.rides.filter(e => e.dayOfWeek === todayDow && e.pickupTime);
-      const hourCounts = {};
-      todayHourRides.forEach(e => {
-        const h = parseInt(e.pickupTime.split(':')[0]);
-        if (!isNaN(h)) hourCounts[h] = (hourCounts[h] || 0) + 1;
-      });
-      const topHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
-      const expectedHour = topHour ? parseInt(topHour[0]) : null;
-
-      // 最終来訪日
-      const lastDate = data.rides.reduce((latest, e) => {
-        const d = e.date || '';
-        return d > latest ? d : latest;
-      }, '');
-
-      // 今日の乗車済みか
-      const todayStr = getLocalDateString();
-      const riddenToday = data.rides.some(e => e.date === todayStr);
-
-      predictions.push({
-        name, topArea, avgAmount, expectedHour, totalRides, todayDowCount,
-        dowRate: Math.round(dowRate * 100), lastDate, riddenToday,
-      });
-    });
-
-    predictions.sort((a, b) => {
-      // まだ来てない人を上に
-      if (a.riddenToday !== b.riddenToday) return a.riddenToday ? 1 : -1;
-      // 時間が近い順
-      if (a.expectedHour !== null && b.expectedHour !== null) {
-        const aDiff = Math.abs(a.expectedHour - currentHour);
-        const bDiff = Math.abs(b.expectedHour - currentHour);
-        return aDiff - bDiff;
-      }
-      return b.dowRate - a.dowRate;
-    });
-
-    return predictions.length > 0 ? predictions : null;
-  }, [refreshKey]);
-
-  // 待機場所分析のロード（リクエストIDで競合防止）
-  const standbyFetchIdRef = useRef(0);
-  useEffect(() => {
-    if (!window.GpsLogService) return;
-    const fetchId = ++standbyFetchIdRef.current;
-    setStandbyAnalysisLoading(true);
-    GpsLogService.getStandbyLocationAnalysis().then(data => {
-      if (fetchId === standbyFetchIdRef.current) {
-        setStandbyAnalysis(data);
-        setStandbyAnalysisLoading(false);
-      }
-    }).catch(() => {
-      if (fetchId === standbyFetchIdRef.current) setStandbyAnalysisLoading(false);
-    });
-  }, [refreshKey]);
-
-  // 流しエリア分析のロード（リクエストIDで競合防止）
-  const cruisingFetchIdRef = useRef(0);
-  useEffect(() => {
-    if (!window.GpsLogService || !GpsLogService.getCruisingAreaPerformance) return;
-    const fetchId = ++cruisingFetchIdRef.current;
-    setCruisingPerfLoading(true);
-    GpsLogService.getCruisingAreaPerformance().then(data => {
-      if (fetchId === cruisingFetchIdRef.current) {
-        setCruisingPerf(data);
-        setCruisingPerfLoading(false);
-      }
-    }).catch(() => {
-      if (fetchId === cruisingFetchIdRef.current) setCruisingPerfLoading(false);
-    });
-  }, [refreshKey]);
 
   // 始業/終業シフト管理
   const [shiftInfo, setShiftInfo] = useState({ active: false, startTime: null });
@@ -14640,33 +14376,6 @@ window.DashboardPage = () => {
           )
         ),
 
-    // 日種別フィルタ切替
-    React.createElement('div', {
-      style: {
-        display: 'flex', gap: '4px', marginBottom: 'var(--space-md)',
-        background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px',
-      },
-    },
-      [
-        { key: null, label: '全て' },
-        { key: 'weekday', label: '平日' },
-        { key: 'holiday', label: '土日祝' },
-      ].map(opt =>
-        React.createElement('button', {
-          key: String(opt.key),
-          onClick: () => setDayTypeFilter(opt.key),
-          style: {
-            flex: 1, padding: '8px 0', border: 'none', borderRadius: '10px',
-            fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-            fontFamily: 'var(--font-family)',
-            background: dayTypeFilter === opt.key ? 'rgba(26,115,232,0.2)' : 'transparent',
-            color: dayTypeFilter === opt.key ? 'var(--color-primary-light)' : 'var(--text-muted)',
-            transition: 'all 0.2s ease',
-          },
-        }, opt.label)
-      )
-    ),
-
     // 本日の売上合計（最上部表示）
     React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
       // 合計金額セクション
@@ -15116,14 +14825,6 @@ window.DashboardPage = () => {
       );
     })(),
 
-    // フィルタ表示ラベル
-    dayTypeFilter && React.createElement('div', {
-      style: { marginBottom: 'var(--space-sm)', fontSize: '12px', color: 'var(--color-primary-light)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' },
-    },
-      React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
-      dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
-    ),
-
     // 最近の売上（本日分）
     todaySummary.entries.length > 0 && React.createElement(Card, {
       title: `本日の記録（${todaySummary.entries.length}件）`,
@@ -15207,36 +14908,16 @@ window.RevenuePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
-  const [standbyEnabled, setStandbyEnabled] = useState(false); // 待機情報オン/オフ
   const [aggregateDate, setAggregateDate] = useState(() => {
     const h = new Date().getHours();
     return (h >= 0 && h < 5) ? 'previous' : 'today';
   }); // 0〜5時は前日合算がデフォルト
-  const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
-  const mapPickerRef = useRef(null);
-  const mapPickerInstanceRef = useRef(null);
-  const mapPickerMarkerRef = useRef(null);
-  const dropoffSectionRef = useRef(null);
   const sourceSectionRef = useRef(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
-  const [receiptLoading, setReceiptLoading] = useState(false);
-  const [capturedStandby, setCapturedStandby] = useState(null);
 
   
   const mapCtx = useMapContext();
-
-  // フォーム表示時に直前完了した待機情報をキャプチャ（任意入力用）
-  useEffect(() => {
-    if (capturedStandby) return;
-    if (window.GpsLogService) {
-      const last = GpsLogService.getLastCompletedStandby();
-      if (last && last.locationName) {
-        setCapturedStandby(last);
-      }
-    }
-  }, []);
-  const mapsLoaded = false;
 
   // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
@@ -15430,283 +15111,12 @@ window.RevenuePage = () => {
   }, [false, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
-  const getGpsLocation = useCallback((field) => {
-    if (!navigator.geolocation) {
-      setErrors(['このブラウザではGPS機能が使えません']);
-      return;
-    }
-
-    setGpsLoading(prev => ({ ...prev, [field]: true }));
-    setErrors([]);
-
-    // GPSトラッキング中かつ直近の位置が十分新鮮（3秒以内）で精度が良い場合、即座に使用
-    const { currentPosition, accuracy: trackingAccuracy } = useMapContext.getState ? useMapContext.getState() : {};
-    const mapCtx = window._mapContextRef;
-    if (mapCtx && mapCtx.currentPosition && mapCtx.accuracy != null && mapCtx.accuracy <= 50 && mapCtx.lastUpdateTime && (Date.now() - mapCtx.lastUpdateTime) < 3000) {
-      const lat = mapCtx.currentPosition.lat;
-      const lng = mapCtx.currentPosition.lng;
-      const acc = Math.round(mapCtx.accuracy);
-      AppLogger.info(`GPSトラッキング位置を即座に使用: 精度${acc}m (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
-      _reverseGeocodeAndSetForm(lat, lng, acc, field);
-      return;
-    }
-
-    // トラッキング位置が使えない場合、新規GPS取得（高速設定）
-    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
-      .then((position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const acc = Math.round(position.coords.accuracy);
-        _reverseGeocodeAndSetForm(lat, lng, acc, field);
-      })
-      .catch((error) => {
-        setGpsLoading(prev => ({ ...prev, [field]: false }));
-        const messages = {
-          1: 'GPS使用が許可されていません。ブラウザの設定を確認してください。',
-          2: '現在地を取得できませんでした。',
-          3: 'GPS取得がタイムアウトしました。',
-        };
-        setErrors([messages[error.code] || 'GPS取得に失敗しました']);
-        AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
-      });
-  }, [_reverseGeocodeAndSetForm]);
 
   // GPS取得完了後に次のセクションへ自動スクロール
-  const prevGpsLoadingRef = useRef({ pickup: false, dropoff: false });
-  useEffect(() => {
-    const prev = prevGpsLoadingRef.current;
-    // pickup: loading中→完了 → 降車地セクションへスクロール
-    if (prev.pickup && !gpsLoading.pickup && dropoffSectionRef.current) {
-      setTimeout(() => {
-        dropoffSectionRef.current && dropoffSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
-    }
-    // dropoff: loading中→完了 → 配車方法セクションへスクロール
-    if (prev.dropoff && !gpsLoading.dropoff && sourceSectionRef.current) {
-      setTimeout(() => {
-        sourceSectionRef.current && sourceSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
-    }
-    prevGpsLoadingRef.current = { pickup: gpsLoading.pickup, dropoff: gpsLoading.dropoff };
-  }, [gpsLoading.pickup, gpsLoading.dropoff]);
 
   // Geocoding結果から簡潔な住所を抽出（共通ユーティリティ委譲）
   const _formatAddress = TaxiApp.utils.formatAddress;
 
-
-  // マップピッカー状態表示用
-  const [mapPickerStatus, setMapPickerStatus] = useState('');
-
-  // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
-  useEffect(() => {
-    return; // 地図選択機能は削除済み
-    setMapPickerStatus('');
-    setTimeout(() => { mapPickerRef.current && mapPickerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
-    const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
-    const map = new google.maps.Map(mapPickerRef.current, {
-      center, zoom: 13, mapTypeId: 'roadmap', disableDefaultUI: true,
-      zoomControl: true, fullscreenControl: false, mapTypeControl: false,
-      gestureHandling: 'greedy',
-    });
-    mapPickerInstanceRef.current = map;
-    const marker = new google.maps.Marker({ map, position: center, visible: false });
-    mapPickerMarkerRef.current = marker;
-
-    // GPS走行履歴を道路に沿ったルートで表示
-    const _showGpsHistory = async () => {
-      if (!window.GpsLogService) return;
-      const todayStr = new Date().toISOString().slice(0, 10);
-      try {
-        const log = await GpsLogService.getLogForDate(todayStr);
-        if (!log || log.length === 0) return;
-        const path = log.filter(e => e.lat && e.lng).map(e => ({ lat: e.lat, lng: e.lng }));
-        if (path.length === 0) return;
-
-        // Directions Serviceで道路に沿ったルートを表示
-        const directionsService = new google.maps.DirectionsService();
-        // GPSポイントをサンプリング（Directions APIはwaypoint最大25個制限）
-        const MAX_WAYPOINTS = 23;
-        const _samplePoints = (pts, maxWp) => {
-          if (pts.length <= maxWp + 2) return { origin: pts[0], destination: pts[pts.length - 1], waypoints: pts.slice(1, -1).map(p => ({ location: p, stopover: false })) };
-          const step = (pts.length - 2) / (maxWp);
-          const wps = [];
-          for (let i = 0; i < maxWp; i++) {
-            const idx = Math.round(1 + i * step);
-            if (idx > 0 && idx < pts.length - 1) wps.push({ location: pts[idx], stopover: false });
-          }
-          return { origin: pts[0], destination: pts[pts.length - 1], waypoints: wps };
-        };
-
-        // ルートをセグメントに分割して表示（25個制限対策）
-        const SEGMENT_SIZE = 25;
-        const segments = [];
-        for (let i = 0; i < path.length - 1; i += SEGMENT_SIZE - 1) {
-          const seg = path.slice(i, Math.min(i + SEGMENT_SIZE, path.length));
-          if (seg.length >= 2) segments.push(seg);
-        }
-
-        const bounds = new google.maps.LatLngBounds();
-        let routeDrawn = false;
-
-        for (const seg of segments) {
-          const sampled = _samplePoints(seg, MAX_WAYPOINTS);
-          try {
-            const result = await new Promise((resolve, reject) => {
-              directionsService.route({
-                origin: sampled.origin,
-                destination: sampled.destination,
-                waypoints: sampled.waypoints,
-                travelMode: google.maps.TravelMode.DRIVING,
-                optimizeWaypoints: false,
-              }, (res, status) => {
-                if (status === 'OK') resolve(res);
-                else reject(new Error(status));
-              });
-            });
-            // ルートのポリラインを描画
-            const routePath = result.routes[0].overview_path;
-            new google.maps.Polyline({
-              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4, clickable: false,
-              icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.5, strokeColor: '#fff', strokeOpacity: 0.9 }, offset: '100%', repeat: '300px' }],
-            });
-            routePath.forEach(p => bounds.extend(p));
-            routeDrawn = true;
-          } catch (dirErr) {
-            // Directions失敗時は直線フォールバック
-            AppLogger.warn('Directions API失敗、直線表示にフォールバック: ' + dirErr.message);
-            new google.maps.Polyline({
-              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3, clickable: false,
-            });
-            seg.forEach(p => bounds.extend(p));
-            routeDrawn = true;
-          }
-        }
-
-        // イベント（乗車/降車）ピンを表示
-        for (const entry of log) {
-          if (entry.event && entry.lat && entry.lng) {
-            const isPickup = entry.event === 'pickup';
-            new google.maps.Marker({
-              map, position: { lat: entry.lat, lng: entry.lng },
-              icon: { path: google.maps.SymbolPath.CIRCLE, scale: 6,
-                fillColor: isPickup ? '#1a73e8' : '#00c853', fillOpacity: 0.9,
-                strokeColor: '#fff', strokeWeight: 1.5 },
-              title: `${isPickup ? '乗車' : '降車'} ${entry.t || ''}`,
-            });
-            bounds.extend({ lat: entry.lat, lng: entry.lng });
-          }
-        }
-
-        // 履歴の範囲にフィット
-        if (routeDrawn) {
-          map.fitBounds(bounds, 40);
-        }
-        AppLogger.info('地図ピッカー: GPS履歴' + path.length + '件をルート表示');
-      } catch (err) {
-        AppLogger.warn('GPS履歴表示失敗: ' + (err.message || err));
-      }
-    };
-
-    // GPS現在地を取得してマップの中心に設定（追跡中は即座に使用）
-    const _showCurrentPos = (lat, lng) => {
-      const pos = { lat, lng };
-      map.setCenter(pos);
-      map.setZoom(15);
-      new google.maps.Marker({ map, position: pos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
-    };
-
-    // GPS履歴を先に表示し、現在地があればそちらも重ねて表示
-    _showGpsHistory().then(() => {
-      if (mapCtx.isTracking && mapCtx.currentPosition && mapCtx.currentPosition.lat) {
-        _showCurrentPos(mapCtx.currentPosition.lat, mapCtx.currentPosition.lng);
-      } else if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => _showCurrentPos(pos.coords.latitude, pos.coords.longitude),
-          () => {},
-          { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
-        );
-      }
-    });
-
-    const _extractAddress = TaxiApp.utils.extractAddress;
-
-    // 逆ジオコーディング処理（座標確定後に呼ばれる共通関数）
-    const _resolveAddress = (lat, lng, field) => {
-      setMapPickerStatus('住所を取得中...');
-      const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
-      // 最優先: 既知場所マッチング
-      const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
-      if (knownPlace) {
-        setForm(f => ({ ...f, [field]: knownPlace, [timeField]: getNowTime() }));
-        setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: knownPlace, accuracy: null } }));
-        setMapPickerStatus(`設定完了: ${knownPlace}`);
-        return;
-      }
-      // 逆ジオコーディング
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-        if (status === 'OK' && results && results.length > 0) {
-          const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-          const addr = _extractAddress(preferred);
-          setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
-          setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
-          setMapPickerStatus(`設定完了: ${addr}`);
-          TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
-            if (lm) {
-              setGpsInfo(prev => ({ ...prev, [field]: { ...prev[field], landmark: lm } }));
-            }
-          }).catch(() => {});
-        } else {
-          // Nominatimフォールバック
-          fetch(TaxiApp.utils.nominatimUrl(lat, lng, 18))
-            .then(r => r.json()).then(data => {
-              const a = data.address || {};
-              const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean);
-              const addr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
-              setMapPickerStatus(`設定完了: ${addr}`);
-            }).catch(() => {
-              const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setForm(f => ({ ...f, [field]: coordStr, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null, accuracy: null } }));
-              setMapPickerStatus(`設定完了: ${coordStr}`);
-            });
-        }
-      });
-    };
-
-    map.addListener('click', (e) => {
-      const tapLat = e.latLng.lat();
-      const tapLng = e.latLng.lng();
-      marker.setPosition(e.latLng);
-      marker.setVisible(true);
-      setMapPickerStatus('位置を処理中...');
-      AppLogger.info(`地図タップ: ${tapLat.toFixed(6)}, ${tapLng.toFixed(6)} (field=${mapPickerField})`);
-
-      // GPSログから近くの記録を検索し、より正確な位置に補正
-      const todayStr = new Date().toISOString().slice(0, 10);
-      if (window.GpsLogService) {
-        GpsLogService.findNearestByLocation(todayStr, tapLat, tapLng, 200, 60).then(entry => {
-          if (entry) {
-            AppLogger.info(`地図修正→GPSログ補正: タップ(${tapLat.toFixed(6)},${tapLng.toFixed(6)}) → ログ(${entry.lat.toFixed(6)},${entry.lng.toFixed(6)}) 差${entry.distance}m 時刻=${entry.t}`);
-            const correctedPos = new google.maps.LatLng(entry.lat, entry.lng);
-            marker.setPosition(correctedPos);
-            _resolveAddress(entry.lat, entry.lng, mapPickerField);
-          } else {
-            _resolveAddress(tapLat, tapLng, mapPickerField);
-          }
-        }).catch((err) => {
-          AppLogger.warn(`GPSログ検索失敗: ${err.message || err}`);
-          _resolveAddress(tapLat, tapLng, mapPickerField);
-        });
-      } else {
-        _resolveAddress(tapLat, tapLng, mapPickerField);
-      }
-    });
-
-    return () => { mapPickerInstanceRef.current = null; mapPickerMarkerRef.current = null; };
-  }, [mapPickerField, mapsLoaded]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -15809,59 +15219,10 @@ window.RevenuePage = () => {
 
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
     setGpsInfo({ pickup: null, dropoff: null });
-    setCapturedStandby(null);
-    setStandbyEnabled(false);
     setAggregateDate((() => { const h = new Date().getHours(); return (h >= 0 && h < 5) ? 'previous' : 'today'; })());
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
-  };
-
-  // レシート撮影 → 背面カメラで無音即時キャプチャし金額を自動入力
-  const handleReceiptCapture = async () => {
-    setErrors(['レシート読み取り機能は無効です']);
-    return;
-
-    setReceiptLoading(true);
-    setErrors([]);
-    let stream = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.setAttribute('playsinline', '');
-      video.muted = true;
-      await video.play();
-      // カメラ安定のため少し待つ
-      await new Promise(r => setTimeout(r, 500));
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      const base64 = dataUrl.split(',')[1];
-      // Gemini APIで金額読み取り
-      const amount = null /* AI disabled */;
-      if (amount > 0) {
-        setForm(prev => ({ ...prev, amount: String(amount) }));
-      } else {
-        setErrors(['レシートから金額を読み取れませんでした。手動で入力してください。']);
-      }
-    } catch (err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setErrors(['カメラの使用が許可されていません。ブラウザの設定を確認してください。']);
-      } else {
-        setErrors([`レシート読み取りエラー: ${err.message}`]);
-      }
-    } finally {
-      if (stream) stream.getTracks().forEach(t => t.stop());
-      setReceiptLoading(false);
-    }
   };
 
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -16156,18 +15517,6 @@ window.RevenuePage = () => {
       minHeight: '44px',
     };
   };
-  const mapPickerButtonStyle = (active) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-    padding: '12px 16px', borderRadius: '10px',
-    fontSize: '13px', fontWeight: '700',
-    color: '#fff', cursor: 'pointer',
-    border: active ? '2px solid rgba(156,39,176,0.6)' : '2px solid rgba(156,39,176,0.3)',
-    background: active ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
-    transition: 'all 0.2s ease',
-    whiteSpace: 'nowrap',
-    flex: 1,
-    minHeight: '44px',
-  });
 
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
@@ -16451,23 +15800,6 @@ window.RevenuePage = () => {
                 required: true,
                 style: { flex: 1 },
               }),
-              null && React.createElement('button', {
-                type: 'button',
-                onClick: handleReceiptCapture,
-                disabled: receiptLoading,
-                style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)',
-                  background: receiptLoading ? 'var(--bg-secondary)' : 'var(--bg-card)',
-                  color: 'var(--text-primary)', cursor: receiptLoading ? 'wait' : 'pointer',
-                  fontSize: '14px', whiteSpace: 'nowrap', minWidth: '44px',
-                },
-                title: 'レシート撮影で金額を読み取る',
-              },
-                receiptLoading
-                  ? React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', animation: 'spin 1s linear infinite' } }, 'sync')
-                  : React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'camera_alt')
-              )
             ),
             // 税内訳表示
             form.amount && parseInt(form.amount) > 0 && (() => {

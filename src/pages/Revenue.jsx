@@ -24,36 +24,16 @@ window.RevenuePage = () => {
   const [saved, setSaved] = useState(false);
   const [gpsLoading, setGpsLoading] = useState({ pickup: false, dropoff: false });
   const [gpsInfo, setGpsInfo] = useState({ pickup: null, dropoff: null });
-  const [standbyEnabled, setStandbyEnabled] = useState(false); // 待機情報オン/オフ
   const [aggregateDate, setAggregateDate] = useState(() => {
     const h = new Date().getHours();
     return (h >= 0 && h < 5) ? 'previous' : 'today';
   }); // 0〜5時は前日合算がデフォルト
-  const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
-  const mapPickerRef = useRef(null);
-  const mapPickerInstanceRef = useRef(null);
-  const mapPickerMarkerRef = useRef(null);
-  const dropoffSectionRef = useRef(null);
   const sourceSectionRef = useRef(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const weatherFetched = useRef(false);
-  const [receiptLoading, setReceiptLoading] = useState(false);
-  const [capturedStandby, setCapturedStandby] = useState(null);
 
   
   const mapCtx = useMapContext();
-
-  // フォーム表示時に直前完了した待機情報をキャプチャ（任意入力用）
-  useEffect(() => {
-    if (capturedStandby) return;
-    if (window.GpsLogService) {
-      const last = GpsLogService.getLastCompletedStandby();
-      if (last && last.locationName) {
-        setCapturedStandby(last);
-      }
-    }
-  }, []);
-  const mapsLoaded = false;
 
   // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
@@ -247,283 +227,12 @@ window.RevenuePage = () => {
   }, [false, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
-  const getGpsLocation = useCallback((field) => {
-    if (!navigator.geolocation) {
-      setErrors(['このブラウザではGPS機能が使えません']);
-      return;
-    }
-
-    setGpsLoading(prev => ({ ...prev, [field]: true }));
-    setErrors([]);
-
-    // GPSトラッキング中かつ直近の位置が十分新鮮（3秒以内）で精度が良い場合、即座に使用
-    const { currentPosition, accuracy: trackingAccuracy } = useMapContext.getState ? useMapContext.getState() : {};
-    const mapCtx = window._mapContextRef;
-    if (mapCtx && mapCtx.currentPosition && mapCtx.accuracy != null && mapCtx.accuracy <= 50 && mapCtx.lastUpdateTime && (Date.now() - mapCtx.lastUpdateTime) < 3000) {
-      const lat = mapCtx.currentPosition.lat;
-      const lng = mapCtx.currentPosition.lng;
-      const acc = Math.round(mapCtx.accuracy);
-      AppLogger.info(`GPSトラッキング位置を即座に使用: 精度${acc}m (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
-      _reverseGeocodeAndSetForm(lat, lng, acc, field);
-      return;
-    }
-
-    // トラッキング位置が使えない場合、新規GPS取得（高速設定）
-    getAccuratePosition({ accuracyThreshold: 30, timeout: 15000, maxWaitAfterFix: 5000, minReadings: 2 })
-      .then((position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const acc = Math.round(position.coords.accuracy);
-        _reverseGeocodeAndSetForm(lat, lng, acc, field);
-      })
-      .catch((error) => {
-        setGpsLoading(prev => ({ ...prev, [field]: false }));
-        const messages = {
-          1: 'GPS使用が許可されていません。ブラウザの設定を確認してください。',
-          2: '現在地を取得できませんでした。',
-          3: 'GPS取得がタイムアウトしました。',
-        };
-        setErrors([messages[error.code] || 'GPS取得に失敗しました']);
-        AppLogger.error(`GPS取得失敗 (${field}): code=${error.code || 0}`);
-      });
-  }, [_reverseGeocodeAndSetForm]);
 
   // GPS取得完了後に次のセクションへ自動スクロール
-  const prevGpsLoadingRef = useRef({ pickup: false, dropoff: false });
-  useEffect(() => {
-    const prev = prevGpsLoadingRef.current;
-    // pickup: loading中→完了 → 降車地セクションへスクロール
-    if (prev.pickup && !gpsLoading.pickup && dropoffSectionRef.current) {
-      setTimeout(() => {
-        dropoffSectionRef.current && dropoffSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
-    }
-    // dropoff: loading中→完了 → 配車方法セクションへスクロール
-    if (prev.dropoff && !gpsLoading.dropoff && sourceSectionRef.current) {
-      setTimeout(() => {
-        sourceSectionRef.current && sourceSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
-    }
-    prevGpsLoadingRef.current = { pickup: gpsLoading.pickup, dropoff: gpsLoading.dropoff };
-  }, [gpsLoading.pickup, gpsLoading.dropoff]);
 
   // Geocoding結果から簡潔な住所を抽出（共通ユーティリティ委譲）
   const _formatAddress = TaxiApp.utils.formatAddress;
 
-
-  // マップピッカー状態表示用
-  const [mapPickerStatus, setMapPickerStatus] = useState('');
-
-  // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
-  useEffect(() => {
-    return; // 地図選択機能は削除済み
-    setMapPickerStatus('');
-    setTimeout(() => { mapPickerRef.current && mapPickerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
-    const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
-    const map = new google.maps.Map(mapPickerRef.current, {
-      center, zoom: 13, mapTypeId: 'roadmap', disableDefaultUI: true,
-      zoomControl: true, fullscreenControl: false, mapTypeControl: false,
-      gestureHandling: 'greedy',
-    });
-    mapPickerInstanceRef.current = map;
-    const marker = new google.maps.Marker({ map, position: center, visible: false });
-    mapPickerMarkerRef.current = marker;
-
-    // GPS走行履歴を道路に沿ったルートで表示
-    const _showGpsHistory = async () => {
-      if (!window.GpsLogService) return;
-      const todayStr = new Date().toISOString().slice(0, 10);
-      try {
-        const log = await GpsLogService.getLogForDate(todayStr);
-        if (!log || log.length === 0) return;
-        const path = log.filter(e => e.lat && e.lng).map(e => ({ lat: e.lat, lng: e.lng }));
-        if (path.length === 0) return;
-
-        // Directions Serviceで道路に沿ったルートを表示
-        const directionsService = new google.maps.DirectionsService();
-        // GPSポイントをサンプリング（Directions APIはwaypoint最大25個制限）
-        const MAX_WAYPOINTS = 23;
-        const _samplePoints = (pts, maxWp) => {
-          if (pts.length <= maxWp + 2) return { origin: pts[0], destination: pts[pts.length - 1], waypoints: pts.slice(1, -1).map(p => ({ location: p, stopover: false })) };
-          const step = (pts.length - 2) / (maxWp);
-          const wps = [];
-          for (let i = 0; i < maxWp; i++) {
-            const idx = Math.round(1 + i * step);
-            if (idx > 0 && idx < pts.length - 1) wps.push({ location: pts[idx], stopover: false });
-          }
-          return { origin: pts[0], destination: pts[pts.length - 1], waypoints: wps };
-        };
-
-        // ルートをセグメントに分割して表示（25個制限対策）
-        const SEGMENT_SIZE = 25;
-        const segments = [];
-        for (let i = 0; i < path.length - 1; i += SEGMENT_SIZE - 1) {
-          const seg = path.slice(i, Math.min(i + SEGMENT_SIZE, path.length));
-          if (seg.length >= 2) segments.push(seg);
-        }
-
-        const bounds = new google.maps.LatLngBounds();
-        let routeDrawn = false;
-
-        for (const seg of segments) {
-          const sampled = _samplePoints(seg, MAX_WAYPOINTS);
-          try {
-            const result = await new Promise((resolve, reject) => {
-              directionsService.route({
-                origin: sampled.origin,
-                destination: sampled.destination,
-                waypoints: sampled.waypoints,
-                travelMode: google.maps.TravelMode.DRIVING,
-                optimizeWaypoints: false,
-              }, (res, status) => {
-                if (status === 'OK') resolve(res);
-                else reject(new Error(status));
-              });
-            });
-            // ルートのポリラインを描画
-            const routePath = result.routes[0].overview_path;
-            new google.maps.Polyline({
-              path: routePath, map, strokeColor: '#4285F4', strokeOpacity: 0.8, strokeWeight: 4, clickable: false,
-              icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 2.5, strokeColor: '#fff', strokeOpacity: 0.9 }, offset: '100%', repeat: '300px' }],
-            });
-            routePath.forEach(p => bounds.extend(p));
-            routeDrawn = true;
-          } catch (dirErr) {
-            // Directions失敗時は直線フォールバック
-            AppLogger.warn('Directions API失敗、直線表示にフォールバック: ' + dirErr.message);
-            new google.maps.Polyline({
-              path: seg, map, strokeColor: '#4285F4', strokeOpacity: 0.5, strokeWeight: 3, clickable: false,
-            });
-            seg.forEach(p => bounds.extend(p));
-            routeDrawn = true;
-          }
-        }
-
-        // イベント（乗車/降車）ピンを表示
-        for (const entry of log) {
-          if (entry.event && entry.lat && entry.lng) {
-            const isPickup = entry.event === 'pickup';
-            new google.maps.Marker({
-              map, position: { lat: entry.lat, lng: entry.lng },
-              icon: { path: google.maps.SymbolPath.CIRCLE, scale: 6,
-                fillColor: isPickup ? '#1a73e8' : '#00c853', fillOpacity: 0.9,
-                strokeColor: '#fff', strokeWeight: 1.5 },
-              title: `${isPickup ? '乗車' : '降車'} ${entry.t || ''}`,
-            });
-            bounds.extend({ lat: entry.lat, lng: entry.lng });
-          }
-        }
-
-        // 履歴の範囲にフィット
-        if (routeDrawn) {
-          map.fitBounds(bounds, 40);
-        }
-        AppLogger.info('地図ピッカー: GPS履歴' + path.length + '件をルート表示');
-      } catch (err) {
-        AppLogger.warn('GPS履歴表示失敗: ' + (err.message || err));
-      }
-    };
-
-    // GPS現在地を取得してマップの中心に設定（追跡中は即座に使用）
-    const _showCurrentPos = (lat, lng) => {
-      const pos = { lat, lng };
-      map.setCenter(pos);
-      map.setZoom(15);
-      new google.maps.Marker({ map, position: pos, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#4285F4', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }, title: '現在地', clickable: false });
-    };
-
-    // GPS履歴を先に表示し、現在地があればそちらも重ねて表示
-    _showGpsHistory().then(() => {
-      if (mapCtx.isTracking && mapCtx.currentPosition && mapCtx.currentPosition.lat) {
-        _showCurrentPos(mapCtx.currentPosition.lat, mapCtx.currentPosition.lng);
-      } else if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => _showCurrentPos(pos.coords.latitude, pos.coords.longitude),
-          () => {},
-          { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
-        );
-      }
-    });
-
-    const _extractAddress = TaxiApp.utils.extractAddress;
-
-    // 逆ジオコーディング処理（座標確定後に呼ばれる共通関数）
-    const _resolveAddress = (lat, lng, field) => {
-      setMapPickerStatus('住所を取得中...');
-      const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
-      // 最優先: 既知場所マッチング
-      const knownPlace = TaxiApp.utils.matchKnownPlace(lat, lng);
-      if (knownPlace) {
-        setForm(f => ({ ...f, [field]: knownPlace, [timeField]: getNowTime() }));
-        setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: knownPlace, accuracy: null } }));
-        setMapPickerStatus(`設定完了: ${knownPlace}`);
-        return;
-      }
-      // 逆ジオコーディング
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-        if (status === 'OK' && results && results.length > 0) {
-          const preferred = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-          const addr = _extractAddress(preferred);
-          setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
-          setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
-          setMapPickerStatus(`設定完了: ${addr}`);
-          TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
-            if (lm) {
-              setGpsInfo(prev => ({ ...prev, [field]: { ...prev[field], landmark: lm } }));
-            }
-          }).catch(() => {});
-        } else {
-          // Nominatimフォールバック
-          fetch(TaxiApp.utils.nominatimUrl(lat, lng, 18))
-            .then(r => r.json()).then(data => {
-              const a = data.address || {};
-              const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || '', a.house_number || ''].filter(Boolean);
-              const addr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setForm(f => ({ ...f, [field]: addr, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: addr, accuracy: null } }));
-              setMapPickerStatus(`設定完了: ${addr}`);
-            }).catch(() => {
-              const coordStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setForm(f => ({ ...f, [field]: coordStr, [timeField]: getNowTime() }));
-              setGpsInfo(prev => ({ ...prev, [field]: { lat, lng, address: null, accuracy: null } }));
-              setMapPickerStatus(`設定完了: ${coordStr}`);
-            });
-        }
-      });
-    };
-
-    map.addListener('click', (e) => {
-      const tapLat = e.latLng.lat();
-      const tapLng = e.latLng.lng();
-      marker.setPosition(e.latLng);
-      marker.setVisible(true);
-      setMapPickerStatus('位置を処理中...');
-      AppLogger.info(`地図タップ: ${tapLat.toFixed(6)}, ${tapLng.toFixed(6)} (field=${mapPickerField})`);
-
-      // GPSログから近くの記録を検索し、より正確な位置に補正
-      const todayStr = new Date().toISOString().slice(0, 10);
-      if (window.GpsLogService) {
-        GpsLogService.findNearestByLocation(todayStr, tapLat, tapLng, 200, 60).then(entry => {
-          if (entry) {
-            AppLogger.info(`地図修正→GPSログ補正: タップ(${tapLat.toFixed(6)},${tapLng.toFixed(6)}) → ログ(${entry.lat.toFixed(6)},${entry.lng.toFixed(6)}) 差${entry.distance}m 時刻=${entry.t}`);
-            const correctedPos = new google.maps.LatLng(entry.lat, entry.lng);
-            marker.setPosition(correctedPos);
-            _resolveAddress(entry.lat, entry.lng, mapPickerField);
-          } else {
-            _resolveAddress(tapLat, tapLng, mapPickerField);
-          }
-        }).catch((err) => {
-          AppLogger.warn(`GPSログ検索失敗: ${err.message || err}`);
-          _resolveAddress(tapLat, tapLng, mapPickerField);
-        });
-      } else {
-        _resolveAddress(tapLat, tapLng, mapPickerField);
-      }
-    });
-
-    return () => { mapPickerInstanceRef.current = null; mapPickerMarkerRef.current = null; };
-  }, [mapPickerField, mapsLoaded]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -626,59 +335,10 @@ window.RevenuePage = () => {
 
     setForm({ date: getLocalDateString(), weather: form.weather, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
     setGpsInfo({ pickup: null, dropoff: null });
-    setCapturedStandby(null);
-    setStandbyEnabled(false);
     setAggregateDate((() => { const h = new Date().getHours(); return (h >= 0 && h < 5) ? 'previous' : 'today'; })());
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
-  };
-
-  // レシート撮影 → 背面カメラで無音即時キャプチャし金額を自動入力
-  const handleReceiptCapture = async () => {
-    setErrors(['レシート読み取り機能は無効です']);
-    return;
-
-    setReceiptLoading(true);
-    setErrors([]);
-    let stream = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false,
-      });
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.setAttribute('playsinline', '');
-      video.muted = true;
-      await video.play();
-      // カメラ安定のため少し待つ
-      await new Promise(r => setTimeout(r, 500));
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      stream.getTracks().forEach(t => t.stop());
-      stream = null;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      const base64 = dataUrl.split(',')[1];
-      // Gemini APIで金額読み取り
-      const amount = null /* AI disabled */;
-      if (amount > 0) {
-        setForm(prev => ({ ...prev, amount: String(amount) }));
-      } else {
-        setErrors(['レシートから金額を読み取れませんでした。手動で入力してください。']);
-      }
-    } catch (err) {
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setErrors(['カメラの使用が許可されていません。ブラウザの設定を確認してください。']);
-      } else {
-        setErrors([`レシート読み取りエラー: ${err.message}`]);
-      }
-    } finally {
-      if (stream) stream.getTracks().forEach(t => t.stop());
-      setReceiptLoading(false);
-    }
   };
 
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -973,18 +633,6 @@ window.RevenuePage = () => {
       minHeight: '44px',
     };
   };
-  const mapPickerButtonStyle = (active) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-    padding: '12px 16px', borderRadius: '10px',
-    fontSize: '13px', fontWeight: '700',
-    color: '#fff', cursor: 'pointer',
-    border: active ? '2px solid rgba(156,39,176,0.6)' : '2px solid rgba(156,39,176,0.3)',
-    background: active ? 'rgba(156,39,176,0.6)' : 'rgba(156,39,176,0.2)',
-    transition: 'all 0.2s ease',
-    whiteSpace: 'nowrap',
-    flex: 1,
-    minHeight: '44px',
-  });
 
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
@@ -1268,23 +916,6 @@ window.RevenuePage = () => {
                 required: true,
                 style: { flex: 1 },
               }),
-              null && React.createElement('button', {
-                type: 'button',
-                onClick: handleReceiptCapture,
-                disabled: receiptLoading,
-                style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)',
-                  background: receiptLoading ? 'var(--bg-secondary)' : 'var(--bg-card)',
-                  color: 'var(--text-primary)', cursor: receiptLoading ? 'wait' : 'pointer',
-                  fontSize: '14px', whiteSpace: 'nowrap', minWidth: '44px',
-                },
-                title: 'レシート撮影で金額を読み取る',
-              },
-                receiptLoading
-                  ? React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px', animation: 'spin 1s linear infinite' } }, 'sync')
-                  : React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'camera_alt')
-              )
             ),
             // 税内訳表示
             form.amount && parseInt(form.amount) > 0 && (() => {
