@@ -606,56 +606,6 @@ window.DashboardPage = () => {
     return { count: month.length, total: month.reduce((sum, e) => sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _ldAmt(e), 0) };
   }, [refreshKey, currentMonth]);
 
-  // === 夜勤用データ ===
-  const nightData = useMemo(() => {
-    if (shiftMode !== 'night') return null;
-    const ns = APP_CONSTANTS.NIGHT_SHIFT;
-    const now = new Date();
-    const nowH = now.getHours();
-    const nowM = now.getMinutes();
-    const isLateNight = nowH >= ns.lateNightStart || nowH < ns.lateNightEnd;
-
-    // 夜間売上（17:00〜翌5:00）
-    const nightEntries = todayEntries.filter(e => {
-      if (!e.pickupTime) return false;
-      const h = parseInt(e.pickupTime.split(':')[0]);
-      return h >= ns.startHour || h < ns.endHour;
-    });
-    const nightTotal = nightEntries.reduce((s, e) => s + (e.amount || 0), 0);
-    const nightLateEntries = nightEntries.filter(e => {
-      const h = parseInt(e.pickupTime.split(':')[0]);
-      return h >= ns.lateNightStart || h < ns.lateNightEnd;
-    });
-
-    // ホテル需要（夜間ピーク）
-    const hotels = (APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hotels) || [];
-    const hotelPeaks = (APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.hotelPeakWindows) || {};
-    const currentPeak = nowH >= 18 && nowH < 20 ? 'evening' : nowH >= 22 || nowH < 1 ? 'night' : nowH >= 15 && nowH < 17 ? 'checkin' : null;
-
-    // 夜間おすすめ待機スポット
-    const spots = (APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.waitingSpots) || [];
-    const isWeekend = [0, 6].includes(now.getDay());
-    const topSpots = spots.map(sp => {
-      const pattern = isWeekend ? sp.basePatternWeekend : sp.basePatternWeekday;
-      const demand = (pattern && pattern[nowH]) || 0;
-      return { name: sp.name, demand, category: sp.category };
-    }).filter(s => s.demand > 0).sort((a, b) => b.demand - a.demand).slice(0, 5);
-
-    // 繁華街需要
-    const cruising = (APP_CONSTANTS.KNOWN_LOCATIONS && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa && APP_CONSTANTS.KNOWN_LOCATIONS.asahikawa.cruisingAreas) || [];
-    const downtown = cruising.find(a => a.id === 'downtown');
-    const downtownDemand = downtown ? (isWeekend ? downtown.basePatternWeekend : downtown.basePatternWeekday)[nowH] || 0 : 0;
-
-    // 終バス情報
-    const lastTransit = (APP_CONSTANTS.LAST_TRANSIT || []).map(t => {
-      const [th, tm] = t.time.split(':').map(Number);
-      const mins = (th * 60 + tm) - (nowH * 60 + nowM);
-      return { ...t, minsLeft: mins < -60 ? mins + 1440 : mins };
-    }).filter(t => t.minsLeft > -30).sort((a, b) => a.minsLeft - b.minsLeft);
-
-    return { nightEntries, nightTotal, nightLateEntries, isLateNight, currentPeak, hotels, hotelPeaks, topSpots, downtownDemand, lastTransit, nowH };
-  }, [shiftMode, refreshKey, todayEntries]);
-
   return React.createElement('div', null,
     // タイトル + モードバッジ
     React.createElement('h1', { className: 'page-title', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
@@ -1359,30 +1309,6 @@ window.DashboardPage = () => {
     },
       React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'filter_alt'),
       dayTypeFilter === 'weekday' ? '平日データで分析中' : '土日祝データで分析中'
-    ),
-
-    // === 夜勤専用セクション ===
-    shiftMode === 'night' && nightData && React.createElement(React.Fragment, null,
-      // ホテル需要予測
-      React.createElement(Card, { style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '13px', fontWeight: 700, color: '#4fc3f7' } },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'hotel'),
-          'ホテル需要',
-          nightData.currentPeak && React.createElement('span', {
-            style: { fontSize: '10px', padding: '2px 8px', borderRadius: '10px', background: 'rgba(79,195,247,0.2)', color: '#4fc3f7', fontWeight: 600 }
-          }, nightData.currentPeak === 'evening' ? '夕食外出ピーク' : nightData.currentPeak === 'night' ? '帰館ピーク' : nightData.currentPeak === 'checkin' ? 'チェックインピーク' : '')
-        ),
-        React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
-          ...nightData.hotels.filter(h => h.demandLevel === 'very_high' || h.demandLevel === 'high').map(h =>
-            React.createElement('div', { key: h.name, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.04)' } },
-              React.createElement('span', { style: { fontSize: '12px' } }, h.name),
-              React.createElement('span', { style: { fontSize: '11px', fontWeight: 600, color: h.demandLevel === 'very_high' ? '#ff5252' : '#ffa726' } },
-                h.demandLevel === 'very_high' ? '需要：高' : '需要：中'
-              )
-            )
-          )
-        )
-      )
     ),
 
     // 最近の売上（本日分）
