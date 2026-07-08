@@ -351,13 +351,15 @@ window.HotelStatusPage = () => {
 window.InfoPage = () => {
   const { useState } = React;
   const createElement = React.createElement;
-  const [tab, setTab] = useState('transit');
+  const [tab, setTab] = useState('hotel');
 
   const tabs = [
-    { id: 'transit', label: '交通機関', icon: 'directions_transit' },
     { id: 'hotel', label: 'ホテル', icon: 'hotel' },
     { id: 'events', label: 'イベント', icon: 'event' },
   ];
+
+  // 旧 transit タブは廃止
+  const activeTab = tab === 'transit' ? 'hotel' : tab;
 
   return createElement('div', null,
     createElement('h1', { className: 'page-title' },
@@ -378,7 +380,7 @@ window.InfoPage = () => {
       ...tabs.map(t =>
         createElement('button', {
           key: t.id,
-          className: `btn ${tab === t.id ? 'btn--primary' : 'btn--ghost'}`,
+          className: `btn ${activeTab === t.id ? 'btn--primary' : 'btn--ghost'}`,
           onClick: () => setTab(t.id),
           style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '8px 10px', fontSize: '13px' }
         },
@@ -389,9 +391,7 @@ window.InfoPage = () => {
     ),
     // 子ページ（タイトルは非表示）
     createElement('div', { className: 'info-page-content' },
-      tab === 'transit'
-        ? createElement(TransitInfoPage)
-        : tab === 'hotel'
+      activeTab === 'hotel'
         ? createElement(HotelStatusPage)
         : createElement(EventsPage)
     )

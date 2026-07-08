@@ -64,7 +64,7 @@ window.EventsPage = () => {
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
       });
-  }, [apiKey]);
+  }, []);
 
   const reverseGeocode = (lat, lng) => {
     // 最優先: 座標ベースの既知場所マッチング

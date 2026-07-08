@@ -772,45 +772,28 @@ window.RevenuePage = () => {
         const coordsKey = field === 'pickup' ? 'pickupCoords' : 'dropoffCoords';
         const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
         AppLogger.info(`編集GPS取得 (${field}): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
-        // 逆ジオコーディングで住所取得
-        const false = TaxiApp.utils.getGoogleMapsApiKey ? TaxiApp.utils.getGoogleMapsApiKey() : (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GOOGLE_MAPS_API_KEY) || '');
-        if (false) {
-          const geocoder = new google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            setEditGpsLoading(prev => ({ ...prev, [field]: false }));
-            if (status === 'OK' && results && results.length > 0) {
-              const preferred = TaxiApp.utils.pickBestGeocoderResult ? TaxiApp.utils.pickBestGeocoderResult(results, lat, lng) : results[0];
-              const addr = TaxiApp.utils.extractAddress(preferred);
-              setEditForm(prev => ({ ...prev, [field]: addr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
-              // ランドマーク名を別フィールドに保存（住所は上書きしない）
-              if (TaxiApp.utils.findNearbyLandmark) {
-                const lmKey = field === 'pickup' ? 'pickupLandmark' : 'dropoffLandmark';
-                TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
-                  if (lm) setEditForm(prev => ({ ...prev, [lmKey]: lm }));
-                }).catch(() => {});
-              }
-            } else {
-              setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
-            }
-          });
-        } else {
-          // Nominatimフォールバック
-          const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
-          fetch(nomUrl).then(r => r.json()).then(data => {
-            setEditGpsLoading(prev => ({ ...prev, [field]: false }));
-            if (data && data.address) {
-              const a = data.address;
-              const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
-              const shortAddr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              setEditForm(prev => ({ ...prev, [field]: shortAddr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
-            } else {
-              setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
-            }
-          }).catch(() => {
-            setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+        // 逆ジオコーディング（Nominatim）
+        const nomUrl = TaxiApp.utils.nominatimUrl(lat, lng, 18);
+        fetch(nomUrl).then(r => r.json()).then(data => {
+          setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+          if (data && data.address) {
+            const a = data.address;
+            const parts = [a.city || a.town || a.village || '', a.suburb || a.neighbourhood || a.quarter || '', a.road || ''].filter(Boolean);
+            const shortAddr = parts.join(' ') || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+            setEditForm(prev => ({ ...prev, [field]: shortAddr, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+          } else {
             setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
-          });
-        }
+          }
+          if (TaxiApp.utils.findNearbyLandmark) {
+            const lmKey = field === 'pickup' ? 'pickupLandmark' : 'dropoffLandmark';
+            TaxiApp.utils.findNearbyLandmark(lat, lng).then(lm => {
+              if (lm) setEditForm(prev => ({ ...prev, [lmKey]: lm }));
+            }).catch(() => {});
+          }
+        }).catch(() => {
+          setEditGpsLoading(prev => ({ ...prev, [field]: false }));
+          setEditForm(prev => ({ ...prev, [field]: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, [timeField]: getNowTime(), [coordsKey]: { lat, lng } }));
+        });
       })
       .catch((error) => {
         setEditGpsLoading(prev => ({ ...prev, [field]: false }));
