@@ -3,7 +3,6 @@
 window.DashboardPage = () => {
   const { useState, useEffect, useMemo, useCallback, useRef } = React;
   const { navigate } = useAppContext();
-  const { currentPosition, isTracking } = useMapContext();
   const geo = useGeolocation();
 
   // 勤務モード（日勤/夜勤）
@@ -513,36 +512,6 @@ window.DashboardPage = () => {
         )
       )
     ),
-
-    // GPS状態（始業中はコンパクト表示）
-    shiftInfo.active
-      ? React.createElement('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--space-sm)', padding: '6px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', color: 'var(--text-muted)' },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' } }, isTracking ? 'gps_fixed' : 'gps_off'),
-          React.createElement('span', null, isTracking ? 'GPS追跡中' : 'GPS未接続'),
-          currentPosition && React.createElement('span', { style: { marginLeft: '4px' } }, `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`)
-        )
-      : React.createElement(Card, {
-          style: { marginBottom: 'var(--space-md)', padding: 'var(--space-md)' },
-        },
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
-            React.createElement('span', {
-              className: 'material-icons-round',
-              style: { fontSize: '24px', color: isTracking ? 'var(--color-accent)' : 'var(--text-muted)' },
-            }, isTracking ? 'gps_fixed' : 'gps_off'),
-            React.createElement('div', null,
-              React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } },
-                isTracking ? 'GPS追跡中' : 'GPS未接続'
-              ),
-              React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-                currentPosition
-                  ? `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`
-                  : '設定からGPSを有効にしてください'
-              )
-            )
-          )
-        ),
 
     // 本日の売上合計（最上部表示）
     React.createElement(Card, { style: { marginBottom: 'var(--space-lg)' } },
