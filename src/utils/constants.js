@@ -203,10 +203,7 @@ window.TaxiApp.utils.findNearbyLandmark = (() => {
   // Places APIで近くの施設を検索
   function _searchPlaces(lat, lng) {
     return new Promise((resolve) => {
-      if (!window.google || !google.maps || !google.maps.places) {
-        resolve(null);
-        return;
-      }
+      resolve(null); return;
       // レート制限チェック
       const now = Date.now();
       if (now - _lastPlacesCall < PLACES_MIN_INTERVAL) {
@@ -366,23 +363,7 @@ window.TaxiApp.utils.reverseGeocode = (() => {
     const key = _roundKey(lat, lng);
     if (cache[key]) return cache[key];
 
-    // Google Maps Geocoder優先
-    if (window.google && google.maps && google.maps.Geocoder) {
-      try {
-        const geocoder = new google.maps.Geocoder();
-        const results = await new Promise((resolve, reject) => {
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            if (status === 'OK' && results && results.length > 0) resolve(results); else reject(status);
-          });
-        });
-        const best = TaxiApp.utils.pickBestGeocoderResult(results, lat, lng);
-        const name = TaxiApp.utils.extractAddress(best);
-        cache[key] = name;
-        memCache = cache;
-        _saveCache(cache);
-        return name;
-      } catch {}
-    }
+    // Google Maps Geocoder は無効化（Nominatimのみ使用）
 
     // Nominatimフォールバック（レート制限付き）
     const nowNom = Date.now();
@@ -445,10 +426,8 @@ window.APP_CONSTANTS = {
   // ルート定義
   ROUTES: {
     DASHBOARD: 'dashboard',
-    MAP: 'map',
     REVENUE: 'revenue',
     RIVAL_RIDE: 'rival-ride',
-    TRANSIT_INFO: 'transit-info',
     EVENTS: 'events',
     ANALYTICS: 'analytics',
     CALENDAR: 'calendar',
@@ -464,9 +443,7 @@ window.APP_CONSTANTS = {
 
   // ナビゲーション項目
   NAV_ITEMS: [
-    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },
-    { id: 'map', label: '地図', icon: 'map' },
-    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
+    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'gathering-memo', label: '集客メモ', icon: 'mic' },
@@ -478,15 +455,11 @@ window.APP_CONSTANTS = {
   // 情報ナビゲーション項目
   INFO_NAV_ITEMS: [
     { id: 'info', label: '情報', icon: 'info' },
-    { id: 'events', label: 'イベント', icon: 'event' },
-    { id: 'transit-info', label: '交通情報', icon: 'directions_transit' },
-  ],
+    { id: 'events', label: 'イベント', icon: 'event' },  ],
 
   // ボトムナビ項目
   BOTTOM_NAV_ITEMS: [
-    { id: 'dashboard', label: 'ホーム', icon: 'home' },
-    { id: 'map', label: '地図', icon: 'map' },
-    { id: 'revenue', label: '売上', icon: 'receipt_long' },
+    { id: 'dashboard', label: 'ホーム', icon: 'home' },    { id: 'revenue', label: '売上', icon: 'receipt_long' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'data-manage', label: 'データ', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'more_horiz' },

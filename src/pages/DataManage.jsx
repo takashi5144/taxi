@@ -199,7 +199,7 @@ const GpsLogTab = ({ refreshKey, setRefreshKey }) => {
 // GPS分析タブ（サブコンポーネント）
 const GpsAnalysisTab = ({ refreshKey }) => {
   const { useState, useEffect, useRef, useCallback } = React;
-  const { isLoaded: mapsLoaded } = useGoogleMaps();
+  const { isLoaded: mapsLoaded } = ({ isLoaded: false });
   const [subTab, setSubTab] = useState('trend');  // trend | matrix | playback
   const [loading, setLoading] = useState(false);
 
@@ -1151,7 +1151,7 @@ window.DataManagePage = () => {
   const [standbyAddForm, setStandbyAddForm] = useState({ date: todayDefault, weather: '', location: '', startTime: '', endTime: '', memo: '' });
   const [standbyAddErrors, setStandbyAddErrors] = useState([]);
   const [mapPickerField, setMapPickerField] = useState(null); // 'pickup' | 'dropoff' | null
-  const { isLoaded: mainMapsLoaded } = useGoogleMaps();
+  const { isLoaded: mainMapsLoaded } = ({ isLoaded: false });
   const [expandedCouponId, setExpandedCouponId] = useState(null); // クーポン詳細展開中のエントリID
   const [asahikawaSubTab, setAsahikawaSubTab] = useState('annual'); // annual | monthly | accommodation | notes
   const [asahikawaEditId, setAsahikawaEditId] = useState(null);
@@ -1164,7 +1164,7 @@ window.DataManagePage = () => {
   const editMapPickerRef = React.useRef(null);
   const editMapPickerInstanceRef = React.useRef(null);
   const editMapPickerMarkerRef = React.useRef(null);
-  const { apiKey } = useAppContext();
+  
 
   const tabs = [
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
@@ -2026,7 +2026,7 @@ window.DataManagePage = () => {
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'touch_app'), '地図をタップして乗車地を選択'),
             (window.google && window.google.maps)
               ? React.createElement('div', { ref: editMapPickerRef, style: { width: '100%', height: '350px', borderRadius: '8px', border: '2px solid var(--color-primary)', overflow: 'hidden' } })
-              : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, 'Google Maps APIキーを設定してください')
+              : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '地図機能は削除されました')
           )
         ),
         // 乗車時刻
@@ -2053,7 +2053,7 @@ window.DataManagePage = () => {
               React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'touch_app'), '地図をタップして降車地を選択'),
             (window.google && window.google.maps)
               ? React.createElement('div', { ref: editMapPickerRef, style: { width: '100%', height: '350px', borderRadius: '8px', border: '2px solid var(--color-secondary)', overflow: 'hidden' } })
-              : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, 'Google Maps APIキーを設定してください')
+              : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '地図機能は削除されました')
           )
         ),
         // 降車時刻
@@ -2721,7 +2721,7 @@ window.DataManagePage = () => {
                 ),
                 mainMapsLoaded
                   ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '660px', borderRadius: '8px', border: '2px solid var(--color-primary)', overflow: 'hidden' } })
-                  : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, mainMapsLoaded === false && window.AppStorage && AppStorage.getApiKey() ? 'Google Maps を読み込み中...' : 'Google Maps APIキーを設定してください')
+                  : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '地図機能は削除されました')
               ),
               React.createElement('div', null,
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '乗車時刻'),
@@ -2746,7 +2746,7 @@ window.DataManagePage = () => {
                 ),
                 mainMapsLoaded
                   ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '660px', borderRadius: '8px', border: '2px solid var(--color-secondary)', overflow: 'hidden' } })
-                  : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, mainMapsLoaded === false && window.AppStorage && AppStorage.getApiKey() ? 'Google Maps を読み込み中...' : 'Google Maps APIキーを設定してください')
+                  : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } }, '地図機能は削除されました')
               ),
               React.createElement('div', null,
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '降車時刻'),

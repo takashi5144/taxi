@@ -30,7 +30,7 @@ window.RivalRidePage = () => {
     return () => clearInterval(id);
   }, [gpsLoading]);
 
-  const { apiKey } = useAppContext();
+  
 
   // ページロード時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
@@ -108,7 +108,7 @@ window.RivalRidePage = () => {
         };
         setErrors([messages[error.code] || 'GPS取得に失敗しました']);
       });
-  }, [apiKey]);
+  }, []);
 
   // GPS解決時に自動記録追加
   const autoAddEntry = (location, coords) => {
@@ -139,7 +139,7 @@ window.RivalRidePage = () => {
       }
       return;
     }
-    if (apiKey && window.google && window.google.maps) {
+    if (false) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         setGpsLoading(false);

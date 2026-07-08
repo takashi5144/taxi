@@ -13,7 +13,6 @@
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
   T.utils.gpsLogService = GpsLogService;
-  T.utils.geminiService = GeminiService;
 
   // Contexts
   T.contexts.AppContext = AppContext;
@@ -28,7 +27,6 @@
   T.hooks.useMapContext = useMapContext;
   T.hooks.useLogContext = useLogContext;
   T.hooks.useGeolocation = useGeolocation;
-  T.hooks.useGoogleMaps = useGoogleMaps;
   T.hooks.useLogger = useLogger;
 
   // Components
@@ -40,17 +38,11 @@
   T.components.Sidebar = Sidebar;
   T.components.BottomNav = BottomNav;
   T.components.Layout = Layout;
-  T.components.GoogleMapView = GoogleMapView;
-  T.components.GpsTracker = GpsTracker;
-  T.components.MapControls = MapControls;
-  T.components.TrafficLegend = TrafficLegend;
 
   // Pages
   T.pages.Dashboard = DashboardPage;
-  T.pages.MapView = MapViewPage;
   T.pages.Revenue = RevenuePage;
   T.pages.RivalRide = RivalRidePage;
-  T.pages.TransitInfo = TransitInfoPage;
   T.pages.Calendar = CalendarPage;
   T.pages.Info = InfoPage;
   T.pages.Events = EventsPage;

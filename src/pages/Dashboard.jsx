@@ -2,7 +2,7 @@
 // Dashboard.jsx - ダッシュボード（DataServiceからリアルタイムデータ取得）
 window.DashboardPage = () => {
   const { useState, useEffect, useMemo, useCallback, useRef } = React;
-  const { navigate, geminiApiKey } = useAppContext();
+  const { navigate } = useAppContext();
   const { currentPosition, isTracking } = useMapContext();
   const geo = useGeolocation();
 
@@ -493,32 +493,6 @@ window.DashboardPage = () => {
   }, []);
 
   // 営業プラン関連
-  const dailySchedule = useMemo(() => DataService.getDailyDemandSchedule(), [refreshKey]);
-  const [demandPlanLoading, setDemandPlanLoading] = useState(false);
-  const demandPlanFetched = useRef(false);
-  const demandPlanLoadingRef = useRef(false);
-
-  const handleFetchDemandPlan = useCallback(async () => {
-    if (!geminiApiKey || demandPlanLoadingRef.current) return;
-    demandPlanLoadingRef.current = true;
-    setDemandPlanLoading(true);
-    const result = await GeminiService.fetchDailyDemandPlan(geminiApiKey, '旭川');
-    if (result.success && result.data) {
-      const today = getLocalDateString();
-      AppStorage.set(APP_CONSTANTS.STORAGE_KEYS.DAILY_DEMAND_PLAN, { date: today, data: result.data, fetchedAt: new Date().toISOString() });
-      window.dispatchEvent(new CustomEvent('taxi-data-changed', { detail: { type: 'demand-plan' } }));
-    }
-    demandPlanLoadingRef.current = false;
-    setDemandPlanLoading(false);
-  }, [geminiApiKey]);
-
-  // Gemini APIキーがありプランが未取得なら初回自動fetch
-  useEffect(() => {
-    if (geminiApiKey && !dailySchedule.available && !demandPlanFetched.current) {
-      demandPlanFetched.current = true;
-      handleFetchDemandPlan();
-    }
-  }, [geminiApiKey, dailySchedule.available, handleFetchDemandPlan]);
 
   // 本日の売上合計用データ（Revenue.jsxから移動）
   const todayEntries = todaySummary.entries || [];
@@ -821,7 +795,7 @@ window.DashboardPage = () => {
               React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
                 currentPosition
                   ? `${currentPosition.lat.toFixed(4)}, ${currentPosition.lng.toFixed(4)}`
-                  : '地図ページでGPSを有効にしてください'
+                  : '設定からGPSを有効にしてください'
               )
             )
           )

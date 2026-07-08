@@ -83,10 +83,8 @@ window.App = () => {
     let pageComponent;
     switch (currentPage) {
       case 'dashboard': pageComponent = React.createElement(DashboardPage); break;
-      case 'map': pageComponent = React.createElement(MapViewPage); break;
       case 'revenue': pageComponent = React.createElement(RevenuePage); break;
       case 'rival-ride': pageComponent = React.createElement(RivalRidePage); break;
-      case 'transit-info': pageComponent = React.createElement(TransitInfoPage); break;
       case 'events': pageComponent = React.createElement(EventsPage); break;
       case 'analytics': pageComponent = React.createElement(AnalyticsPage); break;
       case 'gathering-memo': pageComponent = React.createElement(GatheringMemoPage); break;

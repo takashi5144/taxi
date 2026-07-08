@@ -40,7 +40,7 @@ window.RevenuePage = () => {
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [capturedStandby, setCapturedStandby] = useState(null);
 
-  const { apiKey, geminiApiKey } = useAppContext();
+  
   const mapCtx = useMapContext();
 
   // フォーム表示時に直前完了した待機情報をキャプチャ（任意入力用）
@@ -53,7 +53,7 @@ window.RevenuePage = () => {
       }
     }
   }, []);
-  const { isLoaded: mapsLoaded } = useGoogleMaps();
+  const mapsLoaded = false;
 
   // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
   useEffect(() => {
@@ -168,7 +168,7 @@ window.RevenuePage = () => {
       return;
     }
 
-    if (apiKey && window.google && window.google.maps) {
+    if (false) {
       const geocoder = new google.maps.Geocoder();
       geocoder.geocode({ location: { lat, lng } }, (results, status) => {
         if (isStale()) return; // 古いリクエストは無視
@@ -244,7 +244,7 @@ window.RevenuePage = () => {
           AppLogger.warn(`Nominatim API失敗、座標を使用: ${err.message}`);
         });
     }
-  }, [apiKey, _applyLandmarkName]);
+  }, [false, _applyLandmarkName]);
 
   // GPS現在地を取得して住所に変換
   const getGpsLocation = useCallback((field) => {
@@ -316,7 +316,7 @@ window.RevenuePage = () => {
 
   // マップピッカーの初期化・クリックハンドラ（売上記録ページ用）
   useEffect(() => {
-    if (!mapPickerField || !mapPickerRef.current || !window.google || !window.google.maps) return;
+    return; // 地図選択機能は削除済み
     setMapPickerStatus('');
     setTimeout(() => { mapPickerRef.current && mapPickerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
     const center = APP_CONSTANTS.DEFAULT_MAP_CENTER;
@@ -638,7 +638,6 @@ window.RevenuePage = () => {
     setCapturedStandby(null);
     setStandbyEnabled(false);
     setAggregateDate((() => { const h = new Date().getHours(); return (h >= 0 && h < 5) ? 'previous' : 'today'; })());
-    setMapPickerField(null);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     setRefreshKey(k => k + 1);
@@ -646,6 +645,9 @@ window.RevenuePage = () => {
 
   // レシート撮影 → 背面カメラで無音即時キャプチャし金額を自動入力
   const handleReceiptCapture = async () => {
+    setErrors(['レシート読み取り機能は無効です']);
+    return;
+
     setReceiptLoading(true);
     setErrors([]);
     let stream = null;
@@ -670,7 +672,7 @@ window.RevenuePage = () => {
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       const base64 = dataUrl.split(',')[1];
       // Gemini APIで金額読み取り
-      const amount = await GeminiService.analyzeReceiptImage(geminiApiKey, base64, 'image/jpeg');
+      const amount = null /* AI disabled */;
       if (amount > 0) {
         setForm(prev => ({ ...prev, amount: String(amount) }));
       } else {
@@ -771,8 +773,8 @@ window.RevenuePage = () => {
         const timeField = field === 'pickup' ? 'pickupTime' : 'dropoffTime';
         AppLogger.info(`編集GPS取得 (${field}): ${lat.toFixed(6)}, ${lng.toFixed(6)} 精度${acc}m`);
         // 逆ジオコーディングで住所取得
-        const apiKey = TaxiApp.utils.getGoogleMapsApiKey ? TaxiApp.utils.getGoogleMapsApiKey() : (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GOOGLE_MAPS_API_KEY) || '');
-        if (apiKey && window.google && window.google.maps) {
+        const false = TaxiApp.utils.getGoogleMapsApiKey ? TaxiApp.utils.getGoogleMapsApiKey() : (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GOOGLE_MAPS_API_KEY) || '');
+        if (false) {
           const geocoder = new google.maps.Geocoder();
           geocoder.geocode({ location: { lat, lng } }, (results, status) => {
             setEditGpsLoading(prev => ({ ...prev, [field]: false }));
@@ -1074,15 +1076,6 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
-                onClick: () => setMapPickerField(mapPickerField === 'pickup' ? null : 'pickup'),
-                style: mapPickerButtonStyle(mapPickerField === 'pickup'),
-                title: '地図から場所を選択',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
-                '地図で選択'
-              ),
-              React.createElement('button', {
-                type: 'button',
                 onClick: () => getGpsLocation('pickup'),
                 disabled: gpsLoading.pickup,
                 style: gpsButtonStyle(gpsLoading.pickup, 'pickup'),
@@ -1128,7 +1121,7 @@ window.RevenuePage = () => {
               mapsLoaded
                 ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '350px', borderRadius: '8px', border: '2px solid rgba(156,39,176,0.5)', overflow: 'hidden' } })
                 : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } },
-                    apiKey ? 'Google Maps を読み込み中...' : '設定画面でGoogle Maps APIキーを入力してください')
+                    '地図機能は削除されました')
             )
           ),
 
@@ -1182,15 +1175,6 @@ window.RevenuePage = () => {
             React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '6px' } },
               React.createElement('button', {
                 type: 'button',
-                onClick: () => setMapPickerField(mapPickerField === 'dropoff' ? null : 'dropoff'),
-                style: mapPickerButtonStyle(mapPickerField === 'dropoff'),
-                title: '地図から場所を選択',
-              },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '20px' } }, 'map'),
-                '地図で選択'
-              ),
-              React.createElement('button', {
-                type: 'button',
                 onClick: () => getGpsLocation('dropoff'),
                 disabled: gpsLoading.dropoff,
                 style: gpsButtonStyle(gpsLoading.dropoff, 'dropoff'),
@@ -1236,7 +1220,7 @@ window.RevenuePage = () => {
               mapsLoaded
                 ? React.createElement('div', { ref: mapPickerRef, style: { width: '100%', height: '350px', borderRadius: '8px', border: '2px solid rgba(156,39,176,0.5)', overflow: 'hidden' } })
                 : React.createElement('div', { style: { padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px' } },
-                    apiKey ? 'Google Maps を読み込み中...' : '設定画面でGoogle Maps APIキーを入力してください')
+                    '地図機能は削除されました')
             ),
           ),
 
@@ -1581,7 +1565,7 @@ window.RevenuePage = () => {
                 required: true,
                 style: { flex: 1 },
               }),
-              geminiApiKey && React.createElement('button', {
+              null && React.createElement('button', {
                 type: 'button',
                 onClick: handleReceiptCapture,
                 disabled: receiptLoading,

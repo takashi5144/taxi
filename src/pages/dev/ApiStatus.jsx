@@ -2,21 +2,12 @@
 // ApiStatus.jsx - API接続ステータスページ
 window.ApiStatusPage = () => {
   const { useState, useEffect } = React;
-  const { apiKey } = useAppContext();
-  const { isTracking, currentPosition } = useMapContext();
+    const { isTracking, currentPosition } = useMapContext();
 
   const [checks, setChecks] = useState([]);
 
   useEffect(() => {
     const results = [
-      {
-        name: 'Google Maps JavaScript API',
-        status: apiKey ? (window.google && window.google.maps ? 'connected' : 'error') : 'not_configured',
-        detail: apiKey
-          ? (window.google && window.google.maps ? '正常に読み込まれています' : 'APIの読み込みに失敗しました')
-          : 'APIキーが設定されていません（設定画面で入力してください）',
-        icon: 'map',
-      },
       {
         name: 'Geolocation API (GPS)',
         status: 'geolocation' in navigator ? 'connected' : 'error',
@@ -48,7 +39,7 @@ window.ApiStatusPage = () => {
     ];
 
     setChecks(results);
-  }, [apiKey, isTracking, currentPosition]);
+  }, [isTracking, currentPosition]);
 
   const statusIcon = (status) => {
     switch (status) {

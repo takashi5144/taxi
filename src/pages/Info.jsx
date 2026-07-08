@@ -5,7 +5,7 @@
 window.HotelStatusPage = () => {
   const { useState, useMemo, useEffect, useCallback } = React;
   const createElement = React.createElement;
-  const { geminiApiKey } = useAppContext();
+  const geminiApiKey = null;
   const [now, setNow] = useState(new Date());
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState('');
@@ -88,7 +88,7 @@ window.HotelStatusPage = () => {
     setPriceLoading(true);
     setPriceError('');
     try {
-      const result = await GeminiService.fetchHotelPrices(geminiApiKey, hotels);
+      const result = await Promise.resolve({ success: false, error: "AI機能は無効です" });
       if (!result.success) { setPriceError(result.error); return; }
       DataService.saveHotelPrices(result.prices);
       setPriceAnalysis(DataService.analyzeHotelPrices());

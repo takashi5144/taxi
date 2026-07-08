@@ -60,7 +60,7 @@ window.GatheringMemoPage = () => {
   const recognitionRef = useRef(null);
   const speechSupported = useRef(!!(window.SpeechRecognition || window.webkitSpeechRecognition));
 
-  const { apiKey } = useAppContext();
+  
 
   // ============================================================
   // 天気・GPS自動取得（GPSキャッシュ優先）
@@ -296,7 +296,7 @@ window.GatheringMemoPage = () => {
         const lng = position.coords.longitude;
         setForm(prev => ({ ...prev, locationCoords: { lat, lng } }));
         // 逆ジオコーディング
-        if (apiKey && window.google && window.google.maps) {
+        if (false) {
           const geocoder = new google.maps.Geocoder();
           geocoder.geocode({ location: { lat, lng } }, (results, status) => {
             setGpsLoading(false);
@@ -326,7 +326,7 @@ window.GatheringMemoPage = () => {
         }
       })
       .catch(() => setGpsLoading(false));
-  }, [apiKey]);
+  }, []);
 
   // ============================================================
   // フォーム送信
