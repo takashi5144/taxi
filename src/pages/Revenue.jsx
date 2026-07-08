@@ -43,22 +43,16 @@ window.RevenuePage = () => {
   const { apiKey, geminiApiKey } = useAppContext();
   const mapCtx = useMapContext();
 
-  // フォーム表示時に待機情報をキャプチャ（リアルタイム or 直前完了した待機）
+  // フォーム表示時に直前完了した待機情報をキャプチャ（任意入力用）
   useEffect(() => {
-    if (capturedStandby) return; // 既にキャプチャ済み
-    // 1. リアルタイム待機中ならそれを使う
-    if (mapCtx.standbyStatus) {
-      setCapturedStandby({ ...mapCtx.standbyStatus });
-      return;
-    }
-    // 2. 直前に完了した待機があればそれを使う
+    if (capturedStandby) return;
     if (window.GpsLogService) {
       const last = GpsLogService.getLastCompletedStandby();
       if (last && last.locationName) {
         setCapturedStandby(last);
       }
     }
-  }, [mapCtx.standbyStatus]);
+  }, []);
   const { isLoaded: mapsLoaded } = useGoogleMaps();
 
   // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）

@@ -29,11 +29,9 @@ window.MapProvider = ({ children }) => {
   const [accuracy, setAccuracy] = useState(null);
   const [speed, setSpeed] = useState(null);
   const [heading, setHeading] = useState(null);
-  const [standbyStatus, setStandbyStatus] = useState(null);
   const [currentLocationName, setCurrentLocationName] = useState(null);
 
   const watchIdRef = useRef(null);
-  const standbyTimerRef = useRef(null);
   const locationLookupRef = useRef(null); // 重複防止用
   const positionHistoryRef = useRef([]); // GPS平滑化用の履歴
   const lastAcceptedRef = useRef(null); // 最後に受け入れた位置・時刻
@@ -126,8 +124,6 @@ window.MapProvider = ({ children }) => {
     setGpsError(null);
     if (window.GpsLogService) {
       window.GpsLogService.maybeRecord(rawPos.lat, rawPos.lng, rawAccuracy, position.coords.speed);
-      // 待機状態を更新
-      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
     }
     // 現在地名を更新（生座標を使用 — 平滑化座標だと住所がずれるため）
     const lookupId = Date.now();
@@ -200,19 +196,6 @@ window.MapProvider = ({ children }) => {
   stopTrackingRef.current = stopTracking;
   const isTrackingRef = useRef(isTracking);
   isTrackingRef.current = isTracking;
-
-  // 待機中の経過時間をリアルタイム更新（10秒間隔）
-  useEffect(() => {
-    if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
-    if (isTracking && window.GpsLogService) {
-      standbyTimerRef.current = setInterval(() => {
-        setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
-      }, 10000);
-    }
-    return () => {
-      if (standbyTimerRef.current) { clearInterval(standbyTimerRef.current); standbyTimerRef.current = null; }
-    };
-  }, [isTracking]);
 
   // 始業中かつGPS追跡が有効なら自動でGPS追跡を開始
   useEffect(() => {
@@ -344,24 +327,6 @@ window.MapProvider = ({ children }) => {
     };
   }, []);
 
-  // 待機開始時刻を手動変更
-  const updateStandbyStartTime = useCallback((hhmm) => {
-    if (window.GpsLogService && window.GpsLogService.setStandbyStartTime(hhmm)) {
-      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
-      return true;
-    }
-    return false;
-  }, []);
-
-  // 待機場所名を手動変更
-  const updateStandbyLocationName = useCallback((name) => {
-    if (window.GpsLogService && window.GpsLogService.setStandbyLocationName(name)) {
-      setStandbyStatus(window.GpsLogService.getRealtimeStandbyStatus());
-      return true;
-    }
-    return false;
-  }, []);
-
   // useMemoでvalueを安定化（不要な再レンダリング防止）
   const value = useMemo(() => ({
     currentPosition,
@@ -377,14 +342,11 @@ window.MapProvider = ({ children }) => {
     accuracy,
     speed,
     heading,
-    standbyStatus,
     currentLocationName,
     updatePosition,
     startTracking,
     stopTracking,
-    updateStandbyStartTime,
-    updateStandbyLocationName,
-  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, standbyStatus, currentLocationName, updatePosition, startTracking, stopTracking, updateStandbyStartTime, updateStandbyLocationName]);
+  }), [currentPosition, mapCenter, zoom, isTracking, gpsError, accuracy, speed, heading, currentLocationName, updatePosition, startTracking, stopTracking]);
 
   return React.createElement(MapContext.Provider, { value }, children);
 };
