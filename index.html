@@ -15080,64 +15080,116 @@ window.RevenuePage = () => {
       React.createElement('form', { onSubmit: handleSubmit },
         React.createElement('div', { className: 'grid grid--2' },
           // 乗車時間
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, '乗車時間'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-              React.createElement('input', {
-                className: 'form-input',
-                type: 'time',
-                value: form.pickupTime,
-                onChange: (e) => setForm({ ...form, pickupTime: e.target.value }),
-                style: { flex: 1, minWidth: 0, colorScheme: 'dark' },
-              }),
-              React.createElement('button', {
-                type: 'button',
-                onClick: () => setForm({ ...form, pickupTime: getNowTime() }),
+          (() => {
+            const filled = !!form.pickupTime;
+            return React.createElement('div', { className: 'form-group' },
+              React.createElement('label', {
+                className: 'form-label',
                 style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-                  color: '#fff', cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(0,200,83,0.2)',
-                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  color: filled ? 'var(--color-accent)' : undefined,
+                  fontWeight: filled ? 600 : undefined,
                 },
-                title: '現在時刻をセット',
               },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
-                '現在'
+                '乗車時間',
+                filled && React.createElement('span', {
+                  style: {
+                    fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px',
+                    background: 'rgba(0,200,83,0.15)', color: 'var(--color-accent)',
+                  },
+                }, '入力済')
+              ),
+              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+                React.createElement('input', {
+                  className: 'form-input',
+                  type: 'time',
+                  value: form.pickupTime,
+                  onChange: (e) => setForm({ ...form, pickupTime: e.target.value }),
+                  style: {
+                    flex: 1, minWidth: 0, colorScheme: 'dark',
+                    transition: 'border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease',
+                    border: filled ? '2px solid var(--color-accent)' : undefined,
+                    background: filled ? 'rgba(0,200,83,0.12)' : undefined,
+                    color: filled ? 'var(--color-accent)' : undefined,
+                    fontWeight: filled ? 700 : undefined,
+                    boxShadow: filled ? '0 0 0 3px rgba(0,200,83,0.12)' : undefined,
+                  },
+                }),
+                React.createElement('button', {
+                  type: 'button',
+                  onClick: () => setForm({ ...form, pickupTime: getNowTime() }),
+                  style: {
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                    padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                    color: filled ? '#0a3d1f' : '#fff', cursor: 'pointer',
+                    border: filled ? '1px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
+                    background: filled ? 'var(--color-accent)' : 'rgba(0,200,83,0.2)',
+                    transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                  },
+                  title: '現在時刻をセット',
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
+                  '現在'
+                )
               )
-            )
-          ),
+            );
+          })(),
 
           // 降車時間
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, '降車時間'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-              React.createElement('input', {
-                className: 'form-input',
-                type: 'time',
-                value: form.dropoffTime,
-                onChange: (e) => setForm({ ...form, dropoffTime: e.target.value }),
-                style: { flex: 1, minWidth: 0, colorScheme: 'dark' },
-              }),
-              React.createElement('button', {
-                type: 'button',
-                onClick: () => setForm({ ...form, dropoffTime: getNowTime() }),
+          (() => {
+            const filled = !!form.dropoffTime;
+            return React.createElement('div', { className: 'form-group' },
+              React.createElement('label', {
+                className: 'form-label',
                 style: {
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                  padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-                  color: '#fff', cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(0,200,83,0.2)',
-                  transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  color: filled ? 'var(--color-accent)' : undefined,
+                  fontWeight: filled ? 600 : undefined,
                 },
-                title: '現在時刻をセット',
               },
-                React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
-                '現在'
+                '降車時間',
+                filled && React.createElement('span', {
+                  style: {
+                    fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px',
+                    background: 'rgba(0,200,83,0.15)', color: 'var(--color-accent)',
+                  },
+                }, '入力済')
+              ),
+              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+                React.createElement('input', {
+                  className: 'form-input',
+                  type: 'time',
+                  value: form.dropoffTime,
+                  onChange: (e) => setForm({ ...form, dropoffTime: e.target.value }),
+                  style: {
+                    flex: 1, minWidth: 0, colorScheme: 'dark',
+                    transition: 'border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease',
+                    border: filled ? '2px solid var(--color-accent)' : undefined,
+                    background: filled ? 'rgba(0,200,83,0.12)' : undefined,
+                    color: filled ? 'var(--color-accent)' : undefined,
+                    fontWeight: filled ? 700 : undefined,
+                    boxShadow: filled ? '0 0 0 3px rgba(0,200,83,0.12)' : undefined,
+                  },
+                }),
+                React.createElement('button', {
+                  type: 'button',
+                  onClick: () => setForm({ ...form, dropoffTime: getNowTime() }),
+                  style: {
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+                    padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                    color: filled ? '#0a3d1f' : '#fff', cursor: 'pointer',
+                    border: filled ? '1px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
+                    background: filled ? 'var(--color-accent)' : 'rgba(0,200,83,0.2)',
+                    transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
+                  },
+                  title: '現在時刻をセット',
+                },
+                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
+                  '現在'
+                )
               )
-            )
-          ),
+            );
+          })(),
 
           // 日付（自動：本日 + 曜日・祝日を自動計算）
           React.createElement('div', { className: 'form-group' },
@@ -15705,15 +15757,48 @@ window.RevenuePage = () => {
               editForm.pickupCoords && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', marginTop: '2px' } }, `${editForm.pickupCoords.lat.toFixed(5)}, ${editForm.pickupCoords.lng.toFixed(5)}`)
             ),
             // 乗車時間
-            React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '乗車時間'),
-              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-                React.createElement('input', { type: 'time', value: editForm.pickupTime || '', onChange: (e) => setEditForm({ ...editForm, pickupTime: e.target.value }), style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' } }),
-                React.createElement('button', { type: 'button', onClick: () => setEditForm({ ...editForm, pickupTime: getNowTime() }),
-                  style: { display: 'flex', alignItems: 'center', gap: '3px', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: '#fff', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,200,83,0.2)', whiteSpace: 'nowrap' },
-                }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'), '現在')
-              )
-            ),
+            (() => {
+              const filled = !!(editForm.pickupTime);
+              return React.createElement('div', { style: { marginBottom: '8px' } },
+                React.createElement('label', {
+                  style: {
+                    fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px',
+                    color: filled ? 'var(--color-accent)' : 'var(--text-secondary)',
+                    fontWeight: filled ? 600 : 400,
+                  },
+                },
+                  '乗車時間',
+                  filled && React.createElement('span', {
+                    style: { fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.15)', color: 'var(--color-accent)' },
+                  }, '入力済')
+                ),
+                React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+                  React.createElement('input', {
+                    type: 'time', value: editForm.pickupTime || '',
+                    onChange: (e) => setEditForm({ ...editForm, pickupTime: e.target.value }),
+                    style: {
+                      flex: 1, padding: '6px 8px', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark',
+                      transition: 'border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease',
+                      border: filled ? '2px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
+                      background: filled ? 'rgba(0,200,83,0.12)' : 'var(--bg-secondary)',
+                      color: filled ? 'var(--color-accent)' : 'var(--text-primary)',
+                      fontWeight: filled ? 700 : 400,
+                      boxShadow: filled ? '0 0 0 3px rgba(0,200,83,0.12)' : 'none',
+                    },
+                  }),
+                  React.createElement('button', {
+                    type: 'button', onClick: () => setEditForm({ ...editForm, pickupTime: getNowTime() }),
+                    style: {
+                      display: 'flex', alignItems: 'center', gap: '3px', padding: '6px 10px', borderRadius: '6px',
+                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                      color: filled ? '#0a3d1f' : '#fff',
+                      border: filled ? '1px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
+                      background: filled ? 'var(--color-accent)' : 'rgba(0,200,83,0.2)',
+                    },
+                  }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'), '現在')
+                )
+              );
+            })(),
             // 降車地（GPS付き）
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' } },
@@ -15732,15 +15817,48 @@ window.RevenuePage = () => {
               editForm.dropoffCoords && React.createElement('div', { style: { fontSize: '10px', color: 'var(--color-accent)', marginTop: '2px' } }, `${editForm.dropoffCoords.lat.toFixed(5)}, ${editForm.dropoffCoords.lng.toFixed(5)}`)
             ),
             // 降車時間
-            React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '降車時間'),
-              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-                React.createElement('input', { type: 'time', value: editForm.dropoffTime || '', onChange: (e) => setEditForm({ ...editForm, dropoffTime: e.target.value }), style: { flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark' } }),
-                React.createElement('button', { type: 'button', onClick: () => setEditForm({ ...editForm, dropoffTime: getNowTime() }),
-                  style: { display: 'flex', alignItems: 'center', gap: '3px', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: '#fff', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(0,200,83,0.2)', whiteSpace: 'nowrap' },
-                }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'), '現在')
-              )
-            ),
+            (() => {
+              const filled = !!(editForm.dropoffTime);
+              return React.createElement('div', { style: { marginBottom: '8px' } },
+                React.createElement('label', {
+                  style: {
+                    fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px',
+                    color: filled ? 'var(--color-accent)' : 'var(--text-secondary)',
+                    fontWeight: filled ? 600 : 400,
+                  },
+                },
+                  '降車時間',
+                  filled && React.createElement('span', {
+                    style: { fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.15)', color: 'var(--color-accent)' },
+                  }, '入力済')
+                ),
+                React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
+                  React.createElement('input', {
+                    type: 'time', value: editForm.dropoffTime || '',
+                    onChange: (e) => setEditForm({ ...editForm, dropoffTime: e.target.value }),
+                    style: {
+                      flex: 1, padding: '6px 8px', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', colorScheme: 'dark',
+                      transition: 'border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease',
+                      border: filled ? '2px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
+                      background: filled ? 'rgba(0,200,83,0.12)' : 'var(--bg-secondary)',
+                      color: filled ? 'var(--color-accent)' : 'var(--text-primary)',
+                      fontWeight: filled ? 700 : 400,
+                      boxShadow: filled ? '0 0 0 3px rgba(0,200,83,0.12)' : 'none',
+                    },
+                  }),
+                  React.createElement('button', {
+                    type: 'button', onClick: () => setEditForm({ ...editForm, dropoffTime: getNowTime() }),
+                    style: {
+                      display: 'flex', alignItems: 'center', gap: '3px', padding: '6px 10px', borderRadius: '6px',
+                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                      color: filled ? '#0a3d1f' : '#fff',
+                      border: filled ? '1px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
+                      background: filled ? 'var(--color-accent)' : 'rgba(0,200,83,0.2)',
+                    },
+                  }, React.createElement('span', { className: 'material-icons-round', style: { fontSize: '14px' } }, 'schedule'), '現在')
+                )
+              );
+            })(),
             // 待機場所
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: '#ffa726', display: 'block', marginBottom: '2px' } }, '待機場所'),
