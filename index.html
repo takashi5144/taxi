@@ -24199,19 +24199,6 @@ window.DataManagePage = () => {
             style: { marginTop: '4px', fontSize: '10px', color: '#ffa726' },
           }, editForm.shiftDate + 'の売上として集計されます')
         ),
-        // 天候
-        React.createElement('div', { style: { marginBottom: '8px' } },
-          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '天候'),
-          React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-            ...[ { value: '晴れ', icon: '☀️' }, { value: '曇り', icon: '☁️' }, { value: '雨', icon: '🌧️' }, { value: '雪', icon: '❄️' } ].map(w =>
-              React.createElement('button', {
-                key: w.value, type: 'button',
-                onClick: () => setEditForm(f => ({ ...f, weather: f.weather === w.value ? '' : w.value })),
-                style: { padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: editForm.weather === w.value ? 700 : 400, cursor: 'pointer', border: editForm.weather === w.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)', background: editForm.weather === w.value ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)', color: editForm.weather === w.value ? 'var(--color-primary-light)' : 'var(--text-secondary)' },
-              }, w.icon + ' ' + w.value)
-            )
-          )
-        ),
         // 配車方法
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '配車方法'),
@@ -24322,28 +24309,6 @@ window.DataManagePage = () => {
             React.createElement('input', { type: 'number', min: '1', max: '99', value: editForm.passengers || '', onChange: e => setEditForm(f => ({ ...f, passengers: e.target.value })), style: { width: '50px', padding: '4px 6px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', textAlign: 'center' }, placeholder: '他' })
           )
         ),
-        // お客様性別
-        React.createElement('div', { style: { marginBottom: '8px' } },
-          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'お客様性別'),
-          React.createElement('div', { style: { display: 'flex', gap: '6px' } },
-            ...[ { v: '男性', e: '👨' }, { v: '女性', e: '👩' }, { v: '混合', e: '👥' } ].map(g => React.createElement('button', {
-              key: g.v, type: 'button',
-              onClick: () => setEditForm(f => ({ ...f, gender: f.gender === g.v ? '' : g.v })),
-              style: { flex: 1, padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: editForm.gender === g.v ? 700 : 400, cursor: 'pointer', border: editForm.gender === g.v ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)', background: editForm.gender === g.v ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)', color: editForm.gender === g.v ? 'var(--color-primary-light)' : 'var(--text-secondary)' },
-            }, g.e + ' ' + g.v))
-          )
-        ),
-        // 用途
-        React.createElement('div', { style: { marginBottom: '8px' } },
-          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '用途'),
-          React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-            ...[ { v: '通勤', e: '💼' }, { v: '通院', e: '🏥' }, { v: '買物', e: '🛒' }, { v: '観光', e: '🗼' }, { v: '出張', e: '✈️' }, { v: '送迎', e: '🚗' }, { v: '空港', e: '🛫' }, { v: '飲食', e: '🍻' }, { v: 'パチンコ', e: '🎰' }, { v: '駅移動', e: '🚉' } ].map(p => React.createElement('button', {
-              key: p.v, type: 'button',
-              onClick: () => setEditForm(f => ({ ...f, purpose: f.purpose === p.v ? '' : p.v })),
-              style: { padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: editForm.purpose === p.v ? 700 : 400, cursor: 'pointer', border: editForm.purpose === p.v ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)', background: editForm.purpose === p.v ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)', color: editForm.purpose === p.v ? 'var(--color-primary-light)' : 'var(--text-secondary)' },
-            }, p.e + ' ' + p.v))
-          )
-        ),
         // ユーザー（リピーター）
         React.createElement('div', { style: { marginBottom: '8px' } },
           React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'ユーザー'),
@@ -24363,18 +24328,11 @@ window.DataManagePage = () => {
               placeholder: 'お客様の名前'
             })
           )
-        ),
-        // メモ
-        React.createElement('div', { style: { marginBottom: '8px' } },
-          React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
-          React.createElement('input', { type: 'text', value: editForm.memo || '', onChange: e => setEditForm(f => ({ ...f, memo: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: 'メモ' })
         )
       ) : React.createElement(React.Fragment, null,
         field('日付', 'date', 'date'),
         field('時刻', 'time', 'time'),
-        field('天候', 'weather', 'select', weatherOptions),
-        field('場所', 'location', 'text'),
-        field('メモ', 'memo', 'text')
+        field('場所', 'location', 'text')
       ),
       errors.length > 0 && React.createElement('div', { style: { color: 'var(--color-danger)', fontSize: '12px', marginTop: '6px' } },
         errors.join(', ')
@@ -24763,15 +24721,9 @@ window.DataManagePage = () => {
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '金額 *'),
                 React.createElement('input', { type: 'number', value: addForm.amount, placeholder: '例: 3500', onChange: e => setAddForm(f => ({ ...f, amount: e.target.value })), style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '15px', fontWeight: 700, boxSizing: 'border-box' } })
               ),
-              React.createElement('div', null,
+              React.createElement('div', { style: { gridColumn: '1 / -1' } },
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '日付'),
                 React.createElement('input', { type: 'date', value: addForm.date, onChange: e => setAddForm(f => ({ ...f, date: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
-              ),
-              React.createElement('div', null,
-                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '天候'),
-                React.createElement('select', { value: addForm.weather, onChange: e => setAddForm(f => ({ ...f, weather: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } },
-                  ['', '晴れ', '曇り', '雨', '雪'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
-                )
               ),
               React.createElement('div', { style: { gridColumn: '1 / -1' } },
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '乗車地'),
@@ -24828,56 +24780,10 @@ window.DataManagePage = () => {
                 React.createElement('input', { type: 'number', value: addForm.passengers, min: 1, max: 9, onChange: e => setAddForm(f => ({ ...f, passengers: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
               ),
               React.createElement('div', null,
-                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '性別'),
-                React.createElement('select', { value: addForm.gender, onChange: e => setAddForm(f => ({ ...f, gender: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } },
-                  ['', '男性', '女性', 'その他'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
-                )
-              ),
-              React.createElement('div', null,
                 React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '配車方法'),
                 React.createElement('select', { value: addForm.source, onChange: e => setAddForm(f => ({ ...f, source: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } },
                   ['', 'Go', 'Uber', 'DIDI', '電話', '流し', '待機'].map(o => React.createElement('option', { key: o, value: o }, o || '未設定'))
                 )
-              ),
-              React.createElement('div', { style: { gridColumn: '1 / -1' } },
-                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' } }, '用途'),
-                React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-                  ...[
-                    { value: '通勤', icon: '🏢' },
-                    { value: '通院', icon: '🏥' },
-                    { value: '買物', icon: '🛒' },
-                    { value: '観光', icon: '📸' },
-                    { value: '出張', icon: '💼' },
-                    { value: '送迎', icon: '🚗' },
-                    { value: '空港', icon: '✈️' },
-                    { value: '飲食', icon: '🍺' },
-                    { value: 'パチンコ', icon: '🎰' },
-                    { value: '駅移動', icon: '🚉' },
-                  ].map(p =>
-                    React.createElement('button', {
-                      key: p.value,
-                      type: 'button',
-                      onClick: () => setAddForm(f => ({ ...f, purpose: f.purpose === p.value ? '' : p.value })),
-                      style: {
-                        display: 'flex', alignItems: 'center', gap: '4px',
-                        padding: '6px 10px', borderRadius: '8px',
-                        fontSize: '12px', fontWeight: addForm.purpose === p.value ? '700' : '400',
-                        cursor: 'pointer',
-                        border: addForm.purpose === p.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                        background: addForm.purpose === p.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
-                        color: addForm.purpose === p.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                        transition: 'all 0.15s ease',
-                      },
-                    },
-                      React.createElement('span', { style: { fontSize: '14px' } }, p.icon),
-                      p.value
-                    )
-                  )
-                )
-              ),
-              React.createElement('div', { style: { gridColumn: '1 / -1' } },
-                React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
-                React.createElement('input', { type: 'text', value: addForm.memo, placeholder: '自由入力', onChange: e => setAddForm(f => ({ ...f, memo: e.target.value })), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' } })
               ),
               // 割引（複数選択可）
               React.createElement('div', { style: { gridColumn: '1 / -1' } },
