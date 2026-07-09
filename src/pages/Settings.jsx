@@ -40,41 +40,6 @@ window.SettingsPage = () => {
   const [defaultShiftEnd, setDefaultShiftEnd] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END) || '');
   const [shiftTimeSaved, setShiftTimeSaved] = useState(false);
 
-
-  // GPS設定state - MapContextから取得（独自watchPositionは不要）
-  const { useEffect, useCallback } = React;
-  const { currentPosition, isTracking, accuracy } = useMapContext();
-  const [gpsPermission, setGpsPermission] = useState('unknown');
-  const [gpsRecordCount, setGpsRecordCount] = useState(0);
-  const [gpsBgEnabled, setGpsBgEnabled] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true');
-
-  // GPS権限チェック
-  useEffect(() => {
-    if (navigator.permissions && navigator.permissions.query) {
-      navigator.permissions.query({ name: 'geolocation' }).then(result => {
-        setGpsPermission(result.state);
-        result.onchange = () => setGpsPermission(result.state);
-      }).catch(() => {});
-    }
-  }, []);
-
-  // GPS記録数をロード
-  useEffect(() => {
-    if (window.GpsLogService) {
-      GpsLogService.getLogDates().then(dates => {
-        setGpsRecordCount(dates.length);
-      }).catch(() => {});
-    }
-  }, []);
-
-  const handleGpsBgToggle = useCallback(() => {
-    const next = !gpsBgEnabled;
-    setGpsBgEnabled(next);
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, next ? 'true' : 'false');
-    // MapContextにリアルタイム通知
-    window.dispatchEvent(new CustomEvent('taxi-gps-toggle', { detail: next }));
-  }, [gpsBgEnabled]);
-
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'settings'),
@@ -347,7 +312,7 @@ window.SettingsPage = () => {
     React.createElement(Card, { title: '基本勤務時間', style: { marginBottom: 'var(--space-lg)' } },
       React.createElement('p', {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, '基本の始業・終業時間を設定すると、設定時刻に自動で始業しGPS取得を開始します。'),
+      }, '基本の始業・終業時間を設定すると、設定時刻に自動で始業・終業します。'),
 
       React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
         React.createElement('div', { style: { flex: 1, minWidth: '120px' } },
@@ -429,109 +394,6 @@ window.SettingsPage = () => {
         `毎日 ${defaultShiftStart} に自動始業${defaultShiftEnd ? '・' + defaultShiftEnd + ' に自動終業' : ''}`
       )
     ),
-
-    // GPS設定
-    React.createElement(Card, { title: 'GPS設定', style: { marginBottom: 'var(--space-lg)' } },
-      // --- 権限ステータス グループ ---
-      React.createElement('div', { style: { marginBottom: '12px' } },
-        React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' } }, '権限ステータス'),
-        // 位置情報権限
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '位置情報権限'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'ブラウザの位置情報アクセス許可')
-          ),
-          React.createElement('span', {
-            className: 'badge badge--' + (gpsPermission === 'granted' ? 'success' : gpsPermission === 'denied' ? 'danger' : 'warning'),
-          }, gpsPermission === 'granted' ? '許可済み' : gpsPermission === 'denied' ? '拒否' : gpsPermission === 'prompt' ? '未許可' : '確認中')
-        ),
-
-        // 高精度モード
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '高精度モード'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPSの精度を最大にする（バッテリー消費が増えます）')
-          ),
-          React.createElement('span', { className: 'badge badge--success' }, '常時有効')
-        )
-      ),
-
-      // --- 追跡設定 グループ ---
-      React.createElement('div', { style: { marginBottom: '12px', paddingTop: '8px', borderTop: '2px solid rgba(255,255,255,0.08)' } },
-        React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' } }, '追跡設定'),
-
-      // バックグラウンド追跡（トグル付き）
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'バックグラウンド追跡'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-            'アプリを開いている間、位置を常時追跡',
-            isTracking ? ' (稼働中)' : ''
-          )
-        ),
-        React.createElement('button', {
-          onClick: handleGpsBgToggle,
-          style: {
-            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
-            background: gpsBgEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
-            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-          },
-        },
-          React.createElement('span', {
-            style: {
-              position: 'absolute', top: '3px',
-              left: gpsBgEnabled ? '24px' : '3px',
-              width: '20px', height: '20px', borderRadius: '50%',
-              background: '#fff', transition: 'left 0.2s',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-            },
-          })
-        )
-      ),
-
-      // 記録間隔
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '記録間隔'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPS軌跡の記録頻度（始業中・スマホのみ）')
-        ),
-        React.createElement('span', { className: 'badge badge--info' }, '1秒')
-      )
-      ), // 追跡設定グループ閉じ
-
-      // --- 詳細設定 グループ ---
-      React.createElement('div', { style: { marginBottom: '12px', paddingTop: '8px', borderTop: '2px solid rgba(255,255,255,0.08)' } },
-        React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' } }, '詳細設定'),
-
-      // 保存期間
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '保存期間'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'IndexedDBに保存（自動削除なし）')
-        ),
-        React.createElement('span', { className: 'badge badge--info' }, '無期限')
-      )
-      ), // 詳細設定グループ閉じ
-
-      // 現在の状態サマリ
-      React.createElement('div', {
-        style: {
-          marginTop: '12px', padding: '10px 12px', borderRadius: '8px',
-          background: 'rgba(255,255,255,0.04)',
-          fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', lineHeight: 1.8,
-        },
-      },
-        React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' } }, '現在の状態'),
-        React.createElement('div', null, '追跡: ', React.createElement('span', { style: { color: isTracking ? '#4caf50' : '#ff9800' } }, isTracking ? '稼働中' : '停止中')),
-        currentPosition && React.createElement('div', null,
-          '最終位置: ', currentPosition.lat.toFixed(5), ', ', currentPosition.lng.toFixed(5),
-          ' (精度: ', Math.round(accuracy || 0), 'm)'
-        ),
-        React.createElement('div', null, '記録日数: ', gpsRecordCount, '日分'),
-        React.createElement('div', null, '記録条件: スマホ + 始業中 + 休憩外')
-      )
-    ),
-
 
     // アプリをインストール（PWA）
     React.createElement(Card, { title: 'アプリをインストール', style: { marginBottom: 'var(--space-lg)' } },

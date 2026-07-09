@@ -12738,55 +12738,17 @@ window.MapProvider = ({ children }) => {
   const isTrackingRef = useRef(isTracking);
   isTrackingRef.current = isTracking;
 
-  // 始業中かつGPS追跡が有効なら自動でGPS追跡を開始
+  // GPS追跡は使用しない（設定UI削除済み）。既存フラグを無効化し、追跡中なら停止する。
   useEffect(() => {
-    const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true';
-    let shifts = [];
-    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
-    const activeShift = shifts.find(s => !s.endTime);
-    if ('geolocation' in navigator && !watchIdRef.current && activeShift && gpsBgEnabled) {
-      AppLogger.info('GPS追跡を自動開始（始業中）');
-      startTrackingRef.current();
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, 'false');
+    } catch { /* ignore */ }
+    if (isTrackingRef.current || watchIdRef.current !== null) {
+      stopTrackingRef.current();
     }
-
-    // GPS設定変更を監視（Settings.jsxでのトグル切替をリアルタイム反映）
-    const handleGpsToggle = (e) => {
-      if (e.key === APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) {
-        const enabled = e.newValue === 'true';
-        if (enabled) {
-          let sh = [];
-          try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
-          if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
-            startTrackingRef.current();
-          }
-        } else {
-          if (isTrackingRef.current) {
-            stopTrackingRef.current();
-          }
-        }
-      }
-    };
-    window.addEventListener('storage', handleGpsToggle);
-    // カスタムイベントでも監視（同一タブ内の変更用）
-    const handleGpsCustom = (e) => {
-      const enabled = e.detail;
-      if (enabled) {
-        let sh = [];
-        try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
-        if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
-          startTrackingRef.current();
-        }
-      } else {
-        if (isTrackingRef.current) {
-          stopTrackingRef.current();
-        }
-      }
-    };
-    window.addEventListener('taxi-gps-toggle', handleGpsCustom);
+    if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
 
     return () => {
-      window.removeEventListener('storage', handleGpsToggle);
-      window.removeEventListener('taxi-gps-toggle', handleGpsCustom);
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -12823,12 +12785,9 @@ window.MapProvider = ({ children }) => {
           shifts.push(newShift);
           localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
           if (window.DataService) DataService.syncShiftsToCloud();
-          // GPS追跡を開始
-          if (!isTrackingRef.current) startTrackingRef.current();
-          if (window.GpsLogService) GpsLogService.startWeatherPolling();
           window.dispatchEvent(new CustomEvent('taxi-data-changed'));
           window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'start', startTime: now.toISOString() } }));
-          AppLogger.info(`自動始業: ${scheduledStart} — GPS追跡開始`);
+          AppLogger.info(`自動始業: ${scheduledStart}`);
         }
       }
 
@@ -12848,13 +12807,9 @@ window.MapProvider = ({ children }) => {
         activeShift.endTime = now.toISOString();
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
         if (window.DataService) DataService.syncShiftsToCloud();
-        // GPS追跡を停止
-        if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
-        if (isTrackingRef.current) stopTrackingRef.current();
-        if (window.GpsLogService) GpsLogService.stopWeatherPolling();
         window.dispatchEvent(new CustomEvent('taxi-data-changed'));
         window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'end' } }));
-        AppLogger.info(`自動終業: ${scheduledEnd} — GPS追跡停止`);
+        AppLogger.info(`自動終業: ${scheduledEnd}`);
       }
     };
 
@@ -13584,7 +13539,6 @@ window.Layout = ({ children }) => {
 window.DashboardPage = () => {
   const { useState, useEffect, useMemo, useCallback, useRef } = React;
   const { navigate } = useAppContext();
-  const geo = useGeolocation();
 
   // 勤務モード（日勤/夜勤）
   const [shiftMode, setShiftMode] = useState(() => {
@@ -13687,16 +13641,13 @@ window.DashboardPage = () => {
         setShiftInfo({ active: true, startTime: newStart.toISOString() });
         setRefreshKey(k => k + 1);
         window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-        // 時間変更後、GPSが未稼働なら開始
-        if (!geo.isTracking) geo.startTracking();
-        if (window.GpsLogService) GpsLogService.startWeatherPolling();
         AppLogger.info(`始業時間を変更: ${editStartTimeValue}`);
       }
     } catch (e) {
       AppLogger.error('始業時間の変更に失敗', e.message);
     }
     setEditingStartTime(false);
-  }, [editStartTimeValue, shiftInfo, geo]);
+  }, [editStartTimeValue, shiftInfo]);
 
   // Dashboard側でも自動始業/終業イベントを受信してUI状態を同期
   useEffect(() => {
@@ -13736,15 +13687,11 @@ window.DashboardPage = () => {
       DataService.syncShiftsToCloud();
       setShiftInfo({ active: true, startTime: now.toISOString() });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // GPS追跡を開始（設定で有効な場合のみ）
-      const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true';
-      if (gpsBgEnabled && !geo.isTracking) geo.startTracking();
-      if (gpsBgEnabled) GpsLogService.startWeatherPolling();
       AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     } catch (e) {
       AppLogger.error('始業処理に失敗', e.message);
     }
-  }, [geo]);
+  }, []);
 
   const handleShiftEnd = useCallback(() => {
     try {
@@ -13766,23 +13713,16 @@ window.DashboardPage = () => {
       }
       setShiftInfo({ active: false, startTime: null });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // 未確定の空車待機を記録してからGPS追跡を停止
-      if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
-      if (geo.isTracking) geo.stopTracking();
-      GpsLogService.stopWeatherPolling();
       // 終業時にクラウド一括同期
       DataService.syncAllToCloud();
-      AppLogger.info('GPS追跡を停止（終業）');
     } catch (e) {
       AppLogger.error('終業処理に失敗', e.message);
     }
-  }, [geo]);
+  }, []);
 
   const handleBreakStart = useCallback(() => {
     if (!shiftInfo.active) return;
     try {
-      // 未確定の空車待機を記録
-      if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
       const now = new Date();
       const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
@@ -21624,41 +21564,6 @@ window.SettingsPage = () => {
   const [defaultShiftEnd, setDefaultShiftEnd] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END) || '');
   const [shiftTimeSaved, setShiftTimeSaved] = useState(false);
 
-
-  // GPS設定state - MapContextから取得（独自watchPositionは不要）
-  const { useEffect, useCallback } = React;
-  const { currentPosition, isTracking, accuracy } = useMapContext();
-  const [gpsPermission, setGpsPermission] = useState('unknown');
-  const [gpsRecordCount, setGpsRecordCount] = useState(0);
-  const [gpsBgEnabled, setGpsBgEnabled] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true');
-
-  // GPS権限チェック
-  useEffect(() => {
-    if (navigator.permissions && navigator.permissions.query) {
-      navigator.permissions.query({ name: 'geolocation' }).then(result => {
-        setGpsPermission(result.state);
-        result.onchange = () => setGpsPermission(result.state);
-      }).catch(() => {});
-    }
-  }, []);
-
-  // GPS記録数をロード
-  useEffect(() => {
-    if (window.GpsLogService) {
-      GpsLogService.getLogDates().then(dates => {
-        setGpsRecordCount(dates.length);
-      }).catch(() => {});
-    }
-  }, []);
-
-  const handleGpsBgToggle = useCallback(() => {
-    const next = !gpsBgEnabled;
-    setGpsBgEnabled(next);
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, next ? 'true' : 'false');
-    // MapContextにリアルタイム通知
-    window.dispatchEvent(new CustomEvent('taxi-gps-toggle', { detail: next }));
-  }, [gpsBgEnabled]);
-
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'settings'),
@@ -21931,7 +21836,7 @@ window.SettingsPage = () => {
     React.createElement(Card, { title: '基本勤務時間', style: { marginBottom: 'var(--space-lg)' } },
       React.createElement('p', {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, '基本の始業・終業時間を設定すると、設定時刻に自動で始業しGPS取得を開始します。'),
+      }, '基本の始業・終業時間を設定すると、設定時刻に自動で始業・終業します。'),
 
       React.createElement('div', { style: { display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
         React.createElement('div', { style: { flex: 1, minWidth: '120px' } },
@@ -22013,109 +21918,6 @@ window.SettingsPage = () => {
         `毎日 ${defaultShiftStart} に自動始業${defaultShiftEnd ? '・' + defaultShiftEnd + ' に自動終業' : ''}`
       )
     ),
-
-    // GPS設定
-    React.createElement(Card, { title: 'GPS設定', style: { marginBottom: 'var(--space-lg)' } },
-      // --- 権限ステータス グループ ---
-      React.createElement('div', { style: { marginBottom: '12px' } },
-        React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' } }, '権限ステータス'),
-        // 位置情報権限
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '位置情報権限'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'ブラウザの位置情報アクセス許可')
-          ),
-          React.createElement('span', {
-            className: 'badge badge--' + (gpsPermission === 'granted' ? 'success' : gpsPermission === 'denied' ? 'danger' : 'warning'),
-          }, gpsPermission === 'granted' ? '許可済み' : gpsPermission === 'denied' ? '拒否' : gpsPermission === 'prompt' ? '未許可' : '確認中')
-        ),
-
-        // 高精度モード
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
-          React.createElement('div', null,
-            React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '高精度モード'),
-            React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPSの精度を最大にする（バッテリー消費が増えます）')
-          ),
-          React.createElement('span', { className: 'badge badge--success' }, '常時有効')
-        )
-      ),
-
-      // --- 追跡設定 グループ ---
-      React.createElement('div', { style: { marginBottom: '12px', paddingTop: '8px', borderTop: '2px solid rgba(255,255,255,0.08)' } },
-        React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' } }, '追跡設定'),
-
-      // バックグラウンド追跡（トグル付き）
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, 'バックグラウンド追跡'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-            'アプリを開いている間、位置を常時追跡',
-            isTracking ? ' (稼働中)' : ''
-          )
-        ),
-        React.createElement('button', {
-          onClick: handleGpsBgToggle,
-          style: {
-            width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
-            background: gpsBgEnabled ? 'var(--color-accent)' : 'rgba(255,255,255,0.2)',
-            position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-          },
-        },
-          React.createElement('span', {
-            style: {
-              position: 'absolute', top: '3px',
-              left: gpsBgEnabled ? '24px' : '3px',
-              width: '20px', height: '20px', borderRadius: '50%',
-              background: '#fff', transition: 'left 0.2s',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-            },
-          })
-        )
-      ),
-
-      // 記録間隔
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '記録間隔'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'GPS軌跡の記録頻度（始業中・スマホのみ）')
-        ),
-        React.createElement('span', { className: 'badge badge--info' }, '1秒')
-      )
-      ), // 追跡設定グループ閉じ
-
-      // --- 詳細設定 グループ ---
-      React.createElement('div', { style: { marginBottom: '12px', paddingTop: '8px', borderTop: '2px solid rgba(255,255,255,0.08)' } },
-        React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' } }, '詳細設定'),
-
-      // 保存期間
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '保存期間'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } }, 'IndexedDBに保存（自動削除なし）')
-        ),
-        React.createElement('span', { className: 'badge badge--info' }, '無期限')
-      )
-      ), // 詳細設定グループ閉じ
-
-      // 現在の状態サマリ
-      React.createElement('div', {
-        style: {
-          marginTop: '12px', padding: '10px 12px', borderRadius: '8px',
-          background: 'rgba(255,255,255,0.04)',
-          fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', lineHeight: 1.8,
-        },
-      },
-        React.createElement('div', { style: { fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' } }, '現在の状態'),
-        React.createElement('div', null, '追跡: ', React.createElement('span', { style: { color: isTracking ? '#4caf50' : '#ff9800' } }, isTracking ? '稼働中' : '停止中')),
-        currentPosition && React.createElement('div', null,
-          '最終位置: ', currentPosition.lat.toFixed(5), ', ', currentPosition.lng.toFixed(5),
-          ' (精度: ', Math.round(accuracy || 0), 'm)'
-        ),
-        React.createElement('div', null, '記録日数: ', gpsRecordCount, '日分'),
-        React.createElement('div', null, '記録条件: スマホ + 始業中 + 休憩外')
-      )
-    ),
-
 
     // アプリをインストール（PWA）
     React.createElement(Card, { title: 'アプリをインストール', style: { marginBottom: 'var(--space-lg)' } },

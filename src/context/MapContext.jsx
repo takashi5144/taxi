@@ -197,55 +197,17 @@ window.MapProvider = ({ children }) => {
   const isTrackingRef = useRef(isTracking);
   isTrackingRef.current = isTracking;
 
-  // 始業中かつGPS追跡が有効なら自動でGPS追跡を開始
+  // GPS追跡は使用しない（設定UI削除済み）。既存フラグを無効化し、追跡中なら停止する。
   useEffect(() => {
-    const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true';
-    let shifts = [];
-    try { shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { /* ignore */ }
-    const activeShift = shifts.find(s => !s.endTime);
-    if ('geolocation' in navigator && !watchIdRef.current && activeShift && gpsBgEnabled) {
-      AppLogger.info('GPS追跡を自動開始（始業中）');
-      startTrackingRef.current();
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED, 'false');
+    } catch { /* ignore */ }
+    if (isTrackingRef.current || watchIdRef.current !== null) {
+      stopTrackingRef.current();
     }
-
-    // GPS設定変更を監視（Settings.jsxでのトグル切替をリアルタイム反映）
-    const handleGpsToggle = (e) => {
-      if (e.key === APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) {
-        const enabled = e.newValue === 'true';
-        if (enabled) {
-          let sh = [];
-          try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
-          if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
-            startTrackingRef.current();
-          }
-        } else {
-          if (isTrackingRef.current) {
-            stopTrackingRef.current();
-          }
-        }
-      }
-    };
-    window.addEventListener('storage', handleGpsToggle);
-    // カスタムイベントでも監視（同一タブ内の変更用）
-    const handleGpsCustom = (e) => {
-      const enabled = e.detail;
-      if (enabled) {
-        let sh = [];
-        try { sh = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch {}
-        if (sh.find(s => !s.endTime) && !isTrackingRef.current) {
-          startTrackingRef.current();
-        }
-      } else {
-        if (isTrackingRef.current) {
-          stopTrackingRef.current();
-        }
-      }
-    };
-    window.addEventListener('taxi-gps-toggle', handleGpsCustom);
+    if (window.GpsLogService) window.GpsLogService.stopWeatherPolling();
 
     return () => {
-      window.removeEventListener('storage', handleGpsToggle);
-      window.removeEventListener('taxi-gps-toggle', handleGpsCustom);
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -282,12 +244,9 @@ window.MapProvider = ({ children }) => {
           shifts.push(newShift);
           localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
           if (window.DataService) DataService.syncShiftsToCloud();
-          // GPS追跡を開始
-          if (!isTrackingRef.current) startTrackingRef.current();
-          if (window.GpsLogService) GpsLogService.startWeatherPolling();
           window.dispatchEvent(new CustomEvent('taxi-data-changed'));
           window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'start', startTime: now.toISOString() } }));
-          AppLogger.info(`自動始業: ${scheduledStart} — GPS追跡開始`);
+          AppLogger.info(`自動始業: ${scheduledStart}`);
         }
       }
 
@@ -307,13 +266,9 @@ window.MapProvider = ({ children }) => {
         activeShift.endTime = now.toISOString();
         localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
         if (window.DataService) DataService.syncShiftsToCloud();
-        // GPS追跡を停止
-        if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
-        if (isTrackingRef.current) stopTrackingRef.current();
-        if (window.GpsLogService) GpsLogService.stopWeatherPolling();
         window.dispatchEvent(new CustomEvent('taxi-data-changed'));
         window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'end' } }));
-        AppLogger.info(`自動終業: ${scheduledEnd} — GPS追跡停止`);
+        AppLogger.info(`自動終業: ${scheduledEnd}`);
       }
     };
 

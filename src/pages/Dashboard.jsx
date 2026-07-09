@@ -3,7 +3,6 @@
 window.DashboardPage = () => {
   const { useState, useEffect, useMemo, useCallback, useRef } = React;
   const { navigate } = useAppContext();
-  const geo = useGeolocation();
 
   // 勤務モード（日勤/夜勤）
   const [shiftMode, setShiftMode] = useState(() => {
@@ -106,16 +105,13 @@ window.DashboardPage = () => {
         setShiftInfo({ active: true, startTime: newStart.toISOString() });
         setRefreshKey(k => k + 1);
         window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-        // 時間変更後、GPSが未稼働なら開始
-        if (!geo.isTracking) geo.startTracking();
-        if (window.GpsLogService) GpsLogService.startWeatherPolling();
         AppLogger.info(`始業時間を変更: ${editStartTimeValue}`);
       }
     } catch (e) {
       AppLogger.error('始業時間の変更に失敗', e.message);
     }
     setEditingStartTime(false);
-  }, [editStartTimeValue, shiftInfo, geo]);
+  }, [editStartTimeValue, shiftInfo]);
 
   // Dashboard側でも自動始業/終業イベントを受信してUI状態を同期
   useEffect(() => {
@@ -155,15 +151,11 @@ window.DashboardPage = () => {
       DataService.syncShiftsToCloud();
       setShiftInfo({ active: true, startTime: now.toISOString() });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // GPS追跡を開始（設定で有効な場合のみ）
-      const gpsBgEnabled = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.GPS_BG_ENABLED) === 'true';
-      if (gpsBgEnabled && !geo.isTracking) geo.startTracking();
-      if (gpsBgEnabled) GpsLogService.startWeatherPolling();
       AppLogger.info(`始業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
     } catch (e) {
       AppLogger.error('始業処理に失敗', e.message);
     }
-  }, [geo]);
+  }, []);
 
   const handleShiftEnd = useCallback(() => {
     try {
@@ -185,23 +177,16 @@ window.DashboardPage = () => {
       }
       setShiftInfo({ active: false, startTime: null });
       window.dispatchEvent(new CustomEvent('taxi-data-changed'));
-      // 未確定の空車待機を記録してからGPS追跡を停止
-      if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
-      if (geo.isTracking) geo.stopTracking();
-      GpsLogService.stopWeatherPolling();
       // 終業時にクラウド一括同期
       DataService.syncAllToCloud();
-      AppLogger.info('GPS追跡を停止（終業）');
     } catch (e) {
       AppLogger.error('終業処理に失敗', e.message);
     }
-  }, [geo]);
+  }, []);
 
   const handleBreakStart = useCallback(() => {
     if (!shiftInfo.active) return;
     try {
-      // 未確定の空車待機を記録
-      if (window.GpsLogService && GpsLogService.flushRealtimeStandby) GpsLogService.flushRealtimeStandby();
       const now = new Date();
       const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       const newBreak = { id: Date.now().toString(), startTime: now.toISOString(), endTime: null };
