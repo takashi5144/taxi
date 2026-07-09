@@ -14467,9 +14467,6 @@ window.RevenuePage = () => {
 
   const getNowTime = TaxiApp.utils.getNowTime;
 
-  // WMO天気コードを天候カテゴリに変換（共通ユーティリティ委譲）
-  const wmoToWeather = (code) => TaxiApp.utils.wmoToWeather(code, '');
-
   // DataServiceから最新データを取得するためのrefreshKey
   const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState({ date: todayDefault, weather: '', temperature: null, amount: '', paymentMethod: 'cash', discounts: {}, pickup: '', pickupTime: '', dropoff: '', dropoffTime: '', passengers: '1', gender: '', purpose: '', memo: '', source: '', isRegisteredUser: false, customerName: '' });
@@ -14482,57 +14479,8 @@ window.RevenuePage = () => {
     return (h >= 0 && h < 5) ? 'previous' : 'today';
   }); // 0〜5時は前日合算がデフォルト
   const sourceSectionRef = useRef(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
-  const weatherFetched = useRef(false);
 
-  
   const mapCtx = useMapContext();
-
-  // ページ読み込み時に天気を自動取得（GPSキャッシュ優先）
-  useEffect(() => {
-    if (weatherFetched.current) return;
-    weatherFetched.current = true;
-
-    // GPSキャッシュから天気取得を試みる
-    const cached = GpsLogService.getCurrentWeather();
-    if (cached && cached.weather) {
-      setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather, temperature: cached.temperature != null ? cached.temperature : null });
-      AppLogger.info(`売上 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
-      return;
-    }
-
-    const fetchWeather = () => {
-      if (!navigator.geolocation) {
-        AppLogger.warn('天気自動取得: GPS利用不可');
-        return;
-      }
-      setWeatherLoading(true);
-      getAccuratePosition({ accuracyThreshold: 500, timeout: 10000, maxWaitAfterFix: 3000 })
-        .then((position) => {
-          const lat = position.coords.latitude.toFixed(4);
-          const lng = position.coords.longitude.toFixed(4);
-          const meteoParams = new URLSearchParams({ latitude: lat, longitude: lng, current_weather: 'true', timezone: 'Asia/Tokyo' });
-          const url = `https://api.open-meteo.com/v1/forecast?${meteoParams}`;
-          return fetch(url).then(res => res.json());
-        })
-        .then(data => {
-          setWeatherLoading(false);
-          if (data && data.current_weather) {
-            const w = wmoToWeather(data.current_weather.weathercode);
-            const temp = data.current_weather.temperature != null ? data.current_weather.temperature : null;
-            if (w) {
-              setForm(prev => prev.weather ? prev : { ...prev, weather: w, temperature: temp });
-              AppLogger.info(`天気自動取得成功: ${w} ${temp != null ? temp + '℃' : ''} (WMO code: ${data.current_weather.weathercode})`);
-            }
-          }
-        })
-        .catch(err => {
-          setWeatherLoading(false);
-          AppLogger.warn('天気取得用GPS失敗: ' + (err.message || ''));
-        });
-    };
-    fetchWeather();
-  }, []);
 
   // データは常にDataServiceから取得（単一のデータソース）
   const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
@@ -15277,49 +15225,6 @@ window.RevenuePage = () => {
             })())
           ),
 
-          // 天候（自動取得 + 手動変更可）
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-              '天候',
-              weatherLoading && React.createElement('span', {
-                style: { fontSize: '11px', color: 'var(--color-secondary)', fontWeight: '400', animation: 'pulse 1.5s ease-in-out infinite' },
-              }, '取得中...'),
-              !weatherLoading && form.weather && React.createElement('span', {
-                style: { fontSize: '10px', color: 'var(--color-accent)', fontWeight: '400', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.1)' },
-              }, '自動取得済'),
-              !weatherLoading && form.temperature != null && React.createElement('span', {
-                style: { fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginLeft: '4px' },
-              }, `${form.temperature}℃`)
-            ),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-              ...[
-                { value: '晴れ', icon: '☀️' },
-                { value: '曇り', icon: '☁️' },
-                { value: '雨', icon: '🌧️' },
-                { value: '雪', icon: '❄️' },
-              ].map(w =>
-                React.createElement('button', {
-                  key: w.value,
-                  type: 'button',
-                  onClick: () => setForm({ ...form, weather: form.weather === w.value ? '' : w.value }),
-                  style: {
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '8px 14px', borderRadius: '8px',
-                    fontSize: '13px', fontWeight: form.weather === w.value ? '700' : '400',
-                    cursor: 'pointer',
-                    border: form.weather === w.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: form.weather === w.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
-                    color: form.weather === w.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  },
-                },
-                  React.createElement('span', { style: { fontSize: '16px' } }, w.icon),
-                  w.value
-                )
-              )
-            )
-          ),
-
           // 配車方法
           React.createElement('div', { className: 'form-group', ref: sourceSectionRef },
             React.createElement('label', { className: 'form-label' }, '配車方法'),
@@ -15592,75 +15497,6 @@ window.RevenuePage = () => {
             )
           ),
 
-          // お客様性別
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, 'お客様性別'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-              ...[
-                { value: '男性', icon: '👨' },
-                { value: '女性', icon: '👩' },
-                { value: '混合', icon: '👥' },
-              ].map(g =>
-                React.createElement('button', {
-                  key: g.value,
-                  type: 'button',
-                  onClick: () => setForm({ ...form, gender: form.gender === g.value ? '' : g.value }),
-                  style: {
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '8px 14px', borderRadius: '8px',
-                    fontSize: '13px', fontWeight: form.gender === g.value ? '700' : '400',
-                    cursor: 'pointer',
-                    border: form.gender === g.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: form.gender === g.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
-                    color: form.gender === g.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  },
-                },
-                  React.createElement('span', { style: { fontSize: '16px' } }, g.icon),
-                  g.value
-                )
-              )
-            )
-          ),
-
-          // 用途
-          React.createElement('div', { className: 'form-group', style: { gridColumn: '1 / -1' } },
-            React.createElement('label', { className: 'form-label' }, '用途'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-              ...[
-                { value: '通勤', icon: '🏢' },
-                { value: '通院', icon: '🏥' },
-                { value: '買物', icon: '🛒' },
-                { value: '観光', icon: '📸' },
-                { value: '出張', icon: '💼' },
-                { value: '送迎', icon: '🚗' },
-                { value: '空港', icon: '✈️' },
-                { value: '飲食', icon: '🍺' },
-                { value: 'パチンコ', icon: '🎰' },
-                { value: '駅移動', icon: '🚉' },
-              ].map(p =>
-                React.createElement('button', {
-                  key: p.value,
-                  type: 'button',
-                  onClick: () => setForm({ ...form, purpose: form.purpose === p.value ? '' : p.value }),
-                  style: {
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '8px 12px', borderRadius: '8px',
-                    fontSize: '12px', fontWeight: form.purpose === p.value ? '700' : '400',
-                    cursor: 'pointer',
-                    border: form.purpose === p.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: form.purpose === p.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
-                    color: form.purpose === p.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  },
-                },
-                  React.createElement('span', { style: { fontSize: '14px' } }, p.icon),
-                  p.value
-                )
-              )
-            )
-          ),
-
           // ユーザー（リピーター登録）
           React.createElement('div', { className: 'form-group', style: { gridColumn: '1 / -1' } },
             React.createElement('label', { className: 'form-label' }, 'ユーザー（リピーター）'),
@@ -15747,18 +15583,6 @@ window.RevenuePage = () => {
                 })
               );
             })()
-          ),
-
-          // メモ
-          React.createElement('div', { className: 'form-group' },
-            React.createElement('label', { className: 'form-label' }, 'メモ'),
-            React.createElement('input', {
-              className: 'form-input',
-              type: 'text',
-              placeholder: '任意のメモ',
-              value: form.memo,
-              onChange: (e) => setForm({ ...form, memo: e.target.value }),
-            })
           )
         ),
         React.createElement(Button, {
@@ -15944,22 +15768,6 @@ window.RevenuePage = () => {
                 })
               )
             ),
-            // 天候（ボタン選択 — 新規フォームと同じ）
-            React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '天候'),
-              React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-                ...['晴れ', '曇り', '雨', '雪'].map(w => React.createElement('button', {
-                  key: w, type: 'button',
-                  onClick: () => setEditForm({ ...editForm, weather: editForm.weather === w ? '' : w }),
-                  style: {
-                    padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: editForm.weather === w ? 700 : 400,
-                    cursor: 'pointer', border: editForm.weather === w ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: editForm.weather === w ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: editForm.weather === w ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                  },
-                }, w))
-              )
-            ),
             // 配車方法（新規フォームと同じ選択肢）
             React.createElement('div', { style: { marginBottom: '8px' } },
               React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '配車方法'),
@@ -16132,48 +15940,6 @@ window.RevenuePage = () => {
                   style: { width: '50px', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box', textAlign: 'center' } })
               )
             ),
-            // お客様性別（混合追加）
-            React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'お客様性別'),
-              React.createElement('div', { style: { display: 'flex', gap: '4px' } },
-                ...[{ v: '男性', e: '\uD83D\uDC68' }, { v: '女性', e: '\uD83D\uDC69' }, { v: '混合', e: '\uD83D\uDC65' }].map(g => React.createElement('button', {
-                  key: g.v, type: 'button',
-                  onClick: () => setEditForm({ ...editForm, gender: editForm.gender === g.v ? '' : g.v }),
-                  style: {
-                    padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: editForm.gender === g.v ? 700 : 400,
-                    cursor: 'pointer', border: editForm.gender === g.v ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: editForm.gender === g.v ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: editForm.gender === g.v ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                  },
-                }, g.e + ' ' + g.v))
-              )
-            ),
-            // 用途
-            React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, '用途'),
-              React.createElement('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-                ...[
-                  { v: '通勤', e: '\uD83D\uDCBC' }, { v: '通院', e: '\uD83C\uDFE5' }, { v: '買物', e: '\uD83D\uDED2' },
-                  { v: '観光', e: '\uD83D\uDDFC' }, { v: '出張', e: '\u2708\uFE0F' }, { v: '送迎', e: '\uD83D\uDE97' },
-                  { v: '空港', e: '\uD83D\uDEEB' }, { v: '飲食', e: '\uD83C\uDF7B' }, { v: 'パチンコ', e: '\uD83C\uDFB0' },
-                  { v: '駅移動', e: '\uD83D\uDE89' },
-                ].map(p => React.createElement('button', {
-                  key: p.v, type: 'button',
-                  onClick: () => setEditForm({ ...editForm, purpose: editForm.purpose === p.v ? '' : p.v }),
-                  style: {
-                    padding: '5px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: editForm.purpose === p.v ? 700 : 400,
-                    cursor: 'pointer', border: editForm.purpose === p.v ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: editForm.purpose === p.v ? 'rgba(26,115,232,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: editForm.purpose === p.v ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                  },
-                }, p.e + ' ' + p.v))
-              )
-            ),
-            // メモ
-            React.createElement('div', { style: { marginBottom: '8px' } },
-              React.createElement('label', { style: { fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' } }, 'メモ'),
-              React.createElement('input', { type: 'text', value: editForm.memo || '', onChange: (e) => setEditForm({ ...editForm, memo: e.target.value }), style: { width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.15)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '13px', boxSizing: 'border-box' }, placeholder: 'メモ' })
-            ),
             // エラー
             editErrors.length > 0 && React.createElement('div', { style: { color: 'var(--color-error)', fontSize: '12px', marginBottom: '8px' } }, editErrors.join(', ')),
             // 保存・キャンセル
@@ -16228,16 +15994,9 @@ window.RevenuePage = () => {
                   entry.shiftDate && entry.shiftDate === eDate && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 6px', borderRadius: '3px', background: 'rgba(0,200,83,0.12)', color: '#66bb6a', fontWeight: '600' },
                   }, '当日合算'),
-                  entry.weather && React.createElement('span', null, entry.weather),
                   entry.passengers && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' },
                   }, `${entry.passengers}名`),
-                  entry.gender && React.createElement('span', {
-                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)' },
-                  }, entry.gender),
-                  entry.purpose && React.createElement('span', {
-                    style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(26,115,232,0.1)', color: 'var(--color-primary-light)' },
-                  }, entry.purpose),
                   entry.source && React.createElement('span', {
                     style: { fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: 'rgba(255,152,0,0.15)', color: '#ffb74d', fontWeight: '600' },
                   }, entry.source),
@@ -16247,8 +16006,7 @@ window.RevenuePage = () => {
                     React.createElement('span', { className: 'material-icons-round', style: { fontSize: '10px' } }, 'person'),
                     entry.customerName || 'ユーザー'
                   ),
-                  React.createElement('span', null, new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })),
-                  entry.memo && React.createElement('span', null, `| ${entry.memo}`)
+                  React.createElement('span', null, new Date(entry.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }))
                 );
               })()
             )
