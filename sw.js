@@ -1,6 +1,6 @@
 // sw.js - Service Worker�E�オフラインキャチE��ュ対応！E
 // アプリはindex.html単体で動作するため、キャチE��ュ対象は最小限に絞る
-const CACHE_NAME = 'taxi-support-v3.84.0-sheets';
+const CACHE_NAME = 'taxi-support-v3.85.0-analytics-slim';
 const STATIC_ASSETS = [
   './',
   './index.html',
