@@ -28,7 +28,8 @@ window.Sidebar = () => {
       )
     ),
 
-    // 情報
+    // 情報（項目がある場合のみ）
+    APP_CONSTANTS.INFO_NAV_ITEMS && APP_CONSTANTS.INFO_NAV_ITEMS.length > 0 &&
     React.createElement('div', { className: 'sidebar__section' },
       React.createElement('div', { className: 'sidebar__section-title' }, '情報'),
       APP_CONSTANTS.INFO_NAV_ITEMS.map(item =>

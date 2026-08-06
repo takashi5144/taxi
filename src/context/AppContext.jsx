@@ -14,9 +14,15 @@ window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const isRetiredRoute = (page) => (
+    page === 'map' || page === 'transit-info'
+    || page === 'info' || page === 'events'
+    || page === 'rival-ride' || page === 'gathering-memo'
+  );
+
   const navigate = useCallback((page) => {
     // 廃止ルートはダッシュボードへ
-    if (page === 'map' || page === 'transit-info') page = APP_CONSTANTS.ROUTES.DASHBOARD;
+    if (isRetiredRoute(page)) page = APP_CONSTANTS.ROUTES.DASHBOARD;
     window.location.hash = `#/${page}`;
     setSidebarOpen(false);
     AppLogger.debug(`ページ遷移: ${page}`);
@@ -25,7 +31,7 @@ window.AppProvider = ({ children }) => {
   useEffect(() => {
     const handleHashChange = () => {
       let page = getPageFromHash();
-      if (page === 'map' || page === 'transit-info') {
+      if (isRetiredRoute(page)) {
         window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
         page = APP_CONSTANTS.ROUTES.DASHBOARD;
       }
@@ -40,7 +46,7 @@ window.AppProvider = ({ children }) => {
       window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
     } else {
       const page = getPageFromHash();
-      if (page === 'map' || page === 'transit-info') {
+      if (isRetiredRoute(page)) {
         window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
       }
     }

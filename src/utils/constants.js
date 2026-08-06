@@ -443,19 +443,16 @@ window.APP_CONSTANTS = {
 
   // ナビゲーション項目
   NAV_ITEMS: [
-    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
-    { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
+    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },
+    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
-    { id: 'gathering-memo', label: '集客メモ', icon: 'mic' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'data-manage', label: 'データ管理', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ],
 
-  // 情報ナビゲーション項目
-  INFO_NAV_ITEMS: [
-    { id: 'info', label: '情報', icon: 'info' },
-    { id: 'events', label: 'イベント', icon: 'event' },  ],
+  // 情報ナビゲーション項目（現在未使用）
+  INFO_NAV_ITEMS: [],
 
   // ボトムナビ項目
   BOTTOM_NAV_ITEMS: [

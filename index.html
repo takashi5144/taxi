@@ -1381,19 +1381,16 @@ window.APP_CONSTANTS = {
 
   // ナビゲーション項目
   NAV_ITEMS: [
-    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
-    { id: 'rival-ride', label: '他社乗車', icon: 'local_taxi' },
+    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },
+    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
-    { id: 'gathering-memo', label: '集客メモ', icon: 'mic' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'data-manage', label: 'データ管理', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ],
 
-  // 情報ナビゲーション項目
-  INFO_NAV_ITEMS: [
-    { id: 'info', label: '情報', icon: 'info' },
-    { id: 'events', label: 'イベント', icon: 'event' },  ],
+  // 情報ナビゲーション項目（現在未使用）
+  INFO_NAV_ITEMS: [],
 
   // ボトムナビ項目
   BOTTOM_NAV_ITEMS: [
@@ -10334,9 +10331,15 @@ window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const isRetiredRoute = (page) => (
+    page === 'map' || page === 'transit-info'
+    || page === 'info' || page === 'events'
+    || page === 'rival-ride' || page === 'gathering-memo'
+  );
+
   const navigate = useCallback((page) => {
     // 廃止ルートはダッシュボードへ
-    if (page === 'map' || page === 'transit-info') page = APP_CONSTANTS.ROUTES.DASHBOARD;
+    if (isRetiredRoute(page)) page = APP_CONSTANTS.ROUTES.DASHBOARD;
     window.location.hash = `#/${page}`;
     setSidebarOpen(false);
     AppLogger.debug(`ページ遷移: ${page}`);
@@ -10345,7 +10348,7 @@ window.AppProvider = ({ children }) => {
   useEffect(() => {
     const handleHashChange = () => {
       let page = getPageFromHash();
-      if (page === 'map' || page === 'transit-info') {
+      if (isRetiredRoute(page)) {
         window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
         page = APP_CONSTANTS.ROUTES.DASHBOARD;
       }
@@ -10360,7 +10363,7 @@ window.AppProvider = ({ children }) => {
       window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
     } else {
       const page = getPageFromHash();
-      if (page === 'map' || page === 'transit-info') {
+      if (isRetiredRoute(page)) {
         window.location.hash = `#/${APP_CONSTANTS.ROUTES.DASHBOARD}`;
       }
     }
@@ -10580,20 +10583,25 @@ window.Header = () => {
           React.createElement('span', null, item.label)
         )
       ),
-      // 情報セクション セパレーター + 項目
-      React.createElement('span', {
-        style: { display: 'inline-block', width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)', margin: '0 4px', verticalAlign: 'middle' },
-      }),
-      APP_CONSTANTS.INFO_NAV_ITEMS.map(item =>
-        React.createElement('button', {
-          key: item.id,
-          className: `header__nav-btn ${currentPage === item.id ? 'active' : ''}`,
-          onClick: () => navigate(item.id),
-        },
-          React.createElement('span', { className: 'material-icons-round' }, item.icon),
-          React.createElement('span', null, item.label)
-        )
-      ),
+      // 情報セクション（項目がある場合のみ）
+      ...(APP_CONSTANTS.INFO_NAV_ITEMS && APP_CONSTANTS.INFO_NAV_ITEMS.length > 0
+        ? [
+            React.createElement('span', {
+              key: 'info-sep',
+              style: { display: 'inline-block', width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)', margin: '0 4px', verticalAlign: 'middle' },
+            }),
+            ...APP_CONSTANTS.INFO_NAV_ITEMS.map(item =>
+              React.createElement('button', {
+                key: item.id,
+                className: `header__nav-btn ${currentPage === item.id ? 'active' : ''}`,
+                onClick: () => navigate(item.id),
+              },
+                React.createElement('span', { className: 'material-icons-round' }, item.icon),
+                React.createElement('span', null, item.label)
+              )
+            ),
+          ]
+        : []),
       // 開発者ツールボタン
       React.createElement('button', {
         className: `header__nav-btn ${currentPage.startsWith('dev') ? 'active' : ''}`,
@@ -10642,7 +10650,8 @@ window.Sidebar = () => {
       )
     ),
 
-    // 情報
+    // 情報（項目がある場合のみ）
+    APP_CONSTANTS.INFO_NAV_ITEMS && APP_CONSTANTS.INFO_NAV_ITEMS.length > 0 &&
     React.createElement('div', { className: 'sidebar__section' },
       React.createElement('div', { className: 'sidebar__section-title' }, '情報'),
       APP_CONSTANTS.INFO_NAV_ITEMS.map(item =>
