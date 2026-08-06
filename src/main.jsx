@@ -38,12 +38,8 @@
   // Pages
   T.pages.Dashboard = DashboardPage;
   T.pages.Revenue = RevenuePage;
-  T.pages.RivalRide = RivalRidePage;
   T.pages.Calendar = CalendarPage;
-  T.pages.Info = InfoPage;
-  T.pages.Events = EventsPage;
   T.pages.Analytics = AnalyticsPage;
-  T.pages.GatheringMemo = GatheringMemoPage;
   T.pages.DataManage = DataManagePage;
   T.pages.Settings = SettingsPage;
   T.pages.DevTools = DevToolsPage;

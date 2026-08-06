@@ -147,24 +147,16 @@ window.SettingsPage = () => {
             setSyncStatus('送信中...');
             try {
               const revenueEntries = DataService.getEntries();
-              const rivalEntries = DataService.getRivalEntries();
-              const gatheringEntries = DataService.getGatheringMemos();
               const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
               const headers = { 'Content-Type': 'application/json', ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}) };
               const mkBody = (entries) => JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: entries.length, entries });
-              const [r1, r2, r3] = await Promise.all([
-                fetch('/api/data?type=revenue', { method: 'POST', headers, body: mkBody(revenueEntries) }),
-                fetch('/api/data?type=rival', { method: 'POST', headers, body: mkBody(rivalEntries) }),
-                fetch('/api/data?type=gathering', { method: 'POST', headers, body: mkBody(gatheringEntries) }),
-              ]);
-              if (r1.ok && r2.ok && r3.ok) {
-                setSyncStatus(`送信完了: 売上${revenueEntries.length}件, 他社${rivalEntries.length}件, 集客${gatheringEntries.length}件`);
+              const r1 = await fetch('/api/data?type=revenue', { method: 'POST', headers, body: mkBody(revenueEntries) });
+              if (r1.ok) {
+                setSyncStatus(`送信完了: 売上${revenueEntries.length}件`);
               } else {
-                let d1 = '', d2 = '', d3 = '';
+                let d1 = '';
                 try { const j = await r1.json(); d1 = j.detail || j.error || ''; } catch {}
-                try { const j = await r2.json(); d2 = j.detail || j.error || ''; } catch {}
-                try { const j = await r3.json(); d3 = j.detail || j.error || ''; } catch {}
-                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}, rival=${r2.status}${d2 ? '(' + d2 + ')' : ''}, gathering=${r3.status}${d3 ? '(' + d3 + ')' : ''}`);
+                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}`);
               }
             } catch (e) {
               setSyncStatus('送信エラー: ' + e.message);
@@ -177,12 +169,8 @@ window.SettingsPage = () => {
           onClick: async () => {
             setSyncStatus('取得中...');
             try {
-              const [r1, r2, r3] = await Promise.all([
-                DataService.syncFromCloud('revenue'),
-                DataService.syncFromCloud('rival'),
-                DataService.syncFromCloud('gathering'),
-              ]);
-              setSyncStatus(`取得完了: 売上+${r1.merged}件, 他社+${r2.merged}件, 集客+${r3.merged}件`);
+              const r1 = await DataService.syncFromCloud('revenue');
+              setSyncStatus(`取得完了: 売上+${r1.merged}件`);
             } catch (e) {
               setSyncStatus('取得エラー: ' + e.message);
             }

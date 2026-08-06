@@ -1168,12 +1168,8 @@ window.DataManagePage = () => {
 
   const tabs = [
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
-    { id: 'user', label: 'ユーザー', icon: 'person' },
     { id: 'vacant', label: '空車記録', icon: 'person_off' },
     { id: 'standby', label: '待機記録', icon: 'hourglass_top' },
-    { id: 'rival', label: '他社記録', icon: 'local_taxi' },
-    { id: 'transit', label: '交通情報', icon: 'directions_transit' },
-    { id: 'gps', label: 'GPS記録', icon: 'location_on' },
     { id: 'gps-analysis', label: 'GPS分析', icon: 'analytics' },
     { id: 'asahikawa', label: '旭川市データ', icon: 'location_city' },
     { id: 'trash', label: 'ゴミ箱', icon: 'delete_outline' },
