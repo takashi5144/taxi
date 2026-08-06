@@ -79,6 +79,8 @@
     try {
       DataService.applyPlaceAliasesToExistingData();
       DataService.migrateStationDropoffPurpose();
+      // 削除済みフォーム項目のデータを既存レコードから除去
+      if (DataService.cleanRemovedRevenueFields) DataService.cleanRemovedRevenueFields();
     } catch (e) { /* ignore */ }
   }, 1500);
 })();

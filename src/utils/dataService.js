@@ -487,6 +487,69 @@ window.DataService = (() => {
   }
 
   // ============================================================
+  // 売上記録: 現行フォーム項目以外のフィールドを削除
+  // 残す: id/金額/日付/合算日/曜日祝日/乗車降車時間/人数/支払/割引/システム用
+  // 消す: 天候/性別/用途/メモ(クーポン以外)/配車/地点/GPS/リピーター/待機 等
+  // ============================================================
+  const REVENUE_KEEP_KEYS = [
+    'id', 'amount', 'date', 'dayOfWeek', 'holiday', 'shiftDate',
+    'pickupTime', 'dropoffTime', 'passengers',
+    'paymentMethod', 'discounts', 'discountAmount', 'discountType', 'couponAmount',
+    'couponParentId', 'timestamp', 'noPassenger',
+  ];
+
+  function _slimRevenueEntry(e) {
+    if (!e || typeof e !== 'object') return e;
+    const slim = {};
+    REVENUE_KEEP_KEYS.forEach((k) => {
+      if (e[k] !== undefined) slim[k] = e[k];
+    });
+    // クーポン未収サブエントリ判定に memo が必要なため、該当時のみ残す
+    if (e.memo && String(e.memo).includes('クーポン未収')) {
+      slim.memo = e.memo;
+    }
+    return slim;
+  }
+
+  /**
+   * 既存売上データから、削除済みフォーム項目のフィールドだけを除去する。
+   * @param {{ force?: boolean }} opts force=true で再実行可能
+   * @returns {{ cleaned: number, fieldsRemoved: number, alreadyDone: boolean }}
+   */
+  function cleanRemovedRevenueFields(opts) {
+    const force = !!(opts && opts.force);
+    const KEY = 'taxi_migration_slim_revenue_fields_v1';
+    if (!force && localStorage.getItem(KEY)) {
+      return { cleaned: 0, fieldsRemoved: 0, alreadyDone: true };
+    }
+
+    const entries = _getRawEntries();
+    let cleaned = 0;
+    let fieldsRemoved = 0;
+    const next = entries.map((e) => {
+      const beforeKeys = Object.keys(e || {});
+      const slim = _slimRevenueEntry(e);
+      const afterKeys = Object.keys(slim);
+      const removed = beforeKeys.length - afterKeys.length;
+      if (removed > 0) {
+        cleaned += 1;
+        fieldsRemoved += removed;
+      }
+      return slim;
+    });
+
+    if (cleaned > 0) {
+      saveEntries(next);
+      AppLogger.info(`売上記録フィールド整理: ${cleaned}件から不要項目を削除（計${fieldsRemoved}フィールド）`);
+    } else {
+      AppLogger.info('売上記録フィールド整理: 削除対象なし');
+    }
+    try { localStorage.setItem(KEY, '1'); } catch (err) { /* ignore */ }
+    _notifyDataChanged('revenue');
+    return { cleaned, fieldsRemoved, alreadyDone: false };
+  }
+
+  // ============================================================
   // ファイル保存・復元（売上データフォルダ）
   // ============================================================
   let _dirHandle = null; // File System Access API用
@@ -2175,21 +2238,9 @@ window.DataService = (() => {
       date: entryDate,
       dayOfWeek: dateInfo.dayOfWeek,
       holiday: dateInfo.holiday || '',
-      weather: form.weather || '',
-      temperature: form.temperature != null ? form.temperature : null,
-      pickup: form.pickup || '',
       pickupTime: form.pickupTime || '',
-      dropoff: form.dropoff || '',
       dropoffTime: form.dropoffTime || '',
       passengers: form.passengers || '',
-      gender: form.gender || '',
-      purpose: form.purpose || '送迎',
-      memo: form.memo || '',
-      source: form.source || '',
-      pickupCoords: form.pickupCoords || null,
-      dropoffCoords: form.dropoffCoords || null,
-      pickupLandmark: form.pickupLandmark || '',
-      dropoffLandmark: form.dropoffLandmark || '',
       noPassenger: form.noPassenger || false,
       paymentMethod: form.paymentMethod || 'cash',
       discounts: (() => {
@@ -2207,11 +2258,7 @@ window.DataService = (() => {
         return types.join(',');
       })(),
       couponAmount: _couponAmt > 0 ? _couponAmt : 0,
-      waitingTime: '',
       timestamp: new Date().toISOString(),
-      isRegisteredUser: form.isRegisteredUser || false,
-      customerName: form.customerName || '',
-      standbyInfo: form.standbyInfo || null,
       shiftDate: form.shiftDate || entryDate,
     };
 
@@ -2227,28 +2274,16 @@ window.DataService = (() => {
         date: entryDate,
         dayOfWeek: dateInfo.dayOfWeek,
         holiday: dateInfo.holiday || '',
-        weather: form.weather || '',
-        temperature: form.temperature != null ? form.temperature : null,
-        pickup: form.pickup || '',
         pickupTime: form.pickupTime || '',
-        dropoff: form.dropoff || '',
         dropoffTime: form.dropoffTime || '',
         passengers: '',
-        gender: '',
-        purpose: '',
         memo: `クーポン未収（¥${_couponUnitPrice.toLocaleString()}×${_couponSheets}枚）`,
-        source: form.source || '',
-        pickupCoords: form.pickupCoords || null,
-        dropoffCoords: form.dropoffCoords || null,
-        pickupLandmark: form.pickupLandmark || '',
-        dropoffLandmark: form.dropoffLandmark || '',
         noPassenger: false,
         paymentMethod: 'uncollected',
         discounts: [],
         discountAmount: 0,
         discountType: '',
         couponAmount: 0,
-        waitingTime: '',
         timestamp: new Date().toISOString(),
         shiftDate: form.shiftDate || entryDate,
       };
@@ -2260,7 +2295,7 @@ window.DataService = (() => {
     const paymentStr = entry.paymentMethod === 'uncollected' ? ' [未収]' : entry.paymentMethod === 'didi' ? ' [DIDI決済]' : '';
     const discountStr = entry.discountAmount > 0 ? ` [割引¥${entry.discountAmount}]` : '';
     const couponStr = _couponAmt > 0 ? ` [クーポン¥${_couponAmt}→未収]` : '';
-    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr}${couponStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr}, ${entry.weather || '天候未設定'})`);
+    AppLogger.info(`売上記録追加: ¥${entry.amount}${paymentStr}${discountStr}${couponStr} (${entry.date} ${dateInfo.dayOfWeek}${holidayStr})`);
     // 自動ファイル保存
     autoSaveToFile();
     _syncToCloudOrDefer('revenue', entries);
@@ -7428,6 +7463,7 @@ window.DataService = (() => {
     getVacantEntries,
     getStandbyEntries,
     saveEntries,
+    cleanRemovedRevenueFields,
 
     // フィルタ
     getFilteredEntries: (dayType) => _filterByDayType(getEntries(), dayType),

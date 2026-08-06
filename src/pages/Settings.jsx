@@ -411,6 +411,37 @@ window.SettingsPage = () => {
           React.createElement('span', { style: { color: 'var(--text-secondary)' } }, 'React'),
           React.createElement('span', null, React.version)
         )
+      ),
+      React.createElement('div', {
+        style: {
+          marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        },
+      },
+        React.createElement('div', {
+          style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.6 },
+        }, '売上記録から、削除済み項目（天候・性別・用途・配車・地点・メモ等）のデータを取り除きます。金額・日付・時間・支払・割引・人数は残します。'),
+        React.createElement(Button, {
+          variant: 'secondary',
+          icon: 'cleaning_services',
+          onClick: () => {
+            if (!window.DataService || !DataService.cleanRemovedRevenueFields) {
+              alert('この機能は利用できません');
+              return;
+            }
+            if (!confirm('削除済み項目のデータを整理しますか？\n（金額・日付など現行項目はそのまま残ります）')) return;
+            try {
+              const r = DataService.cleanRemovedRevenueFields({ force: true });
+              if (r.alreadyDone && r.cleaned === 0) {
+                alert('すでに整理済みか、削除対象がありませんでした。');
+              } else {
+                alert(`整理完了: ${r.cleaned}件の記録から、不要フィールド ${r.fieldsRemoved} 個を削除しました。`);
+              }
+            } catch (e) {
+              alert('整理に失敗しました: ' + (e.message || e));
+            }
+          },
+        }, '売上記録の不要データを整理')
       )
     )
   );
