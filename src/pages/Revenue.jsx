@@ -140,13 +140,11 @@ window.RevenuePage = () => {
     setEditErrors([]);
   }, []);
 
-  , []);
-
   const cancelEdit = useCallback(() => {
     setEditingId(null);
     setEditForm({});
     setEditErrors([]);
-    }, []);
+  }, []);
 
   const saveEdit = useCallback(() => {
     setEditErrors([]);

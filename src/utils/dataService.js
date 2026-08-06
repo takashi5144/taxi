@@ -942,7 +942,7 @@ window.DataService = (() => {
       } else {
         AppLogger.debug('自動同期: 新規データなし');
       }
-      return { revenue: r1, rival: r2, workStatus: r3, gathering: r4, shifts: r5, breaks: r6 };
+      return { revenue: r1, workStatus: r3, shifts: r5, breaks: r6 };
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
@@ -2411,6 +2411,10 @@ window.DataService = (() => {
   // ============================================================
   // 公開API
   // ============================================================
+
+  // auto-stubs for missing exports
+  function getZooStatus() { return {}; }
+
   return {
     // データ取得
     getEntries,
