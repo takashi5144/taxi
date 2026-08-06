@@ -12,7 +12,7 @@
   T.utils.logger = AppLogger;
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
-  T.utils.gpsLogService = GpsLogService;
+  if (window.GpsLogService) T.utils.gpsLogService = GpsLogService;
   if (window.GoogleSheetsService) T.utils.sheetsService = GoogleSheetsService;
 
   // Contexts
@@ -20,15 +20,11 @@
   T.contexts.AppProvider = AppProvider;
   T.contexts.MapContext = MapContext;
   T.contexts.MapProvider = MapProvider;
-  T.contexts.LogContext = LogContext;
-  T.contexts.LogProvider = LogProvider;
 
   // Hooks
   T.hooks.useAppContext = useAppContext;
   T.hooks.useMapContext = useMapContext;
-  T.hooks.useLogContext = useLogContext;
-  T.hooks.useGeolocation = useGeolocation;
-  T.hooks.useLogger = useLogger;
+  if (window.useLogger) T.hooks.useLogger = useLogger;
 
   // Components
   T.components.Loading = Loading;
@@ -66,27 +62,26 @@
   AppLogger.info(`バージョン: ${APP_CONSTANTS.VERSION}`);
   AppLogger.info(`React バージョン: ${React.version}`);
 
-  // 既存データに場所名エイリアスを適用
-  DataService.applyPlaceAliasesToExistingData();
-  // 降車地「旭川駅前北口」の用途を「駅移動」に一括更新
-  DataService.migrateStationDropoffPurpose();
-
   const root = ReactDOM.createRoot(document.getElementById('root'));
 
   root.render(
     React.createElement(ErrorBoundary, null,
       React.createElement(AppProvider, null,
         React.createElement(MapProvider, null,
-          React.createElement(LogProvider, null,
-            React.createElement(App)
-          )
+          React.createElement(App)
         )
       )
     )
   );
   AppLogger.info('アプリケーション起動完了');
-  AppLogger.info(`登録済みコンポーネント: ${Object.keys(T.components).length}個, ページ: ${Object.keys(T.pages).length}個`);
-  if (window.GpsLogService) GpsLogService.cleanup();
+
+  // 重い一回限りマイグレーションは描画後に遅延実行
+  setTimeout(() => {
+    try {
+      DataService.applyPlaceAliasesToExistingData();
+      DataService.migrateStationDropoffPurpose();
+    } catch (e) { /* ignore */ }
+  }, 1500);
 })();
 
 })();

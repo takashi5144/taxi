@@ -2,7 +2,6 @@
 // Header.jsx - ヘッダーナビゲーション
 window.Header = () => {
   const { currentPage, navigate, sidebarOpen, setSidebarOpen } = useAppContext();
-  const { currentLocationName, isTracking } = useMapContext();
 
   return React.createElement('header', { className: 'header' },
     // メニュートグル（モバイル）
@@ -19,36 +18,6 @@ window.Header = () => {
       onClick: () => navigate('dashboard'),
     },
       React.createElement('span', { className: 'material-icons-round' }, 'local_taxi')
-    ),
-
-    // 現在地表示（GPS追跡中は常時表示）
-    isTracking && currentLocationName && React.createElement('div', {
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        padding: '4px 10px',
-        borderRadius: '20px',
-        background: 'rgba(100, 181, 246, 0.12)',
-        border: '1px solid rgba(100, 181, 246, 0.25)',
-        fontSize: '12px',
-        color: '#64b5f6',
-        fontWeight: 500,
-        maxWidth: '280px',
-        flexShrink: 1,
-        overflow: 'hidden',
-      },
-    },
-      React.createElement('span', {
-        className: 'material-icons-round',
-        style: { fontSize: '14px', flexShrink: 0 },
-      }, 'location_on'),
-      React.createElement('span', {
-        style: {
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          fontSize: '11px',
-        },
-      }, currentLocationName)
     ),
 
     // ナビゲーション（PC用）

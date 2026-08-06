@@ -69,11 +69,10 @@ window.GatheringMemoPage = () => {
     if (weatherFetched.current) return;
     weatherFetched.current = true;
 
-    // GPSキャッシュから天気取得を試みる
-    const cached = GpsLogService.getCurrentWeather();
+    // GPSキャッシュから天気取得を試みる（サービスがある場合のみ）
+    const cached = window.GpsLogService && GpsLogService.getCurrentWeather && GpsLogService.getCurrentWeather();
     if (cached && cached.weather) {
       setForm(prev => prev.weather ? prev : { ...prev, weather: cached.weather, temperature: cached.temperature != null ? cached.temperature : null });
-      AppLogger.info(`集客メモ 天気GPSキャッシュ使用: ${cached.weather} ${cached.temperature}℃`);
       return;
     }
 

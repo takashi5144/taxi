@@ -407,6 +407,9 @@ window.DataService = (() => {
 
   // 既存データの場所名をエイリアス・座標マッチで統一 + ランドマーク補完
   function applyPlaceAliasesToExistingData() {
+    // 毎回全件スキャンすると起動が重いため、一度だけ実行
+    const FLAG = 'taxi_migration_place_aliases_v1';
+    if (localStorage.getItem(FLAG)) return;
     const alias = TaxiApp.utils.applyPlaceAlias;
     const matchKnown = TaxiApp.utils.matchKnownPlace;
     let changed = false;
@@ -461,6 +464,7 @@ window.DataService = (() => {
       saveRivalEntries(rivals);
       AppLogger.info(`他社乗車データの場所名を統一しました`);
     }
+    try { localStorage.setItem(FLAG, '1'); } catch (e) { /* ignore */ }
   }
 
   // 一回限りマイグレーション: 降車地「旭川駅前北口」→ 用途「駅移動」

@@ -1,8 +1,10 @@
 (function() {
 // Logs.jsx - ログビューアページ
 window.LogsPage = () => {
-  const { useState, useMemo } = React;
-  const { logs, clearLogs } = useLogContext();
+  const { useState, useMemo, useEffect } = React;
+  const [logs, setLogs] = useState(() => AppLogger.getLogs());
+  const clearLogs = () => { AppLogger.clearLogs(); setLogs(AppLogger.getLogs()); };
+  useEffect(() => AppLogger.subscribe(setLogs), []);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 

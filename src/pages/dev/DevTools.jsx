@@ -2,7 +2,7 @@
 // DevTools.jsx - 開発者ツールハブ
 window.DevToolsPage = () => {
   const { navigate } = useAppContext();
-  const { logs } = useLogContext();
+  const logs = AppLogger.getLogs();
 
   const tools = [
     {

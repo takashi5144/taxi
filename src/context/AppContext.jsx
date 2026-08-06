@@ -46,15 +46,14 @@ window.AppProvider = ({ children }) => {
     }
   }, []);
 
+  // クラウド同期は起動直後ではなく少し遅らせて UI を優先
   useEffect(() => {
     const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
     if (!secret) return;
-    DataService.autoSync();
-  }, []);
-
-  useEffect(() => {
-    DemandNotificationService.start();
-    return () => DemandNotificationService.stop();
+    const t = setTimeout(() => {
+      try { DataService.autoSync(); } catch (e) { /* ignore */ }
+    }, 2500);
+    return () => clearTimeout(t);
   }, []);
 
   const value = {

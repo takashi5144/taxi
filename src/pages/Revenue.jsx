@@ -26,7 +26,6 @@ window.RevenuePage = () => {
     return (h >= 0 && h < 5) ? 'previous' : 'today';
   }); // 0〜5時は前日合算がデフォルト
 
-  const mapCtx = useMapContext();
 
   // データは常にDataServiceから取得（単一のデータソース）
   const entries = useMemo(() => DataService.getEntries(), [refreshKey]);
