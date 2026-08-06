@@ -11,7 +11,6 @@
     "src/utils/holidays.js",
     "src/utils/notificationService.js",
     "src/utils/dataService.js",
-    "src/utils/sheetsService.js",
     "src/context/MapContext.jsx",
     "src/context/AppContext.jsx",
     "src/components/common/Loading.jsx",
