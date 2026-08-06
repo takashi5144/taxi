@@ -2261,6 +2261,12 @@ window.DataService = (() => {
     autoSaveToFile();
     _syncToCloudOrDefer('revenue', entries);
     _notifyDataChanged('revenue');
+    // Google スプレッドシート自動追記（設定時）
+    if (window.GoogleSheetsService) {
+      try {
+        GoogleSheetsService.onEntriesSaved([entry, couponEntry].filter(Boolean));
+      } catch (e) { /* 売上保存を妨げない */ }
+    }
     return { success: true, entry, couponEntry };
   }
 

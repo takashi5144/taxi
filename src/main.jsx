@@ -13,6 +13,7 @@
   T.utils.storage = AppStorage;
   T.utils.dataService = DataService;
   T.utils.gpsLogService = GpsLogService;
+  if (window.GoogleSheetsService) T.utils.sheetsService = GoogleSheetsService;
 
   // Contexts
   T.contexts.AppContext = AppContext;

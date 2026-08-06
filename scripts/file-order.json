@@ -11,6 +11,7 @@
     "src/utils/holidays.js",
     "src/utils/notificationService.js",
     "src/utils/dataService.js",
+    "src/utils/sheetsService.js",
     "src/utils/demandNotificationService.js",
     "src/utils/asahikawaData.js",
     "src/utils/gpsLogService.js",

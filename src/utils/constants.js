@@ -498,6 +498,10 @@ window.APP_CONSTANTS = {
     ASAHIKAWA_DATA: 'taxi_app_asahikawa_data',
     DEFAULT_SHIFT_START: 'taxi_app_default_shift_start',
     DEFAULT_SHIFT_END: 'taxi_app_default_shift_end',
+    SHEETS_WEBAPP_URL: 'taxi_app_sheets_webapp_url',
+    SHEETS_SECRET: 'taxi_app_sheets_secret',
+    SHEETS_AUTO_SYNC: 'taxi_app_sheets_auto_sync',
+    SHEETS_SHEET_NAME: 'taxi_app_sheets_sheet_name',
   },
 
   // 夜勤設定
