@@ -25,7 +25,6 @@ window.RevenuePage = () => {
     const h = new Date().getHours();
     return (h >= 0 && h < 5) ? 'previous' : 'today';
   }); // 0〜5時は前日合算がデフォルト
-  const sourceSectionRef = useRef(null);
 
   const mapCtx = useMapContext();
 
@@ -822,40 +821,6 @@ window.RevenuePage = () => {
               d.setDate(d.getDate() - 1);
               return getLocalDateString(d) + 'に合算';
             })())
-          ),
-
-          // 配車方法
-          React.createElement('div', { className: 'form-group', ref: sourceSectionRef },
-            React.createElement('label', { className: 'form-label' }, '配車方法'),
-            React.createElement('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-              ...[
-                { value: 'Go', icon: '🟢' },
-                { value: 'Uber', icon: '⚫' },
-                { value: 'DIDI', icon: '🟠' },
-                { value: '電話', icon: '📞' },
-                { value: '流し', icon: '🚕' },
-                { value: '待機', icon: '🅿' },
-              ].map(s =>
-                React.createElement('button', {
-                  key: s.value,
-                  type: 'button',
-                  onClick: () => setForm({ ...form, source: form.source === s.value ? '' : s.value }),
-                  style: {
-                    display: 'flex', alignItems: 'center', gap: '4px',
-                    padding: '8px 14px', borderRadius: '8px',
-                    fontSize: '13px', fontWeight: form.source === s.value ? '700' : '400',
-                    cursor: 'pointer',
-                    border: form.source === s.value ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.15)',
-                    background: form.source === s.value ? 'rgba(26,115,232,0.25)' : 'rgba(255,255,255,0.05)',
-                    color: form.source === s.value ? 'var(--color-primary-light)' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  },
-                },
-                  React.createElement('span', { style: { fontSize: '16px' } }, s.icon),
-                  s.value
-                )
-              )
-            )
           ),
 
           // 金額
