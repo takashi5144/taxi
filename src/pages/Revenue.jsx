@@ -337,62 +337,6 @@ window.RevenuePage = () => {
 
       React.createElement('form', { onSubmit: handleSubmit },
         React.createElement('div', { className: 'grid grid--2' },
-          // 乗車時間
-          (() => {
-            const filled = !!form.pickupTime;
-            return React.createElement('div', { className: 'form-group' },
-              React.createElement('label', {
-                className: 'form-label',
-                style: {
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  color: filled ? 'var(--color-accent)' : undefined,
-                  fontWeight: filled ? 600 : undefined,
-                },
-              },
-                '乗車時間',
-                filled && React.createElement('span', {
-                  style: {
-                    fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px',
-                    background: 'rgba(0,200,83,0.15)', color: 'var(--color-accent)',
-                  },
-                }, '入力済')
-              ),
-              React.createElement('div', { style: { display: 'flex', gap: '6px', alignItems: 'stretch' } },
-                React.createElement('input', {
-                  className: 'form-input',
-                  type: 'time',
-                  value: form.pickupTime,
-                  onChange: (e) => setForm({ ...form, pickupTime: e.target.value }),
-                  style: {
-                    flex: 1, minWidth: 0, colorScheme: 'dark',
-                    transition: 'border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease',
-                    border: filled ? '2px solid var(--color-accent)' : undefined,
-                    background: filled ? 'rgba(0,200,83,0.12)' : undefined,
-                    color: filled ? 'var(--color-accent)' : undefined,
-                    fontWeight: filled ? 700 : undefined,
-                    boxShadow: filled ? '0 0 0 3px rgba(0,200,83,0.12)' : undefined,
-                  },
-                }),
-                React.createElement('button', {
-                  type: 'button',
-                  onClick: () => setForm({ ...form, pickupTime: getNowTime() }),
-                  style: {
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-                    padding: '8px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
-                    color: filled ? '#0a3d1f' : '#fff', cursor: 'pointer',
-                    border: filled ? '1px solid var(--color-accent)' : '1px solid rgba(255,255,255,0.15)',
-                    background: filled ? 'var(--color-accent)' : 'rgba(0,200,83,0.2)',
-                    transition: 'all 0.2s ease', whiteSpace: 'nowrap', flex: '0 0 auto',
-                  },
-                  title: '現在時刻をセット',
-                },
-                  React.createElement('span', { className: 'material-icons-round', style: { fontSize: '16px' } }, 'schedule'),
-                  '現在'
-                )
-              )
-            );
-          })(),
-
           // 降車時間
           (() => {
             const filled = !!form.dropoffTime;
