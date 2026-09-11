@@ -419,6 +419,18 @@ window.CalendarPage = () => {
             `税抜 ¥${Math.round(yearlySummary.totalRevenue / 1.1).toLocaleString()}`
           )
         )
+      ),
+      createElement('div', {
+        style: {
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginTop: '10px', padding: '8px 10px', borderRadius: '8px',
+          background: 'rgba(255, 167, 38, 0.12)',
+        }
+      },
+        createElement('span', { style: { fontSize: '13px', color: '#ffa726', fontWeight: 600 } }, '給料（税抜の50%）'),
+        createElement('span', {
+          style: { fontWeight: 800, fontSize: '20px', color: '#ffa726' }
+        }, `¥${Math.round(yearlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`)
       )
     ),
 
@@ -1325,6 +1337,11 @@ window.CalendarPage = () => {
           createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, `${yearlySummary.label} 年間売上合計`),
           createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-secondary)' } },
             yearlySummary.totalRevenue > 0 ? `${yearlySummary.totalRevenue.toLocaleString()}円` : '−'
+          ),
+          createElement('div', { style: { fontSize: '13px', color: '#ffa726', fontWeight: 700, marginTop: '4px' } },
+            yearlySummary.totalRevenue > 0
+              ? `給料（税抜の50%） ¥${Math.round(yearlySummary.totalRevenue / 1.1 * 0.5).toLocaleString()}`
+              : '給料 −'
           )
         )
       )
