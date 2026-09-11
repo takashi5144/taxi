@@ -307,6 +307,7 @@ window.CalendarPage = () => {
         status: workStatus[dateStr] || null,
         workMin: Math.round(shiftMin),
         breakMin: Math.round(breakMin),
+        netMin: Math.max(0, Math.round(shiftMin) - 60),
       });
     }
     return days;
@@ -707,7 +708,9 @@ window.CalendarPage = () => {
           key: d.dateStr,
           role: 'button',
           tabIndex: 0,
-          'aria-label': d.dateStr + (d.revenue > 0 ? ' 売上' + d.revenue + '円' : ''),
+          'aria-label': d.dateStr
+            + (d.revenue > 0 ? ' 売上' + d.revenue + '円' : '')
+            + (d.workMin > 0 ? ' 実働' + Math.floor(d.netMin / 60) + '時間' : ''),
           onClick: () => {
             const next = d.dateStr === selectedDate ? null : d.dateStr;
             setSelectedDate(next);
@@ -728,7 +731,7 @@ window.CalendarPage = () => {
           style: {
             background: isSelected ? 'rgba(33,150,243,0.15)' : isToday ? 'rgba(0,200,83,0.08)' : 'var(--bg-card)',
             padding: '4px 2px',
-            minHeight: 62,
+            minHeight: 68,
             cursor: 'pointer',
             position: 'relative',
             borderLeft: isToday ? '3px solid var(--color-accent)' : 'none',
@@ -763,20 +766,19 @@ window.CalendarPage = () => {
               lineHeight: 1.1,
             }
           }, `${d.count}件${d.passengers}人`),
-          // 勤務時間（実働）
-          (d.workMin - d.breakMin) > 0 && createElement('div', {
+          // 実働（始業〜終業 − 休憩1時間）
+          d.workMin > 0 && createElement('div', {
             style: {
-              fontSize: 8,
-              color: 'var(--text-muted)',
+              fontSize: 10,
+              color: '#80cbc4',
               textAlign: 'center',
-              lineHeight: 1.1,
-              opacity: 0.8,
+              fontWeight: 700,
+              lineHeight: 1.2,
             }
           }, (() => {
-            const net = d.workMin - d.breakMin;
-            const h = Math.floor(net / 60);
-            const m = net % 60;
-            return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`;
+            const h = Math.floor(d.netMin / 60);
+            const m = d.netMin % 60;
+            return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
           })()),
           // ステータスマーク（休日=橙 / 休日キャンセル=赤 / 休日出勤=青）
           (d.status === 'off' || d.status === 'off_cancel' || d.status === 'holiday_work') && createElement('div', {
@@ -1264,8 +1266,8 @@ window.CalendarPage = () => {
         )
       ),
 
-      // 稼働時間サマリー
-      (selectedDayData.workMin > 0 || selectedDayData.breakMin > 0) && createElement('div', {
+      // 稼働時間サマリー（実働 = 始業〜終業 − 休憩1時間）
+      selectedDayData.workMin > 0 && createElement('div', {
         style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)', marginBottom: 'var(--space-sm)' }
       },
         createElement('div', {
@@ -1279,16 +1281,12 @@ window.CalendarPage = () => {
           ),
           createElement('div', null,
             createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '休憩'),
-            createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-warning)' } },
-              selectedDayData.breakMin > 0
-                ? (() => { const h = Math.floor(selectedDayData.breakMin / 60); const m = selectedDayData.breakMin % 60; return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`; })()
-                : '0h'
-            )
+            createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-warning)' } }, '1h')
           ),
           createElement('div', null,
             createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '実働'),
             createElement('div', { style: { fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-accent)' } },
-              (() => { const net = Math.max(0, selectedDayData.workMin - selectedDayData.breakMin); const h = Math.floor(net / 60); const m = net % 60; return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`; })()
+              (() => { const net = selectedDayData.netMin != null ? selectedDayData.netMin : Math.max(0, selectedDayData.workMin - 60); const h = Math.floor(net / 60); const m = net % 60; return m > 0 ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`; })()
             )
           )
         )
