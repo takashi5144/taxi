@@ -271,29 +271,32 @@ window.CalendarPage = () => {
     };
   }, [calendarDays, todayStr]);
 
-  // 表示中の年の年間売上合計（日次合計があれば優先、なければ個別売上）
+  // 年間売上合計: 日次売上記録のみ。期間は 12/1〜翌年11/30
   const yearlySummary = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const prefix = `${year}-`;
-    const dates = new Set();
-    Object.keys(dailySalesMap || {}).forEach(d => { if (d && d.indexOf(prefix) === 0) dates.add(d); });
-    Object.keys(dailyRevenue || {}).forEach(d => { if (d && d.indexOf(prefix) === 0) dates.add(d); });
+    const y = currentMonth.getFullYear();
+    const m = currentMonth.getMonth(); // 0=1月 ... 11=12月
+    const startYear = m === 11 ? y : y - 1;
+    const start = `${startYear}-12-01`;
+    const end = `${startYear + 1}-11-30`;
     let total = 0;
     let daysWithRevenue = 0;
-    dates.forEach(dateStr => {
-      const sale = dailySalesMap[dateStr];
-      const amt = (sale != null && sale > 0) ? sale : ((dailyRevenue[dateStr] && dailyRevenue[dateStr].total) || 0);
+    Object.keys(dailySalesMap || {}).forEach((dateStr) => {
+      if (!dateStr || dateStr < start || dateStr > end) return;
+      const amt = Number(dailySalesMap[dateStr]) || 0;
       if (amt > 0) {
         total += amt;
         daysWithRevenue += 1;
       }
     });
     return {
-      year,
+      year: startYear,
+      start,
+      end,
+      label: `${startYear}年12月〜${startYear + 1}年11月`,
       totalRevenue: total,
       daysWithRevenue,
     };
-  }, [currentMonth, dailySalesMap, dailyRevenue]);
+  }, [currentMonth, dailySalesMap]);
 
   // 選択日の詳細
   const selectedDayData = useMemo(() => {
@@ -402,7 +405,7 @@ window.CalendarPage = () => {
         createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
           createElement('span', { className: 'material-icons-round', style: { fontSize: 22, color: 'var(--color-primary-light)' } }, 'calendar_today'),
           createElement('div', null,
-            createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, `${yearlySummary.year}年 年間売上合計`),
+            createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, `${yearlySummary.label} 年間売上合計`),
             createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' } },
               yearlySummary.daysWithRevenue > 0 ? `${yearlySummary.daysWithRevenue}日分` : 'まだデータがありません'
             )
@@ -1319,7 +1322,7 @@ window.CalendarPage = () => {
           )
         ),
         createElement('div', { style: { gridColumn: '1 / -1' } },
-          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, `${yearlySummary.year}年 年間売上合計`),
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, `${yearlySummary.label} 年間売上合計`),
           createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-secondary)' } },
             yearlySummary.totalRevenue > 0 ? `${yearlySummary.totalRevenue.toLocaleString()}円` : '−'
           )
