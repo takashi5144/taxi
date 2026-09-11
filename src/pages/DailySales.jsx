@@ -1,6 +1,6 @@
 (function() {
 // DailySales.jsx - 勤務日の1日合計売上を記録（カレンダー反映）
-window.DailySalesPage = ({ embedded }) => {
+window.DailySalesPage = ({ embedded, manage }) => {
   const { useState, useEffect, useMemo } = React;
 
   const todayDefault = getLocalDateString();
@@ -57,17 +57,23 @@ window.DailySalesPage = ({ embedded }) => {
     setRefreshKey(k => k + 1);
   };
 
+  const showForm = !manage || editingId;
+  const showList = !embedded;
+  const visibleList = manage
+    ? list
+    : list.slice(0, 60);
+
   return React.createElement('div', null,
-    !embedded && React.createElement('h1', { className: 'page-title' },
+    !embedded && !manage && React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'payments'),
       '売上'
     ),
 
-    React.createElement('p', {
+    !manage && React.createElement('p', {
       style: { fontSize: '12px', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)', lineHeight: 1.6 },
     }, '勤務日の1日合計金額だけを入力して保存します。カレンダーの各日に反映されます。'),
 
-    React.createElement(Card, { title: editingId ? '日次売上を編集' : '日次売上を記録', style: { marginBottom: 'var(--space-lg)' } },
+    showForm && React.createElement(Card, { title: editingId ? '日次売上を編集' : '日次売上を記録', style: { marginBottom: 'var(--space-lg)' } },
       errors.length > 0 && React.createElement('div', {
         style: {
           background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
@@ -158,10 +164,10 @@ window.DailySalesPage = ({ embedded }) => {
       )
     ),
 
-    React.createElement(Card, { title: `登録済み（${list.length}件）` },
-      list.length === 0
+    showList && React.createElement(Card, { title: `日次売上（${list.length}件）` },
+      visibleList.length === 0
         ? React.createElement('p', { style: { color: 'var(--text-muted)', fontSize: '13px' } }, 'まだ日次売上がありません')
-        : list.slice(0, 60).map(entry => {
+        : visibleList.map(entry => {
             const info = JapaneseHolidays.getDateInfo(entry.date);
             const dayColor = info.isSunday || info.isHoliday ? '#ef4444' : info.isSaturday ? '#3b82f6' : 'var(--text-muted)';
             return React.createElement('div', {

@@ -1126,7 +1126,7 @@ const GpsAnalysisTab = ({ refreshKey }) => {
 
 window.DataManagePage = () => {
   const { useState, useEffect, useCallback, useMemo, useRef } = React;
-  const [tab, setTab] = useState('revenue');
+  const [tab, setTab] = useState('daily-sales');
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -1167,6 +1167,7 @@ window.DataManagePage = () => {
   
 
   const tabs = [
+    { id: 'daily-sales', label: '日次売上', icon: 'payments' },
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'vacant', label: '空車記録', icon: 'person_off' },
     { id: 'standby', label: '待機記録', icon: 'hourglass_top' },
@@ -2893,6 +2894,9 @@ window.DataManagePage = () => {
             filteredUser.map(e => revenueRow(e))
           )
     ),
+
+    // === 日次売上タブ ===
+    tab === 'daily-sales' && React.createElement(DailySalesPage, { manage: true }),
 
     // === 空車記録タブ ===
     tab === 'vacant' && React.createElement(React.Fragment, null,
