@@ -271,6 +271,30 @@ window.CalendarPage = () => {
     };
   }, [calendarDays, todayStr]);
 
+  // 表示中の年の年間売上合計（日次合計があれば優先、なければ個別売上）
+  const yearlySummary = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const prefix = `${year}-`;
+    const dates = new Set();
+    Object.keys(dailySalesMap || {}).forEach(d => { if (d && d.indexOf(prefix) === 0) dates.add(d); });
+    Object.keys(dailyRevenue || {}).forEach(d => { if (d && d.indexOf(prefix) === 0) dates.add(d); });
+    let total = 0;
+    let daysWithRevenue = 0;
+    dates.forEach(dateStr => {
+      const sale = dailySalesMap[dateStr];
+      const amt = (sale != null && sale > 0) ? sale : ((dailyRevenue[dateStr] && dailyRevenue[dateStr].total) || 0);
+      if (amt > 0) {
+        total += amt;
+        daysWithRevenue += 1;
+      }
+    });
+    return {
+      year,
+      totalRevenue: total,
+      daysWithRevenue,
+    };
+  }, [currentMonth, dailySalesMap, dailyRevenue]);
+
   // 選択日の詳細
   const selectedDayData = useMemo(() => {
     if (!selectedDate) return null;
@@ -362,7 +386,40 @@ window.CalendarPage = () => {
       'カレンダー'
     ),
 
-    // 売上総額・税抜き・給料予想額
+    // 年間売上合計
+    createElement('div', {
+      style: {
+        background: 'linear-gradient(135deg, rgba(26,115,232,0.18), rgba(255,167,38,0.12))',
+        borderRadius: 'var(--border-radius)',
+        padding: '14px 16px',
+        marginBottom: 'var(--space-md)',
+        border: '1px solid rgba(26,115,232,0.35)',
+      }
+    },
+      createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }
+      },
+        createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 22, color: 'var(--color-primary-light)' } }, 'calendar_today'),
+          createElement('div', null,
+            createElement('div', { style: { fontSize: '12px', color: 'var(--text-secondary)' } }, `${yearlySummary.year}年 年間売上合計`),
+            createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' } },
+              yearlySummary.daysWithRevenue > 0 ? `${yearlySummary.daysWithRevenue}日分` : 'まだデータがありません'
+            )
+          )
+        ),
+        createElement('div', { style: { textAlign: 'right' } },
+          createElement('div', {
+            style: { fontWeight: 800, fontSize: '24px', color: 'var(--color-secondary)', lineHeight: 1.2 }
+          }, `¥${Math.round(yearlySummary.totalRevenue).toLocaleString()}`),
+          createElement('div', { style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' } },
+            `税抜 ¥${Math.round(yearlySummary.totalRevenue / 1.1).toLocaleString()}`
+          )
+        )
+      )
+    ),
+
+    // 今月の売上総額・税抜き・給料予想額
     createElement('div', {
       style: {
         background: 'var(--surface-color)',
@@ -373,13 +430,13 @@ window.CalendarPage = () => {
         display: 'flex', flexDirection: 'column', gap: '6px',
       }
     },
-      // 売上総額
+      // 今月の売上合計
       createElement('div', {
         style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
       },
         createElement('span', {
           style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
-        }, '売上総額'),
+        }, `${currentMonth.getMonth() + 1}月 売上合計`),
         createElement('span', {
           style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: 'var(--text-primary)' }
         }, `¥${Math.round(monthlySummary.totalRevenue).toLocaleString()}`)
@@ -1259,6 +1316,12 @@ window.CalendarPage = () => {
           createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, '勤務日平均日収'),
           createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 700 } },
             monthlySummary.avgDaily > 0 ? `${monthlySummary.avgDaily.toLocaleString()}円` : '−'
+          )
+        ),
+        createElement('div', { style: { gridColumn: '1 / -1' } },
+          createElement('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, `${yearlySummary.year}年 年間売上合計`),
+          createElement('div', { style: { fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-secondary)' } },
+            yearlySummary.totalRevenue > 0 ? `${yearlySummary.totalRevenue.toLocaleString()}円` : '−'
           )
         )
       )
