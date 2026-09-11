@@ -320,8 +320,14 @@ window.CalendarPage = () => {
   const monthlySummary = useMemo(() => {
     let workDays = 0, offDays = 0, offCancelDays = 0, holidayWorkDays = 0, totalRevenue = 0, workDayRevenue = 0;
     let futureWorkDays = 0, futureOffDays = 0, totalDaysWithRevenue = 0, allDayRevenue = 0;
+    let totalNetMin = 0, totalWorkMin = 0, daysWithShift = 0;
     calendarDays.forEach(d => {
       if (!d) return;
+      if (d.workMin > 0) {
+        totalWorkMin += d.workMin;
+        totalNetMin += d.netMin || 0;
+        daysWithShift += 1;
+      }
       const isPastOrToday = d.dateStr <= todayStr;
       if (d.status === 'off') {
         if (isPastOrToday) offDays++;
@@ -355,6 +361,9 @@ window.CalendarPage = () => {
       remainingOffDays: futureOffDays,
       totalDaysInMonth: calendarDays.filter(d => d !== null).length,
       avgAllDays: totalDaysWithRevenue > 0 ? Math.round(allDayRevenue / totalDaysWithRevenue) : 0,
+      totalWorkMin,
+      totalNetMin,
+      daysWithShift,
     };
   }, [calendarDays, todayStr]);
 
@@ -596,6 +605,23 @@ window.CalendarPage = () => {
             style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: '#81c784' }
           }, `¥${Math.round(dailyGoal * (monthlySummary.workDays + monthlySummary.remainingWorkDays) * 0.5).toLocaleString()}`)
         )
+      ),
+      createElement('div', { style: { borderTop: '1px solid var(--border-color)' } }),
+      createElement('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }
+      },
+        createElement('span', {
+          style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
+        }, `実働合計（休憩1時間差引${monthlySummary.daysWithShift ? '・' + monthlySummary.daysWithShift + '日' : ''}）`),
+        createElement('span', {
+          style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: '#80cbc4' }
+        }, monthlySummary.totalNetMin > 0
+          ? (() => {
+              const h = Math.floor(monthlySummary.totalNetMin / 60);
+              const m = monthlySummary.totalNetMin % 60;
+              return m > 0 ? `${h}時間${m}分` : `${h}時間`;
+            })()
+          : '−')
       )
     ),
 
