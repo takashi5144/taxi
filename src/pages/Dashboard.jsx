@@ -98,6 +98,36 @@ window.DashboardPage = () => {
     }
   }, [shiftInfo.active]);
 
+  const handleShiftEnd = useCallback(() => {
+    if (!shiftInfo.active) return;
+    try {
+      const now = new Date();
+      const shifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const activeShift = shifts.find(s => !s.endTime);
+      if (!activeShift) return;
+      try {
+        const breaks = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        const ab = breaks.find(b => !b.endTime);
+        if (ab) {
+          ab.endTime = now.toISOString();
+          localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(breaks));
+          DataService.syncBreaksToCloud();
+        }
+      } catch { /* ignore */ }
+      activeShift.endTime = now.toISOString();
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
+      DataService.syncShiftsToCloud();
+      if (DataService.syncAllToCloud) DataService.syncAllToCloud();
+      setShiftInfo({ active: false, startTime: null });
+      setEditingStartTime(false);
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      window.dispatchEvent(new CustomEvent('taxi-auto-shift', { detail: { type: 'end' } }));
+      AppLogger.info(`終業: ${now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e) {
+      AppLogger.error('終業処理に失敗', e.message);
+    }
+  }, [shiftInfo.active]);
+
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'home'),
@@ -105,25 +135,49 @@ window.DashboardPage = () => {
     ),
 
     React.createElement(Card, { style: { padding: 'var(--space-md)' } },
-      React.createElement('button', {
-        type: 'button',
-        onClick: handleShiftStart,
-        disabled: shiftInfo.active,
-        style: {
-          width: '100%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-          padding: '18px 16px', borderRadius: '12px',
-          fontSize: '18px', fontWeight: '700', cursor: shiftInfo.active ? 'default' : 'pointer',
-          border: shiftInfo.active ? '2px solid var(--color-accent)' : '2px solid var(--color-warning)',
-          background: shiftInfo.active ? 'rgba(0,200,83,0.12)' : 'rgba(255,152,0,0.15)',
-          color: shiftInfo.active ? 'var(--color-accent)' : 'var(--color-warning)',
-        },
+      React.createElement('div', {
+        style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
       },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px' } },
-          shiftInfo.active ? 'work' : 'play_arrow'),
-        shiftInfo.active
-          ? `始業中 ${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}〜`
-          : '始業'
+        React.createElement('button', {
+          type: 'button',
+          onClick: handleShiftStart,
+          disabled: shiftInfo.active,
+          style: {
+            width: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            padding: '18px 12px', borderRadius: '12px',
+            fontSize: '18px', fontWeight: '700',
+            cursor: shiftInfo.active ? 'default' : 'pointer',
+            border: shiftInfo.active ? '2px solid var(--color-accent)' : '2px solid var(--color-warning)',
+            background: shiftInfo.active ? 'rgba(0,200,83,0.12)' : 'rgba(255,152,0,0.15)',
+            color: shiftInfo.active ? 'var(--color-accent)' : 'var(--color-warning)',
+            opacity: shiftInfo.active ? 0.95 : 1,
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px' } },
+            shiftInfo.active ? 'work' : 'play_arrow'),
+          shiftInfo.active
+            ? `始業中 ${new Date(shiftInfo.startTime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`
+            : '始業'
+        ),
+        React.createElement('button', {
+          type: 'button',
+          onClick: handleShiftEnd,
+          disabled: !shiftInfo.active,
+          style: {
+            width: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            padding: '18px 12px', borderRadius: '12px',
+            fontSize: '18px', fontWeight: '700',
+            cursor: shiftInfo.active ? 'pointer' : 'default',
+            border: shiftInfo.active ? '2px solid var(--color-danger)' : '2px solid rgba(255,255,255,0.15)',
+            background: shiftInfo.active ? 'rgba(229,57,53,0.15)' : 'rgba(255,255,255,0.04)',
+            color: shiftInfo.active ? 'var(--color-danger)' : 'var(--text-muted)',
+          },
+        },
+          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px' } }, 'stop_circle'),
+          '終業'
+        )
       ),
 
       shiftInfo.active && React.createElement('div', {
