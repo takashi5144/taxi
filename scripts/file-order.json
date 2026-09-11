@@ -22,6 +22,7 @@
     "src/components/Layout/BottomNav.jsx",
     "src/components/Layout/Layout.jsx",
     "src/pages/Dashboard.jsx",
+    "src/pages/DailySales.jsx",
     "src/pages/Revenue.jsx",
     "src/pages/Calendar.jsx",
     "src/pages/Analytics.jsx",

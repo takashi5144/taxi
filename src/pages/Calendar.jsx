@@ -138,6 +138,11 @@ window.CalendarPage = () => {
     return map;
   }, [currentMonth, refreshKey]);
 
+  // 日次合計売上（売上ページで登録）
+  const dailySalesMap = useMemo(() => {
+    return DataService.getDailySalesMap ? DataService.getDailySalesMap() : {};
+  }, [currentMonth, refreshKey]);
+
   // シフトデータ
   const shifts = useMemo(() => {
     try {
@@ -185,6 +190,11 @@ window.CalendarPage = () => {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const info = JapaneseHolidays.getDateInfo(dateStr);
       const rev = dailyRevenue[dateStr];
+      const dayTotalSale = dailySalesMap[dateStr];
+      // 日次合計があればそれを優先表示、なければ個別売上の合計
+      const displayRevenue = (dayTotalSale != null && dayTotalSale > 0)
+        ? dayTotalSale
+        : (rev ? rev.total : 0);
       // 勤務時間・休憩時間計算
       const dayShifts = shifts.filter(s => s.startTime && isoToLocalDate(s.startTime) === dateStr);
       const dayBreaks = breaks.filter(b => b.startTime && isoToLocalDate(b.startTime) === dateStr);
@@ -204,7 +214,8 @@ window.CalendarPage = () => {
         isHoliday: info.isHoliday,
         isSunday: info.isSunday,
         isSaturday: info.isSaturday,
-        revenue: rev ? rev.total : 0,
+        revenue: displayRevenue,
+        dailySale: dayTotalSale != null ? dayTotalSale : null,
         count: rev ? rev.count : 0,
         passengers: rev ? rev.passengers : 0,
         status: workStatus[dateStr] || null,
@@ -213,7 +224,7 @@ window.CalendarPage = () => {
       });
     }
     return days;
-  }, [currentMonth, dailyRevenue, workStatus, shifts, breaks]);
+  }, [currentMonth, dailyRevenue, dailySalesMap, workStatus, shifts, breaks]);
 
   // 今日の日付文字列
   const todayStr = useMemo(() => getLocalDateString(), []);
@@ -564,7 +575,7 @@ window.CalendarPage = () => {
           d.revenue > 0 && createElement('div', {
             style: {
               fontSize: 10,
-              color: 'var(--color-accent)',
+              color: d.dailySale != null ? 'var(--color-secondary)' : 'var(--color-accent)',
               textAlign: 'center',
               fontWeight: 600,
               lineHeight: 1.2,
@@ -685,10 +696,13 @@ window.CalendarPage = () => {
           }
           return 0;
         };
-        const dayTotal = dayEntries.reduce((sum, e) => {
+        const entryTotal = dayEntries.reduce((sum, e) => {
           if (_isCpnSub(e)) return sum;
           return sum + (e.amount || 0) + (e.discountAmount || 0) + (e.couponAmount || 0) - _getLdAmt(e);
         }, 0);
+        // 日次合計（売上ページ）があれば優先
+        const daySaleAmt = selectedDayData.dailySale != null ? selectedDayData.dailySale : null;
+        const dayTotal = (daySaleAmt != null && daySaleAmt > 0) ? daySaleAmt : entryTotal;
         const dayCashEntries = dayEntries.filter(e => (e.paymentMethod || 'cash') === 'cash' && e.source !== 'Uber');
         const dayUncollectedEntries = dayEntries.filter(e => e.paymentMethod === 'uncollected');
         const dayDidiEntries = dayEntries.filter(e => e.paymentMethod === 'didi');
@@ -745,7 +759,9 @@ window.CalendarPage = () => {
           createElement('div', {
             style: { textAlign: 'center', paddingBottom: 'var(--space-sm)', marginBottom: 'var(--space-sm)', borderBottom: '1px solid var(--border-color)' }
           },
-            createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: 4 } }, '売上合計'),
+            createElement('div', { style: { color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: 4 } },
+              daySaleAmt != null && daySaleAmt > 0 ? '売上合計（日次登録）' : '売上合計'
+            ),
             createElement('div', {
               style: { fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-secondary)', margin: '4px 0' },
             }, `¥${dayTotal.toLocaleString()}`),

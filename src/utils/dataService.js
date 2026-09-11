@@ -2409,6 +2409,82 @@ window.DataService = (() => {
 
 
   // ============================================================
+  // 日次合計売上（勤務日1日の合計金額）
+  // ============================================================
+  function getDailySales() {
+    try {
+      const saved = localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DAILY_SALES);
+      const list = saved ? JSON.parse(saved) : [];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveDailySales(list) {
+    try {
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.DAILY_SALES, JSON.stringify(list || []));
+      _notifyDataChanged('daily-sales');
+      return true;
+    } catch (e) {
+      if (window.AppLogger) AppLogger.error('日次売上の保存に失敗', e.message);
+      return false;
+    }
+  }
+
+  function getDailySaleByDate(dateStr) {
+    if (!dateStr) return null;
+    return getDailySales().find(e => e.date === dateStr) || null;
+  }
+
+  /** 日付ごとの合計金額マップ { [date]: amount } */
+  function getDailySalesMap() {
+    const map = {};
+    getDailySales().forEach(e => {
+      if (e && e.date) map[e.date] = Number(e.amount) || 0;
+    });
+    return map;
+  }
+
+  /**
+   * 勤務日の1日合計を登録/更新
+   * @returns {{ success: boolean, entry?: object, errors?: string[] }}
+   */
+  function upsertDailySale(form) {
+    const date = (form && form.date) || getLocalDateString();
+    const amount = parseInt(form && form.amount, 10);
+    if (!date) return { success: false, errors: ['日付を入力してください'] };
+    if (!amount || amount < 1 || amount > 10000000) {
+      return { success: false, errors: ['合計金額は1〜10,000,000の範囲で入力してください'] };
+    }
+    const list = getDailySales();
+    const idx = list.findIndex(e => e.date === date);
+    const entry = {
+      id: idx >= 0 ? list[idx].id : (Date.now() + '_ds'),
+      date,
+      amount,
+      dayOfWeek: (JapaneseHolidays.getDateInfo(date) || {}).dayOfWeek || '',
+      holiday: (JapaneseHolidays.getDateInfo(date) || {}).holiday || '',
+      timestamp: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (idx >= 0) list[idx] = entry;
+    else list.unshift(entry);
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    saveDailySales(list);
+    if (window.AppLogger) AppLogger.info(`日次売上: ${date} ¥${amount.toLocaleString()}`);
+    return { success: true, entry };
+  }
+
+  function deleteDailySale(idOrDate) {
+    const list = getDailySales();
+    const next = list.filter(e => e.id !== idOrDate && e.date !== idOrDate);
+    if (next.length === list.length) return false;
+    saveDailySales(next);
+    return true;
+  }
+
+  // ============================================================
   // 公開API
   // ============================================================
 
@@ -2423,6 +2499,14 @@ window.DataService = (() => {
     getStandbyEntries,
     saveEntries,
     cleanRemovedRevenueFields,
+
+    // 日次合計売上
+    getDailySales,
+    saveDailySales,
+    getDailySaleByDate,
+    getDailySalesMap,
+    upsertDailySale,
+    deleteDailySale,
 
     // フィルタ
     getFilteredEntries: (dayType) => _filterByDayType(getEntries(), dayType),

@@ -37,6 +37,7 @@
 
   // Pages
   T.pages.Dashboard = DashboardPage;
+  T.pages.DailySales = DailySalesPage;
   T.pages.Revenue = RevenuePage;
   T.pages.Calendar = CalendarPage;
   T.pages.Analytics = AnalyticsPage;

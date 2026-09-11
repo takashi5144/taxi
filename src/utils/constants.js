@@ -426,6 +426,7 @@ window.APP_CONSTANTS = {
   // ルート定義
   ROUTES: {
     DASHBOARD: 'dashboard',
+    DAILY_SALES: 'daily-sales',
     REVENUE: 'revenue',
     RIVAL_RIDE: 'rival-ride',
     EVENTS: 'events',
@@ -441,10 +442,11 @@ window.APP_CONSTANTS = {
     GATHERING_MEMO: 'gathering-memo',
   },
 
-  // ナビゲーション項目
+  // ナビゲーション項目（メインメニュー）
   NAV_ITEMS: [
-    { id: 'dashboard', label: 'ダッシュボード', icon: 'dashboard' },
-    { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
+    { id: 'dashboard', label: 'ホーム', icon: 'home' },
+    { id: 'daily-sales', label: '売上', icon: 'payments' },
+    { id: 'revenue', label: '個別売り上げ', icon: 'receipt_long' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'data-manage', label: 'データ管理', icon: 'edit_note' },
@@ -454,9 +456,9 @@ window.APP_CONSTANTS = {
   // 情報ナビゲーション項目（現在未使用）
   INFO_NAV_ITEMS: [],
 
-  // ボトムナビ項目
+  // ボトムナビ（売上・個別売り上げはメインメニューのみ）
   BOTTOM_NAV_ITEMS: [
-    { id: 'dashboard', label: 'ホーム', icon: 'home' },    { id: 'revenue', label: '売上', icon: 'receipt_long' },
+    { id: 'dashboard', label: 'ホーム', icon: 'home' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
     { id: 'data-manage', label: 'データ', icon: 'edit_note' },
     { id: 'settings', label: '設定', icon: 'more_horiz' },
@@ -495,6 +497,7 @@ window.APP_CONSTANTS = {
     ASAHIKAWA_DATA: 'taxi_app_asahikawa_data',
     DEFAULT_SHIFT_START: 'taxi_app_default_shift_start',
     DEFAULT_SHIFT_END: 'taxi_app_default_shift_end',
+    DAILY_SALES: 'taxi_app_daily_sales',
   },
 
   // 夜勤設定

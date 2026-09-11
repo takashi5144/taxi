@@ -296,7 +296,7 @@ window.RevenuePage = () => {
   return React.createElement('div', null,
     React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'receipt_long'),
-      '売上記録'
+      '個別売り上げ'
     ),
 
     // 入力フォーム
