@@ -299,7 +299,6 @@ window.CalendarPage = () => {
         status: workStatus[dateStr] || null,
         workMin: Math.round(shiftMin),
         breakMin: Math.round(breakMin),
-        netMin: Math.max(0, Math.round(shiftMin) - 60),
       });
     }
     return days;
@@ -312,12 +311,11 @@ window.CalendarPage = () => {
   const monthlySummary = useMemo(() => {
     let workDays = 0, offDays = 0, offCancelDays = 0, holidayWorkDays = 0, totalRevenue = 0, workDayRevenue = 0;
     let futureWorkDays = 0, futureOffDays = 0, totalDaysWithRevenue = 0, allDayRevenue = 0;
-    let totalNetMin = 0, totalWorkMin = 0, daysWithShift = 0;
+    let totalWorkMin = 0, daysWithShift = 0;
     calendarDays.forEach(d => {
       if (!d) return;
       if (d.workMin > 0) {
         totalWorkMin += d.workMin;
-        totalNetMin += d.netMin || 0;
         daysWithShift += 1;
       }
       const isPastOrToday = d.dateStr <= todayStr;
@@ -354,7 +352,6 @@ window.CalendarPage = () => {
       totalDaysInMonth: calendarDays.filter(d => d !== null).length,
       avgAllDays: totalDaysWithRevenue > 0 ? Math.round(allDayRevenue / totalDaysWithRevenue) : 0,
       totalWorkMin,
-      totalNetMin,
       daysWithShift,
     };
   }, [calendarDays, todayStr]);
@@ -563,13 +560,13 @@ window.CalendarPage = () => {
       },
         createElement('span', {
           style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }
-        }, `実働合計（休憩1時間差引${monthlySummary.daysWithShift ? '・' + monthlySummary.daysWithShift + '日' : ''}）`),
+        }, `勤務時間合計（始業〜終業${monthlySummary.daysWithShift ? '・' + monthlySummary.daysWithShift + '日' : ''}）`),
         createElement('span', {
           style: { fontWeight: 700, fontSize: 'var(--font-size-lg)', color: '#80cbc4' }
-        }, monthlySummary.totalNetMin > 0
+        }, monthlySummary.totalWorkMin > 0
           ? (() => {
-              const h = Math.floor(monthlySummary.totalNetMin / 60);
-              const m = monthlySummary.totalNetMin % 60;
+              const h = Math.floor(monthlySummary.totalWorkMin / 60);
+              const m = monthlySummary.totalWorkMin % 60;
               return m > 0 ? `${h}時間${m}分` : `${h}時間`;
             })()
           : '−')
@@ -693,7 +690,7 @@ window.CalendarPage = () => {
           tabIndex: 0,
           'aria-label': d.dateStr
             + (d.revenue > 0 ? ' 売上' + d.revenue + '円' : '')
-            + (d.workMin > 0 ? ' 稼働' + formatMin(d.workMin) + ' 実働' + formatMin(d.netMin) : ''),
+            + (d.workMin > 0 ? ' 勤務' + formatMin(d.workMin) : ''),
           onClick: () => {
             const next = d.dateStr === selectedDate ? null : d.dateStr;
             setSelectedDate(next);
@@ -714,7 +711,7 @@ window.CalendarPage = () => {
           style: {
             background: isSelected ? 'rgba(33,150,243,0.15)' : isToday ? 'rgba(0,200,83,0.08)' : 'var(--bg-card)',
             padding: '4px 2px',
-            minHeight: 78,
+            minHeight: 68,
             cursor: 'pointer',
             position: 'relative',
             borderLeft: isToday ? '3px solid var(--color-accent)' : 'none',
@@ -749,17 +746,13 @@ window.CalendarPage = () => {
               lineHeight: 1.1,
             }
           }, `${d.count}件${d.passengers}人`),
-          // 稼働（始業〜終業）とその下に実働（−休憩1時間）
+          // 勤務時間（始業〜終業）
           d.workMin > 0 && createElement('div', {
-            style: { textAlign: 'center', lineHeight: 1.15, marginTop: 1 }
-          },
-            createElement('div', {
-              style: { fontSize: 10, color: 'var(--text-secondary)', fontWeight: 600 }
-            }, formatMin(d.workMin)),
-            createElement('div', {
-              style: { fontSize: 10, color: '#80cbc4', fontWeight: 700 }
-            }, formatMin(d.netMin))
-          ),
+            style: {
+              fontSize: 10, color: '#80cbc4', textAlign: 'center',
+              fontWeight: 700, lineHeight: 1.2, marginTop: 1,
+            }
+          }, formatMin(d.workMin)),
           // ステータスマーク（休日=橙 / 休日キャンセル=赤 / 休日出勤=青）
           (d.status === 'off' || d.status === 'off_cancel' || d.status === 'holiday_work') && createElement('div', {
             style: {
