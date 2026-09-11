@@ -466,6 +466,12 @@ window.CalendarPage = () => {
     return `${n}`;
   };
 
+  const formatMin = (min) => {
+    const h = Math.floor(Math.max(0, min) / 60);
+    const m = Math.max(0, min) % 60;
+    return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+  };
+
   const yearMonth = `${currentMonth.getFullYear()}年${currentMonth.getMonth() + 1}月`;
   const dowLabels = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -710,7 +716,7 @@ window.CalendarPage = () => {
           tabIndex: 0,
           'aria-label': d.dateStr
             + (d.revenue > 0 ? ' 売上' + d.revenue + '円' : '')
-            + (d.workMin > 0 ? ' 実働' + Math.floor(d.netMin / 60) + '時間' : ''),
+            + (d.workMin > 0 ? ' 稼働' + formatMin(d.workMin) + ' 実働' + formatMin(d.netMin) : ''),
           onClick: () => {
             const next = d.dateStr === selectedDate ? null : d.dateStr;
             setSelectedDate(next);
@@ -731,7 +737,7 @@ window.CalendarPage = () => {
           style: {
             background: isSelected ? 'rgba(33,150,243,0.15)' : isToday ? 'rgba(0,200,83,0.08)' : 'var(--bg-card)',
             padding: '4px 2px',
-            minHeight: 68,
+            minHeight: 78,
             cursor: 'pointer',
             position: 'relative',
             borderLeft: isToday ? '3px solid var(--color-accent)' : 'none',
@@ -766,20 +772,17 @@ window.CalendarPage = () => {
               lineHeight: 1.1,
             }
           }, `${d.count}件${d.passengers}人`),
-          // 実働（始業〜終業 − 休憩1時間）
+          // 稼働（始業〜終業）とその下に実働（−休憩1時間）
           d.workMin > 0 && createElement('div', {
-            style: {
-              fontSize: 10,
-              color: '#80cbc4',
-              textAlign: 'center',
-              fontWeight: 700,
-              lineHeight: 1.2,
-            }
-          }, (() => {
-            const h = Math.floor(d.netMin / 60);
-            const m = d.netMin % 60;
-            return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
-          })()),
+            style: { textAlign: 'center', lineHeight: 1.15, marginTop: 1 }
+          },
+            createElement('div', {
+              style: { fontSize: 10, color: 'var(--text-secondary)', fontWeight: 600 }
+            }, formatMin(d.workMin)),
+            createElement('div', {
+              style: { fontSize: 10, color: '#80cbc4', fontWeight: 700 }
+            }, formatMin(d.netMin))
+          ),
           // ステータスマーク（休日=橙 / 休日キャンセル=赤 / 休日出勤=青）
           (d.status === 'off' || d.status === 'off_cancel' || d.status === 'holiday_work') && createElement('div', {
             style: {
