@@ -138,7 +138,7 @@ window.CalendarPage = () => {
     return map;
   }, [currentMonth, refreshKey]);
 
-  // 日次合計売上（売上ページで登録）
+  // 日次合計売上（ホームで登録）
   const dailySalesMap = useMemo(() => {
     return DataService.getDailySalesMap ? DataService.getDailySalesMap() : {};
   }, [currentMonth, refreshKey]);

@@ -1,6 +1,6 @@
 (function() {
 // DailySales.jsx - 勤務日の1日合計売上を記録（カレンダー反映）
-window.DailySalesPage = () => {
+window.DailySalesPage = ({ embedded }) => {
   const { useState, useEffect, useMemo } = React;
 
   const todayDefault = getLocalDateString();
@@ -58,7 +58,7 @@ window.DailySalesPage = () => {
   };
 
   return React.createElement('div', null,
-    React.createElement('h1', { className: 'page-title' },
+    !embedded && React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'payments'),
       '売上'
     ),

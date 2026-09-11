@@ -1341,7 +1341,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.83.0',
+  VERSION: '3.88.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1383,7 +1383,6 @@ window.APP_CONSTANTS = {
   // ナビゲーション項目（メインメニュー）
   NAV_ITEMS: [
     { id: 'dashboard', label: 'ホーム', icon: 'home' },
-    { id: 'daily-sales', label: '売上', icon: 'payments' },
     { id: 'revenue', label: '個別売り上げ', icon: 'receipt_long' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },
@@ -5039,6 +5038,7 @@ window.AppProvider = ({ children }) => {
     page === 'map' || page === 'transit-info'
     || page === 'info' || page === 'events'
     || page === 'rival-ride' || page === 'gathering-memo'
+    || page === 'daily-sales'
   );
 
   const navigate = useCallback((page) => {
@@ -5462,7 +5462,7 @@ window.Layout = ({ children }) => {
 // FILE: src/pages/Dashboard.jsx
 // ============================================================
 (function() {
-// Dashboard.jsx - ホーム（始業のみ）
+// Dashboard.jsx - ホーム（始業 + 日次売上記録）
 window.DashboardPage = () => {
   const { useState, useEffect, useCallback } = React;
 
@@ -5647,6 +5647,10 @@ window.DashboardPage = () => {
               }, '取消')
             )
       )
+    ),
+
+    React.createElement('div', { style: { marginTop: 'var(--space-lg)' } },
+      React.createElement(DailySalesPage, { embedded: true })
     )
   );
 };
@@ -5657,7 +5661,7 @@ window.DashboardPage = () => {
 // ============================================================
 (function() {
 // DailySales.jsx - 勤務日の1日合計売上を記録（カレンダー反映）
-window.DailySalesPage = () => {
+window.DailySalesPage = ({ embedded }) => {
   const { useState, useEffect, useMemo } = React;
 
   const todayDefault = getLocalDateString();
@@ -5715,7 +5719,7 @@ window.DailySalesPage = () => {
   };
 
   return React.createElement('div', null,
-    React.createElement('h1', { className: 'page-title' },
+    !embedded && React.createElement('h1', { className: 'page-title' },
       React.createElement('span', { className: 'material-icons-round' }, 'payments'),
       '売上'
     ),
@@ -7295,7 +7299,7 @@ window.CalendarPage = () => {
     return map;
   }, [currentMonth, refreshKey]);
 
-  // 日次合計売上（売上ページで登録）
+  // 日次合計売上（ホームで登録）
   const dailySalesMap = useMemo(() => {
     return DataService.getDailySalesMap ? DataService.getDailySalesMap() : {};
   }, [currentMonth, refreshKey]);
@@ -13923,7 +13927,6 @@ window.App = () => {
     let pageComponent;
     switch (currentPage) {
       case 'dashboard': pageComponent = React.createElement(DashboardPage); break;
-      case 'daily-sales': pageComponent = React.createElement(DailySalesPage); break;
       case 'revenue': pageComponent = React.createElement(RevenuePage); break;
       case 'analytics': pageComponent = React.createElement(AnalyticsPage); break;
       case 'calendar': pageComponent = React.createElement(CalendarPage); break;

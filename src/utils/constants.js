@@ -403,7 +403,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.83.0',
+  VERSION: '3.88.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -445,7 +445,6 @@ window.APP_CONSTANTS = {
   // ナビゲーション項目（メインメニュー）
   NAV_ITEMS: [
     { id: 'dashboard', label: 'ホーム', icon: 'home' },
-    { id: 'daily-sales', label: '売上', icon: 'payments' },
     { id: 'revenue', label: '個別売り上げ', icon: 'receipt_long' },
     { id: 'analytics', label: '分析', icon: 'analytics' },
     { id: 'calendar', label: 'カレンダー', icon: 'calendar_month' },

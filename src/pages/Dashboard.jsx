@@ -1,5 +1,5 @@
 (function() {
-// Dashboard.jsx - ホーム（始業のみ）
+// Dashboard.jsx - ホーム（始業 + 日次売上記録）
 window.DashboardPage = () => {
   const { useState, useEffect, useCallback } = React;
 
@@ -184,6 +184,10 @@ window.DashboardPage = () => {
               }, '取消')
             )
       )
+    ),
+
+    React.createElement('div', { style: { marginTop: 'var(--space-lg)' } },
+      React.createElement(DailySalesPage, { embedded: true })
     )
   );
 };

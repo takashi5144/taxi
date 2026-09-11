@@ -83,7 +83,6 @@ window.App = () => {
     let pageComponent;
     switch (currentPage) {
       case 'dashboard': pageComponent = React.createElement(DashboardPage); break;
-      case 'daily-sales': pageComponent = React.createElement(DailySalesPage); break;
       case 'revenue': pageComponent = React.createElement(RevenuePage); break;
       case 'analytics': pageComponent = React.createElement(AnalyticsPage); break;
       case 'calendar': pageComponent = React.createElement(CalendarPage); break;

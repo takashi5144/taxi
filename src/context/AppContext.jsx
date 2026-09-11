@@ -18,6 +18,7 @@ window.AppProvider = ({ children }) => {
     page === 'map' || page === 'transit-info'
     || page === 'info' || page === 'events'
     || page === 'rival-ride' || page === 'gathering-memo'
+    || page === 'daily-sales'
   );
 
   const navigate = useCallback((page) => {
