@@ -1341,7 +1341,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.88.0',
+  VERSION: '3.89.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -7180,6 +7180,9 @@ window.CalendarPage = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingItem, setEditingItem] = useState(null); // { type: 'shift'|'break', id, startTime, endTime }
   const [expandedCalPay, setExpandedCalPay] = useState(null); // 支払方法カード展開
+  const [shiftForm, setShiftForm] = useState({ startTime: '', endTime: '' });
+  const [shiftSaved, setShiftSaved] = useState(false);
+  const [shiftError, setShiftError] = useState('');
 
   // 日額目標金額を設定から取得
   const dailyGoal = useMemo(() => {
@@ -7333,6 +7336,89 @@ window.CalendarPage = () => {
     if (!dateStr || !timeStr) return null;
     return new Date(`${dateStr}T${timeStr}:00`).toISOString();
   };
+
+  // 選択日の始業・終業フォームを既存シフトから復元
+  useEffect(() => {
+    setEditingItem(null);
+    setShiftSaved(false);
+    setShiftError('');
+    if (!selectedDate) {
+      setShiftForm({ startTime: '', endTime: '' });
+      return;
+    }
+    try {
+      const allShifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const s = allShifts.find(x => x.startTime && isoToLocalDate(x.startTime) === selectedDate);
+      if (s) {
+        setShiftForm({
+          startTime: isoToTimeStr(s.startTime),
+          endTime: s.endTime ? isoToTimeStr(s.endTime) : '',
+        });
+      } else {
+        setShiftForm({ startTime: '', endTime: '' });
+      }
+    } catch {
+      setShiftForm({ startTime: '', endTime: '' });
+    }
+  }, [selectedDate, refreshKey]);
+
+  const saveDayShift = useCallback(() => {
+    setShiftError('');
+    if (!selectedDate) return;
+    if (!shiftForm.startTime) {
+      setShiftError('始業時間を入力してください');
+      return;
+    }
+    try {
+      const allShifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const startLocal = new Date(`${selectedDate}T${shiftForm.startTime}:00`);
+      const startIso = startLocal.toISOString();
+      let endIso = null;
+      if (shiftForm.endTime) {
+        const endLocal = new Date(`${selectedDate}T${shiftForm.endTime}:00`);
+        if (endLocal <= startLocal) endLocal.setDate(endLocal.getDate() + 1);
+        endIso = endLocal.toISOString();
+      }
+      const idx = allShifts.findIndex(x => x.startTime && isoToLocalDate(x.startTime) === selectedDate);
+      if (idx !== -1) {
+        allShifts[idx].startTime = startIso;
+        allShifts[idx].endTime = endIso;
+      } else {
+        allShifts.push({ id: Date.now().toString(), startTime: startIso, endTime: endIso });
+      }
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(allShifts));
+      DataService.syncShiftsToCloud();
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      setRefreshKey(k => k + 1);
+      setShiftSaved(true);
+      setTimeout(() => setShiftSaved(false), 2000);
+      if (window.AppLogger) {
+        AppLogger.info(`シフト保存: ${selectedDate} ${shiftForm.startTime}〜${shiftForm.endTime || '勤務中'}`);
+      }
+    } catch (e) {
+      setShiftError('保存に失敗しました');
+      if (window.AppLogger) AppLogger.error('シフト保存失敗', e.message);
+    }
+  }, [selectedDate, shiftForm]);
+
+  const deleteDayShift = useCallback(() => {
+    if (!selectedDate) return;
+    if (!confirm(`${selectedDate} の始業・終業を削除しますか？`)) return;
+    try {
+      const allShifts = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
+      const idx = allShifts.findIndex(x => x.startTime && isoToLocalDate(x.startTime) === selectedDate);
+      if (idx === -1) return;
+      allShifts.splice(idx, 1);
+      localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(allShifts));
+      DataService.syncShiftsToCloud();
+      window.dispatchEvent(new CustomEvent('taxi-data-changed'));
+      setShiftForm({ startTime: '', endTime: '' });
+      setRefreshKey(k => k + 1);
+      if (window.AppLogger) AppLogger.info(`シフト削除: ${selectedDate}`);
+    } catch (e) {
+      if (window.AppLogger) AppLogger.error('シフト削除失敗', e.message);
+    }
+  }, [selectedDate]);
 
   // カレンダーグリッド生成
   const calendarDays = useMemo(() => {
@@ -7783,8 +7869,23 @@ window.CalendarPage = () => {
           role: 'button',
           tabIndex: 0,
           'aria-label': d.dateStr + (d.revenue > 0 ? ' 売上' + d.revenue + '円' : ''),
-          onClick: () => setSelectedDate(d.dateStr === selectedDate ? null : d.dateStr),
-          onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedDate(d.dateStr === selectedDate ? null : d.dateStr); } },
+          onClick: () => {
+            const next = d.dateStr === selectedDate ? null : d.dateStr;
+            setSelectedDate(next);
+            if (next) {
+              setTimeout(() => {
+                const el = document.getElementById('cal-day-detail');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }, 50);
+            }
+          },
+          onKeyDown: (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              const next = d.dateStr === selectedDate ? null : d.dateStr;
+              setSelectedDate(next);
+            }
+          },
           style: {
             background: isSelected ? 'rgba(33,150,243,0.15)' : isToday ? 'rgba(0,200,83,0.08)' : 'var(--bg-card)',
             padding: '4px 2px',
@@ -7853,6 +7954,7 @@ window.CalendarPage = () => {
 
     // 選択日の詳細パネル
     selectedDayData && createElement('div', {
+      id: 'cal-day-detail',
       className: 'card',
       style: { marginBottom: 'var(--space-lg)', padding: 'var(--space-md)' }
     },
@@ -7911,6 +8013,97 @@ window.CalendarPage = () => {
         },
           createElement('span', { className: 'material-icons-round', style: { fontSize: 14, marginRight: 4, verticalAlign: 'middle' } }, 'work' ),
           '休日出勤'
+        )
+      ),
+
+      // 始業・終業の入力（日付クリックで常に表示）
+      createElement('div', {
+        style: {
+          borderTop: '1px solid var(--border-color)',
+          paddingTop: 'var(--space-sm)',
+          marginBottom: 'var(--space-md)',
+        }
+      },
+        createElement('div', {
+          style: {
+            fontSize: '13px', fontWeight: 700, marginBottom: '8px',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 18, color: 'var(--color-accent)' } }, 'schedule'),
+          '始業・終業'
+        ),
+        shiftError && createElement('div', {
+          style: {
+            background: 'rgba(229,57,53,0.1)', border: '1px solid rgba(229,57,53,0.3)',
+            borderRadius: '8px', padding: '8px 12px', marginBottom: '8px',
+            color: 'var(--color-danger)', fontSize: '12px',
+          }
+        }, shiftError),
+        shiftSaved && createElement('div', {
+          style: {
+            background: 'rgba(0,200,83,0.1)', border: '1px solid rgba(0,200,83,0.3)',
+            borderRadius: '8px', padding: '8px 12px', marginBottom: '8px',
+            color: 'var(--color-accent)', fontSize: '12px',
+            display: 'flex', alignItems: 'center', gap: '6px',
+          }
+        },
+          createElement('span', { className: 'material-icons-round', style: { fontSize: 16 } }, 'check_circle'),
+          '保存しました'
+        ),
+        createElement('div', { className: 'grid grid--2' },
+          createElement('div', { className: 'form-group' },
+            createElement('label', { className: 'form-label' }, '始業'),
+            createElement('input', {
+              className: 'form-input',
+              type: 'time',
+              value: shiftForm.startTime,
+              onChange: (e) => {
+                setShiftForm({ ...shiftForm, startTime: e.target.value });
+                setShiftSaved(false);
+                setShiftError('');
+              },
+              style: { colorScheme: 'dark' },
+            })
+          ),
+          createElement('div', { className: 'form-group' },
+            createElement('label', { className: 'form-label' }, '終業'),
+            createElement('input', {
+              className: 'form-input',
+              type: 'time',
+              value: shiftForm.endTime,
+              onChange: (e) => {
+                setShiftForm({ ...shiftForm, endTime: e.target.value });
+                setShiftSaved(false);
+                setShiftError('');
+              },
+              style: { colorScheme: 'dark' },
+            })
+          )
+        ),
+        shiftForm.startTime && shiftForm.endTime && shiftForm.endTime <= shiftForm.startTime && createElement('div', {
+          style: { fontSize: '11px', color: 'var(--color-warning)', marginBottom: '8px' }
+        }, '終業が始業より早いため、翌日の終業として保存します'),
+        createElement('div', { style: { display: 'flex', gap: '8px' } },
+          createElement('button', {
+            type: 'button',
+            onClick: saveDayShift,
+            style: {
+              flex: 1, padding: '10px 12px', borderRadius: '8px', border: 'none',
+              background: 'var(--color-accent)', color: '#fff', cursor: 'pointer',
+              fontWeight: 700, fontSize: '14px',
+            }
+          }, '保存'),
+          selectedDayData.shifts.length > 0 && createElement('button', {
+            type: 'button',
+            onClick: deleteDayShift,
+            style: {
+              padding: '10px 12px', borderRadius: '8px',
+              border: '1px solid rgba(229,57,53,0.4)',
+              background: 'rgba(229,57,53,0.12)', color: 'var(--color-danger)',
+              cursor: 'pointer', fontWeight: 600, fontSize: '14px',
+            }
+          }, '削除')
         )
       ),
 
@@ -8262,14 +8455,14 @@ window.CalendarPage = () => {
         )
       ),
 
-      // シフト記録（編集可能）
-      selectedDayData.shifts.length > 0 && createElement('div', {
+      // 追加のシフト記録（1日2件目以降。先頭は上の始業・終業フォームで編集）
+      selectedDayData.shifts.length > 1 && createElement('div', {
         style: { borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-sm)', marginTop: 'var(--space-sm)' }
       },
         createElement('div', {
           style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginBottom: 4 }
-        }, 'シフト記録'),
-        ...selectedDayData.shifts.map((s, i) => {
+        }, '追加のシフト記録'),
+        ...selectedDayData.shifts.slice(1).map((s, i) => {
           const isEditing = editingItem && editingItem.type === 'shift' && editingItem.id === s.id;
           if (isEditing) {
             return createElement('div', {
