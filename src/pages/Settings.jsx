@@ -118,15 +118,17 @@ window.SettingsPage = () => {
             setSyncStatus('送信中...');
             try {
               const revenueEntries = DataService.getEntries();
+              const dailySales = DataService.getDailySales ? DataService.getDailySales() : [];
               const headers = { 'Content-Type': 'application/json' };
               const mkBody = (entries) => JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: entries.length, entries });
               const r1 = await fetch('/api/data?type=revenue', { method: 'POST', headers, body: mkBody(revenueEntries) });
-              if (r1.ok) {
-                setSyncStatus(`送信完了: 売上${revenueEntries.length}件`);
+              const r2 = await fetch('/api/data?type=dailysales', { method: 'POST', headers, body: mkBody(dailySales) });
+              if (r1.ok && r2.ok) {
+                setSyncStatus(`送信完了: 個別売上${revenueEntries.length}件 / 日次売上${dailySales.length}件`);
               } else {
                 let d1 = '';
-                try { const j = await r1.json(); d1 = j.detail || j.error || ''; } catch {}
-                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}`);
+                try { const j = await (!r1.ok ? r1 : r2).json(); d1 = j.detail || j.error || ''; } catch {}
+                setSyncStatus(`送信エラー: revenue=${r1.status} dailysales=${r2.status}${d1 ? '(' + d1 + ')' : ''}`);
               }
             } catch (e) {
               setSyncStatus('送信エラー: ' + e.message);
@@ -140,7 +142,10 @@ window.SettingsPage = () => {
             setSyncStatus('取得中...');
             try {
               const r1 = await DataService.syncFromCloud('revenue');
-              setSyncStatus(`取得完了: 売上+${r1.merged}件`);
+              const r2 = DataService.syncDailySalesBidirectional
+                ? await DataService.syncDailySalesBidirectional()
+                : { merged: 0 };
+              setSyncStatus(`取得完了: 個別売上+${r1.merged}件 / 日次売上${r2.total || 0}件`);
             } catch (e) {
               setSyncStatus('取得エラー: ' + e.message);
             }

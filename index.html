@@ -1341,7 +1341,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.98.0',
+  VERSION: '3.99.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -2909,7 +2909,7 @@ window.DataService = (() => {
   // ============================================================
   // クラウド同期（Vercel Blob Storage）
   // ============================================================
-  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
+  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks', 'dailysales'];
 
   // バッチ同期モード: trueの場合、_syncToCloudを即座に実行せず終業時にまとめて同期
   let _batchSyncMode = true; // デフォルトでバッチモード有効
@@ -2935,6 +2935,7 @@ window.DataService = (() => {
         else if (type === 'gathering') entries = getGatheringMemos();
         else if (type === 'shifts') entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
         else if (type === 'breaks') entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        else if (type === 'dailysales') entries = getDailySales();
         else continue;
         await _syncToCloud(type, entries, 0);
       } catch (e) {
@@ -3087,19 +3088,20 @@ window.DataService = (() => {
     }
     _autoSyncRunning = true;
     try {
-      const [r1, r3, r5, r6] = await Promise.all([
+      const [r1, r3, r5, r6, r7] = await Promise.all([
         syncFromCloud('revenue'),
         syncWorkStatusFromCloud(),
         syncShiftsFromCloud(),
         syncBreaksFromCloud(),
+        syncDailySalesBidirectional(),
       ]);
-      const totalMerged = (r1.merged || 0) + (r5.merged || 0) + (r6.merged || 0);
+      const totalMerged = (r1.merged || 0) + (r5.merged || 0) + (r6.merged || 0) + (r7.merged || 0);
       if (totalMerged > 0 || r3.merged) {
-        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
+        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件, 日次売上+${r7.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
       } else {
         AppLogger.debug('自動同期: 新規データなし');
       }
-      return { revenue: r1, workStatus: r3, shifts: r5, breaks: r6 };
+      return { revenue: r1, workStatus: r3, shifts: r5, breaks: r6, dailySales: r7 };
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
@@ -4571,14 +4573,43 @@ window.DataService = (() => {
     }
   }
 
-  function saveDailySales(list) {
+  function saveDailySales(list, opts) {
     try {
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.DAILY_SALES, JSON.stringify(list || []));
       _notifyDataChanged('daily-sales');
+      if (!(opts && opts.skipCloud)) {
+        _syncToCloud('dailysales', list || [], 0);
+      }
       return true;
     } catch (e) {
       if (window.AppLogger) AppLogger.error('日次売上の保存に失敗', e.message);
       return false;
+    }
+  }
+
+  function _dailySaleTs(e) {
+    return (e && (e.updatedAt || e.timestamp)) || '';
+  }
+
+  /** クラウドと端末の日次売上を日付単位でマージし、両方へ反映 */
+  async function syncDailySalesBidirectional() {
+    try {
+      const cloud = await loadFromCloud('dailysales') || [];
+      const local = getDailySales();
+      const byDate = new Map();
+      cloud.concat(local).forEach((e) => {
+        if (!e || !e.date) return;
+        const prev = byDate.get(e.date);
+        if (!prev || _dailySaleTs(e) >= _dailySaleTs(prev)) byDate.set(e.date, e);
+      });
+      const merged = Array.from(byDate.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const changed = JSON.stringify(merged) !== JSON.stringify(local);
+      if (changed) saveDailySales(merged, { skipCloud: true });
+      await _syncToCloud('dailysales', merged, 0);
+      return { merged: changed ? merged.length : 0, total: merged.length };
+    } catch (e) {
+      if (window.AppLogger) AppLogger.warn('日次売上同期エラー: ' + e.message);
+      return { merged: 0, total: 0 };
     }
   }
 
@@ -4657,6 +4688,7 @@ window.DataService = (() => {
     getDailySalesMap,
     upsertDailySale,
     deleteDailySale,
+    syncDailySalesBidirectional,
 
     // フィルタ
     getFilteredEntries: (dayType) => _filterByDayType(getEntries(), dayType),
@@ -8896,15 +8928,17 @@ window.SettingsPage = () => {
             setSyncStatus('送信中...');
             try {
               const revenueEntries = DataService.getEntries();
+              const dailySales = DataService.getDailySales ? DataService.getDailySales() : [];
               const headers = { 'Content-Type': 'application/json' };
               const mkBody = (entries) => JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: entries.length, entries });
               const r1 = await fetch('/api/data?type=revenue', { method: 'POST', headers, body: mkBody(revenueEntries) });
-              if (r1.ok) {
-                setSyncStatus(`送信完了: 売上${revenueEntries.length}件`);
+              const r2 = await fetch('/api/data?type=dailysales', { method: 'POST', headers, body: mkBody(dailySales) });
+              if (r1.ok && r2.ok) {
+                setSyncStatus(`送信完了: 個別売上${revenueEntries.length}件 / 日次売上${dailySales.length}件`);
               } else {
                 let d1 = '';
-                try { const j = await r1.json(); d1 = j.detail || j.error || ''; } catch {}
-                setSyncStatus(`送信エラー: revenue=${r1.status}${d1 ? '(' + d1 + ')' : ''}`);
+                try { const j = await (!r1.ok ? r1 : r2).json(); d1 = j.detail || j.error || ''; } catch {}
+                setSyncStatus(`送信エラー: revenue=${r1.status} dailysales=${r2.status}${d1 ? '(' + d1 + ')' : ''}`);
               }
             } catch (e) {
               setSyncStatus('送信エラー: ' + e.message);
@@ -8918,7 +8952,10 @@ window.SettingsPage = () => {
             setSyncStatus('取得中...');
             try {
               const r1 = await DataService.syncFromCloud('revenue');
-              setSyncStatus(`取得完了: 売上+${r1.merged}件`);
+              const r2 = DataService.syncDailySalesBidirectional
+                ? await DataService.syncDailySalesBidirectional()
+                : { merged: 0 };
+              setSyncStatus(`取得完了: 個別売上+${r1.merged}件 / 日次売上${r2.total || 0}件`);
             } catch (e) {
               setSyncStatus('取得エラー: ' + e.message);
             }

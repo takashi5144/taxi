@@ -746,7 +746,7 @@ window.DataService = (() => {
   // ============================================================
   // クラウド同期（Vercel Blob Storage）
   // ============================================================
-  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
+  const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks', 'dailysales'];
 
   // バッチ同期モード: trueの場合、_syncToCloudを即座に実行せず終業時にまとめて同期
   let _batchSyncMode = true; // デフォルトでバッチモード有効
@@ -772,6 +772,7 @@ window.DataService = (() => {
         else if (type === 'gathering') entries = getGatheringMemos();
         else if (type === 'shifts') entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
         else if (type === 'breaks') entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
+        else if (type === 'dailysales') entries = getDailySales();
         else continue;
         await _syncToCloud(type, entries, 0);
       } catch (e) {
@@ -924,19 +925,20 @@ window.DataService = (() => {
     }
     _autoSyncRunning = true;
     try {
-      const [r1, r3, r5, r6] = await Promise.all([
+      const [r1, r3, r5, r6, r7] = await Promise.all([
         syncFromCloud('revenue'),
         syncWorkStatusFromCloud(),
         syncShiftsFromCloud(),
         syncBreaksFromCloud(),
+        syncDailySalesBidirectional(),
       ]);
-      const totalMerged = (r1.merged || 0) + (r5.merged || 0) + (r6.merged || 0);
+      const totalMerged = (r1.merged || 0) + (r5.merged || 0) + (r6.merged || 0) + (r7.merged || 0);
       if (totalMerged > 0 || r3.merged) {
-        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
+        AppLogger.info(`自動同期完了: 売上+${r1.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件, 日次売上+${r7.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
       } else {
         AppLogger.debug('自動同期: 新規データなし');
       }
-      return { revenue: r1, workStatus: r3, shifts: r5, breaks: r6 };
+      return { revenue: r1, workStatus: r3, shifts: r5, breaks: r6, dailySales: r7 };
     } catch (e) {
       AppLogger.warn('自動同期エラー: ' + e.message);
       return null;
@@ -2408,14 +2410,43 @@ window.DataService = (() => {
     }
   }
 
-  function saveDailySales(list) {
+  function saveDailySales(list, opts) {
     try {
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.DAILY_SALES, JSON.stringify(list || []));
       _notifyDataChanged('daily-sales');
+      if (!(opts && opts.skipCloud)) {
+        _syncToCloud('dailysales', list || [], 0);
+      }
       return true;
     } catch (e) {
       if (window.AppLogger) AppLogger.error('日次売上の保存に失敗', e.message);
       return false;
+    }
+  }
+
+  function _dailySaleTs(e) {
+    return (e && (e.updatedAt || e.timestamp)) || '';
+  }
+
+  /** クラウドと端末の日次売上を日付単位でマージし、両方へ反映 */
+  async function syncDailySalesBidirectional() {
+    try {
+      const cloud = await loadFromCloud('dailysales') || [];
+      const local = getDailySales();
+      const byDate = new Map();
+      cloud.concat(local).forEach((e) => {
+        if (!e || !e.date) return;
+        const prev = byDate.get(e.date);
+        if (!prev || _dailySaleTs(e) >= _dailySaleTs(prev)) byDate.set(e.date, e);
+      });
+      const merged = Array.from(byDate.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const changed = JSON.stringify(merged) !== JSON.stringify(local);
+      if (changed) saveDailySales(merged, { skipCloud: true });
+      await _syncToCloud('dailysales', merged, 0);
+      return { merged: changed ? merged.length : 0, total: merged.length };
+    } catch (e) {
+      if (window.AppLogger) AppLogger.warn('日次売上同期エラー: ' + e.message);
+      return { merged: 0, total: 0 };
     }
   }
 
@@ -2494,6 +2525,7 @@ window.DataService = (() => {
     getDailySalesMap,
     upsertDailySale,
     deleteDailySale,
+    syncDailySalesBidirectional,
 
     // フィルタ
     getFilteredEntries: (dayType) => _filterByDayType(getEntries(), dayType),
