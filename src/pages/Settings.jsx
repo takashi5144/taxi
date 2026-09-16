@@ -4,8 +4,6 @@ window.SettingsPage = () => {
   const { useState } = React;
   
   // クラウド同期
-  const [syncSecret, setSyncSecret] = useState(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '');
-  const [syncSaved, setSyncSaved] = useState(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncTestResult, setSyncTestResult] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
@@ -50,33 +48,7 @@ window.SettingsPage = () => {
     React.createElement(Card, { title: 'クラウド同期', style: { marginBottom: 'var(--space-lg)' } },
       React.createElement('p', {
         style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, 'Vercel Blob Storageを使用してデータをクラウドに保存・同期します。記録追加時に自動的にクラウドへ保存されます。'),
-
-      React.createElement('div', { className: 'form-group', style: { marginBottom: 'var(--space-md)' } },
-        React.createElement('label', { className: 'form-label' }, '同期シークレット'),
-        React.createElement('input', {
-          className: 'form-input',
-          type: 'password',
-          placeholder: 'Vercel環境変数のSYNC_SECRETと同じ値',
-          value: syncSecret,
-          onChange: (e) => setSyncSecret(e.target.value),
-          style: { fontFamily: 'monospace' },
-        }),
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' } },
-          React.createElement(Button, {
-            variant: 'primary',
-            icon: 'save',
-            onClick: () => {
-              localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET, syncSecret.trim());
-              setSyncStatus('シークレットを保存しました');
-              setTimeout(() => setSyncStatus(null), 2000);
-            },
-          }, '保存'),
-          React.createElement('span', {
-            style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' },
-          }, '※ Vercelダッシュボードの環境変数SYNC_SECRETと同じ値を設定')
-        )
-      ),
+      }, 'Vercel Blob Storageを使用してデータをクラウドに保存・同期します。シークレットは不要です。起動時・タブ復帰時に自動同期します。'),
 
       React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: 'var(--space-md)' } },
         React.createElement(Button, {
@@ -125,15 +97,15 @@ window.SettingsPage = () => {
       React.createElement('div', {
         style: {
           padding: '8px 12px', borderRadius: '8px', marginBottom: 'var(--space-md)',
-          background: syncSecret ? 'rgba(0, 200, 83, 0.1)' : 'rgba(255, 152, 0, 0.1)',
-          border: `1px solid ${syncSecret ? 'rgba(0, 200, 83, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
+          background: 'rgba(0, 200, 83, 0.1)',
+          border: '1px solid rgba(0, 200, 83, 0.3)',
           display: 'flex', alignItems: 'center', gap: '8px',
           fontSize: 'var(--font-size-sm)',
-          color: syncSecret ? 'var(--color-accent)' : 'var(--color-warning)',
+          color: 'var(--color-accent)',
         },
       },
-        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, syncSecret ? 'sync' : 'sync_disabled'),
-        syncSecret ? '自動同期: 有効（起動時・タブ復帰時・5分間隔）' : '自動同期: SYNC_SECRET未設定のため無効'
+        React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'sync'),
+        '自動同期: 有効（起動時・タブ復帰時）'
       ),
 
       // 手動同期ボタン
@@ -147,8 +119,7 @@ window.SettingsPage = () => {
             setSyncStatus('送信中...');
             try {
               const revenueEntries = DataService.getEntries();
-              const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-              const headers = { 'Content-Type': 'application/json', ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}) };
+              const headers = { 'Content-Type': 'application/json' };
               const mkBody = (entries) => JSON.stringify({ version: APP_CONSTANTS.VERSION, syncedAt: new Date().toISOString(), count: entries.length, entries });
               const r1 = await fetch('/api/data?type=revenue', { method: 'POST', headers, body: mkBody(revenueEntries) });
               if (r1.ok) {

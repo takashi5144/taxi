@@ -1,14 +1,4 @@
 import { put, list, del, head } from '@vercel/blob';
-import crypto from 'crypto';
-
-// タイミング攻撃耐性のあるシークレット比較
-function safeCompare(a, b) {
-  if (!a || !b) return false;
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
 
 // リクエストボディの基本バリデーション
 function validateRequestBody(body) {
@@ -47,19 +37,6 @@ export default async function handler(req, res) {
       return res.status(503).json({
         error: 'クラウドストレージ未設定',
       });
-    }
-
-    // 認証チェック
-    // POST/DELETEは常にSYNC_SECRET必須（GETは読み取り専用なので許可）
-    if (req.method === 'POST' || req.method === 'DELETE') {
-      const secret = (req.headers.authorization || '').replace('Bearer ', '').trim();
-      const expected = (process.env.SYNC_SECRET || '').trim();
-      if (!expected) {
-        return res.status(503).json({ error: 'SYNC_SECRET環境変数が未設定です' });
-      }
-      if (!safeCompare(secret, expected)) {
-        return res.status(401).json({ error: '認証エラー: シークレットが一致しません' });
-      }
     }
 
     const type = req.query.type; // 'revenue' | 'rival' | 'workstatus' | 'standby' etc.

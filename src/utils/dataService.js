@@ -746,10 +746,6 @@ window.DataService = (() => {
   // ============================================================
   // クラウド同期（Vercel Blob Storage）
   // ============================================================
-  function _getSyncSecret() {
-    return (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-  }
-
   const ALLOWED_SYNC_TYPES = ['revenue', 'rival', 'workstatus', 'gathering', 'shifts', 'breaks'];
 
   // バッチ同期モード: trueの場合、_syncToCloudを即座に実行せず終業時にまとめて同期
@@ -834,13 +830,11 @@ window.DataService = (() => {
     const retryCount = _retryCount || 0;
     const MAX_RETRIES = 2;
     try {
-      const secret = _getSyncSecret();
       const params = new URLSearchParams({ type });
       const res = await fetch(`/api/data?${params}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}),
         },
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
@@ -956,14 +950,11 @@ window.DataService = (() => {
   // ============================================================
   async function syncWorkStatusToCloud(workStatus) {
     try {
-      const secret = _getSyncSecret();
-      if (!secret) return;
       const params = new URLSearchParams({ type: 'workstatus' });
       const res = await fetch(`/api/data?${params}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${secret}`,
         },
         body: JSON.stringify({
           version: APP_CONSTANTS.VERSION,
@@ -1024,8 +1015,6 @@ window.DataService = (() => {
   // ============================================================
   async function syncShiftsToCloud() {
     try {
-      const secret = _getSyncSecret();
-      if (!secret) return;
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
       _syncToCloudOrDefer("shifts", entries);
     } catch (e) {
@@ -1035,8 +1024,6 @@ window.DataService = (() => {
 
   async function syncBreaksToCloud() {
     try {
-      const secret = _getSyncSecret();
-      if (!secret) return;
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
       _syncToCloudOrDefer("breaks", entries);
     } catch (e) {

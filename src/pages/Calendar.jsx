@@ -31,9 +31,6 @@ window.CalendarPage = () => {
 
   // クラウドから勤務状態を同期（ページ表示時・タブ復帰時）
   useEffect(() => {
-    const secret = (localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SYNC_SECRET) || '').trim();
-    if (!secret) return;
-
     // カレンダーページ表示時にクラウドから最新を取得（順序を制御して競合防止）
     let isCancelled = false;
     const syncAll = async () => {
