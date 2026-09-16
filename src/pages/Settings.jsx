@@ -7,7 +7,6 @@ window.SettingsPage = () => {
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncTestResult, setSyncTestResult] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const [dailyGoal, setDailyGoal] = useState(() => {
     try {
@@ -161,48 +160,6 @@ window.SettingsPage = () => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'cloud_sync'),
         syncStatus
-      )
-    ),
-
-    // プッシュ通知設定
-    React.createElement(Card, { title: 'プッシュ通知', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('p', {
-        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, '交通機関の遅延・トラブル情報をブラウザ通知でお知らせします。'),
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '通知'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-            !NotificationService.isSupported() ? 'このブラウザは通知に対応していません'
-              : NotificationService.getPermission() === 'denied' ? 'ブラウザの通知が拒否されています。ブラウザ設定から許可してください'
-              : '遅延・運休・事故などの交通情報を自動通知'
-          )
-        ),
-        React.createElement('button', {
-          onClick: async () => {
-            if (!NotificationService.isSupported()) return;
-            if (NotificationService.isEnabled()) {
-              NotificationService.setEnabled(false);
-              setRefreshKey(k => k + 1);
-            } else {
-              const perm = await NotificationService.requestPermission();
-              if (perm === 'granted') {
-                NotificationService.setEnabled(true);
-                NotificationService.send('通知テスト', { body: '通知が有効になりました' });
-              }
-              setRefreshKey(k => k + 1);
-            }
-          },
-          disabled: !NotificationService.isSupported() || NotificationService.getPermission() === 'denied',
-          style: {
-            padding: '8px 20px', borderRadius: '20px', border: 'none', cursor: 'pointer',
-            fontWeight: 700, fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-family)',
-            background: NotificationService.isEnabled() ? 'var(--color-accent)' : 'rgba(255,255,255,0.1)',
-            color: NotificationService.isEnabled() ? '#fff' : 'var(--text-secondary)',
-            opacity: (!NotificationService.isSupported() || NotificationService.getPermission() === 'denied') ? 0.5 : 1,
-            transition: 'all 0.2s ease',
-          },
-        }, NotificationService.isEnabled() ? 'ON' : 'OFF')
       )
     ),
 

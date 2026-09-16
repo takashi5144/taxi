@@ -169,10 +169,6 @@ window.TransitInfoPage = () => {
       return updated;
     });
 
-    // 遅延・トラブル情報取得成功時にプッシュ通知
-    if (categoryKey === 'trouble' && result.success && result.text) {
-      NotificationService.sendTroubleAlert(result.text);
-    }
   }, [geminiApiKey, region, categories, saveToStorage, handleFetchDemandPlan]);
 
   // 全カテゴリ一括取得

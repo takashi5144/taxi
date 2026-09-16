@@ -9,7 +9,6 @@
     "src/utils/logger.js",
     "src/utils/storage.js",
     "src/utils/holidays.js",
-    "src/utils/notificationService.js",
     "src/utils/dataService.js",
     "src/context/MapContext.jsx",
     "src/context/AppContext.jsx",

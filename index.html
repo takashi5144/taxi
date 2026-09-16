@@ -1341,7 +1341,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '3.97.0',
+  VERSION: '3.98.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -1420,7 +1420,6 @@ window.APP_CONSTANTS = {
     EVENTS: 'taxi_app_events',
     SYNC_SECRET: 'taxi_app_sync_secret',
     TRANSIT_INFO: 'taxi_app_transit_info',
-    NOTIFICATION_ENABLED: 'taxi_app_notification_enabled',
     SHIFTS: 'taxi_app_shifts',
     BREAKS: 'taxi_app_breaks',
     DAILY_DEMAND_PLAN: 'taxi_app_daily_demand_plan',
@@ -2157,54 +2156,6 @@ window.JapaneseHolidays = (() => {
   };
 })();
 
-})();
-
-// ============================================================
-// FILE: src/utils/notificationService.js
-// ============================================================
-(function() {
-window.NotificationService = (() => {
-  function isSupported() {
-    return 'Notification' in window;
-  }
-
-  function getPermission() {
-    return isSupported() ? Notification.permission : 'denied';
-  }
-
-  async function requestPermission() {
-    if (!isSupported()) return 'denied';
-    return await Notification.requestPermission();
-  }
-
-  function isEnabled() {
-    return localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.NOTIFICATION_ENABLED) === 'true';
-  }
-
-  function setEnabled(val) {
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.NOTIFICATION_ENABLED, val ? 'true' : 'false');
-  }
-
-  function send(title, options = {}) {
-    if (!isSupported() || !isEnabled() || getPermission() !== 'granted') return;
-    try {
-      new Notification(title, { icon: './icons/icon-192.png', ...options });
-    } catch (e) {
-      AppLogger.warn('通知送信失敗: ' + e.message);
-    }
-  }
-
-  function sendTroubleAlert(text) {
-    if (!text || !isEnabled()) return;
-    const keywords = ['遅延', '運休', '事故', '見合わせ', '運転取りやめ', '不通'];
-    const hasAlert = keywords.some(kw => text.includes(kw));
-    if (hasAlert) {
-      send('交通情報アラート', { body: text.slice(0, 200), tag: 'trouble-alert' });
-    }
-  }
-
-  return { isSupported, getPermission, requestPermission, isEnabled, setEnabled, send, sendTroubleAlert };
-})();
 })();
 
 // ============================================================
@@ -8834,7 +8785,6 @@ window.SettingsPage = () => {
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncTestResult, setSyncTestResult] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const [dailyGoal, setDailyGoal] = useState(() => {
     try {
@@ -8988,48 +8938,6 @@ window.SettingsPage = () => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'cloud_sync'),
         syncStatus
-      )
-    ),
-
-    // プッシュ通知設定
-    React.createElement(Card, { title: 'プッシュ通知', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('p', {
-        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, '交通機関の遅延・トラブル情報をブラウザ通知でお知らせします。'),
-      React.createElement('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-        React.createElement('div', null,
-          React.createElement('div', { style: { fontWeight: 500, fontSize: 'var(--font-size-sm)' } }, '通知'),
-          React.createElement('div', { style: { fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' } },
-            !NotificationService.isSupported() ? 'このブラウザは通知に対応していません'
-              : NotificationService.getPermission() === 'denied' ? 'ブラウザの通知が拒否されています。ブラウザ設定から許可してください'
-              : '遅延・運休・事故などの交通情報を自動通知'
-          )
-        ),
-        React.createElement('button', {
-          onClick: async () => {
-            if (!NotificationService.isSupported()) return;
-            if (NotificationService.isEnabled()) {
-              NotificationService.setEnabled(false);
-              setRefreshKey(k => k + 1);
-            } else {
-              const perm = await NotificationService.requestPermission();
-              if (perm === 'granted') {
-                NotificationService.setEnabled(true);
-                NotificationService.send('通知テスト', { body: '通知が有効になりました' });
-              }
-              setRefreshKey(k => k + 1);
-            }
-          },
-          disabled: !NotificationService.isSupported() || NotificationService.getPermission() === 'denied',
-          style: {
-            padding: '8px 20px', borderRadius: '20px', border: 'none', cursor: 'pointer',
-            fontWeight: 700, fontSize: 'var(--font-size-sm)', fontFamily: 'var(--font-family)',
-            background: NotificationService.isEnabled() ? 'var(--color-accent)' : 'rgba(255,255,255,0.1)',
-            color: NotificationService.isEnabled() ? '#fff' : 'var(--text-secondary)',
-            opacity: (!NotificationService.isSupported() || NotificationService.getPermission() === 'denied') ? 0.5 : 1,
-            transition: 'all 0.2s ease',
-          },
-        }, NotificationService.isEnabled() ? 'ON' : 'OFF')
       )
     ),
 
