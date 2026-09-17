@@ -4,8 +4,16 @@ const { createContext, useState, useEffect, useCallback, useContext } = React;
 
 window.AppContext = createContext(null);
 
+function isRetiredRoute(page) {
+  return page === 'map' || page === 'transit-info'
+    || page === 'info' || page === 'events'
+    || page === 'rival-ride' || page === 'gathering-memo'
+    || page === 'daily-sales';
+}
+
 function getPageFromHash() {
   const hash = window.location.hash.replace('#/', '').replace('#', '');
+  if (isRetiredRoute(hash)) return APP_CONSTANTS.ROUTES.DASHBOARD;
   const validRoutes = Object.values(APP_CONSTANTS.ROUTES);
   return validRoutes.includes(hash) ? hash : APP_CONSTANTS.ROUTES.DASHBOARD;
 }
@@ -13,13 +21,6 @@ function getPageFromHash() {
 window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const isRetiredRoute = (page) => (
-    page === 'map' || page === 'transit-info'
-    || page === 'info' || page === 'events'
-    || page === 'rival-ride' || page === 'gathering-memo'
-    || page === 'daily-sales'
-  );
 
   const navigate = useCallback((page) => {
     // 廃止ルートはダッシュボードへ

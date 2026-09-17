@@ -932,6 +932,17 @@ window.DataService = (() => {
         syncBreaksFromCloud(),
         syncDailySalesBidirectional(),
       ]);
+      // 取得後に端末の最新をクラウドへ戻す（日次売上・未送信の始業などを欠落させない）
+      let shiftsNow = [];
+      let breaksNow = [];
+      try { shiftsNow = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { shiftsNow = []; }
+      try { breaksNow = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]'); } catch { breaksNow = []; }
+      await Promise.all([
+        _syncToCloud('revenue', _getRawEntries(), 0),
+        _syncToCloud('shifts', shiftsNow, 0),
+        _syncToCloud('breaks', breaksNow, 0),
+      ]);
+      _notifyDataChanged('auto-sync');
       const totalMerged = (r1.merged || 0) + (r5.merged || 0) + (r6.merged || 0) + (r7.merged || 0);
       if (totalMerged > 0 || r3.merged) {
         AppLogger.info(`自動同期完了: 売上+${r1.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件, 日次売上+${r7.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
@@ -1018,7 +1029,7 @@ window.DataService = (() => {
   async function syncShiftsToCloud() {
     try {
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-      _syncToCloudOrDefer("shifts", entries);
+      _syncToCloud('shifts', entries, 0);
     } catch (e) {
       AppLogger.warn('シフトクラウド同期エラー: ' + e.message);
     }
@@ -1027,7 +1038,7 @@ window.DataService = (() => {
   async function syncBreaksToCloud() {
     try {
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-      _syncToCloudOrDefer("breaks", entries);
+      _syncToCloud('breaks', entries, 0);
     } catch (e) {
       AppLogger.warn('休憩クラウド同期エラー: ' + e.message);
     }
@@ -1058,6 +1069,7 @@ window.DataService = (() => {
     if (merged > 0 || cloudEntries.length > 0) {
       local.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(local));
+      if (merged > 0) _notifyDataChanged('shifts');
     }
     return { merged };
   }
@@ -1086,6 +1098,7 @@ window.DataService = (() => {
     if (merged > 0 || cloudEntries.length > 0) {
       local.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(local));
+      if (merged > 0) _notifyDataChanged('breaks');
     }
     return { merged };
   }

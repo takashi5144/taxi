@@ -42,12 +42,15 @@ window.CalendarPage = () => {
           setWorkStatus(result.data);
         }
         // 2. その後シフト・休憩を同期
-        const [sr, br] = await Promise.all([
+        const [sr, br, ds] = await Promise.all([
           DataService.syncShiftsFromCloud(),
           DataService.syncBreaksFromCloud(),
+          DataService.syncDailySalesBidirectional
+            ? DataService.syncDailySalesBidirectional()
+            : Promise.resolve({ merged: 0 }),
         ]);
         if (isCancelled) return;
-        if ((sr && sr.merged > 0) || (br && br.merged > 0)) {
+        if ((sr && sr.merged > 0) || (br && br.merged > 0) || (ds && ds.merged > 0)) {
           setRefreshKey(k => k + 1);
         }
       } catch (e) {
@@ -68,9 +71,12 @@ window.CalendarPage = () => {
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       isCancelled = true;
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 

@@ -1341,7 +1341,7 @@ window.getLocalDateString = (date) => {
 
 window.APP_CONSTANTS = {
   APP_NAME: 'タクシー売上サポート',
-  VERSION: '4.0.0',
+  VERSION: '4.1.0',
 
   // デフォルト地図設定（東京駅）
   DEFAULT_MAP_CENTER: { lat: 35.6812, lng: 139.7671 },
@@ -3095,6 +3095,17 @@ window.DataService = (() => {
         syncBreaksFromCloud(),
         syncDailySalesBidirectional(),
       ]);
+      // 取得後に端末の最新をクラウドへ戻す（日次売上・未送信の始業などを欠落させない）
+      let shiftsNow = [];
+      let breaksNow = [];
+      try { shiftsNow = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]'); } catch { shiftsNow = []; }
+      try { breaksNow = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]'); } catch { breaksNow = []; }
+      await Promise.all([
+        _syncToCloud('revenue', _getRawEntries(), 0),
+        _syncToCloud('shifts', shiftsNow, 0),
+        _syncToCloud('breaks', breaksNow, 0),
+      ]);
+      _notifyDataChanged('auto-sync');
       const totalMerged = (r1.merged || 0) + (r5.merged || 0) + (r6.merged || 0) + (r7.merged || 0);
       if (totalMerged > 0 || r3.merged) {
         AppLogger.info(`自動同期完了: 売上+${r1.merged}件, シフト+${r5.merged}件, 休憩+${r6.merged}件, 日次売上+${r7.merged}件${r3.merged ? ', 勤務状態更新あり' : ''}`);
@@ -3181,7 +3192,7 @@ window.DataService = (() => {
   async function syncShiftsToCloud() {
     try {
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS) || '[]');
-      _syncToCloudOrDefer("shifts", entries);
+      _syncToCloud('shifts', entries, 0);
     } catch (e) {
       AppLogger.warn('シフトクラウド同期エラー: ' + e.message);
     }
@@ -3190,7 +3201,7 @@ window.DataService = (() => {
   async function syncBreaksToCloud() {
     try {
       const entries = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS) || '[]');
-      _syncToCloudOrDefer("breaks", entries);
+      _syncToCloud('breaks', entries, 0);
     } catch (e) {
       AppLogger.warn('休憩クラウド同期エラー: ' + e.message);
     }
@@ -3221,6 +3232,7 @@ window.DataService = (() => {
     if (merged > 0 || cloudEntries.length > 0) {
       local.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SHIFTS, JSON.stringify(local));
+      if (merged > 0) _notifyDataChanged('shifts');
     }
     return { merged };
   }
@@ -3249,6 +3261,7 @@ window.DataService = (() => {
     if (merged > 0 || cloudEntries.length > 0) {
       local.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
       localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.BREAKS, JSON.stringify(local));
+      if (merged > 0) _notifyDataChanged('breaks');
     }
     return { merged };
   }
@@ -4994,8 +5007,16 @@ const { createContext, useState, useEffect, useCallback, useContext } = React;
 
 window.AppContext = createContext(null);
 
+function isRetiredRoute(page) {
+  return page === 'map' || page === 'transit-info'
+    || page === 'info' || page === 'events'
+    || page === 'rival-ride' || page === 'gathering-memo'
+    || page === 'daily-sales';
+}
+
 function getPageFromHash() {
   const hash = window.location.hash.replace('#/', '').replace('#', '');
+  if (isRetiredRoute(hash)) return APP_CONSTANTS.ROUTES.DASHBOARD;
   const validRoutes = Object.values(APP_CONSTANTS.ROUTES);
   return validRoutes.includes(hash) ? hash : APP_CONSTANTS.ROUTES.DASHBOARD;
 }
@@ -5003,13 +5024,6 @@ function getPageFromHash() {
 window.AppProvider = ({ children }) => {
   const [currentPage, setCurrentPage] = useState(getPageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const isRetiredRoute = (page) => (
-    page === 'map' || page === 'transit-info'
-    || page === 'info' || page === 'events'
-    || page === 'rival-ride' || page === 'gathering-memo'
-    || page === 'daily-sales'
-  );
 
   const navigate = useCallback((page) => {
     // 廃止ルートはダッシュボードへ
@@ -7231,12 +7245,15 @@ window.CalendarPage = () => {
           setWorkStatus(result.data);
         }
         // 2. その後シフト・休憩を同期
-        const [sr, br] = await Promise.all([
+        const [sr, br, ds] = await Promise.all([
           DataService.syncShiftsFromCloud(),
           DataService.syncBreaksFromCloud(),
+          DataService.syncDailySalesBidirectional
+            ? DataService.syncDailySalesBidirectional()
+            : Promise.resolve({ merged: 0 }),
         ]);
         if (isCancelled) return;
-        if ((sr && sr.merged > 0) || (br && br.merged > 0)) {
+        if ((sr && sr.merged > 0) || (br && br.merged > 0) || (ds && ds.merged > 0)) {
           setRefreshKey(k => k + 1);
         }
       } catch (e) {
@@ -7257,9 +7274,12 @@ window.CalendarPage = () => {
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleDataChanged = () => setRefreshKey(k => k + 1);
+    window.addEventListener('taxi-data-changed', handleDataChanged);
     return () => {
       isCancelled = true;
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('taxi-data-changed', handleDataChanged);
     };
   }, []);
 
@@ -8826,22 +8846,6 @@ window.SettingsPage = () => {
   });
   const [goalSaved, setGoalSaved] = useState(false);
 
-  // 勤務モード（日勤/夜勤）
-  const [shiftMode, setShiftMode] = useState(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}');
-      return s.shiftMode || 'day';
-    } catch { return 'day'; }
-  });
-  const handleShiftModeChange = (mode) => {
-    setShiftMode(mode);
-    let settings = {};
-    try { settings = JSON.parse(localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS) || '{}'); } catch {}
-    settings.shiftMode = mode;
-    localStorage.setItem(APP_CONSTANTS.STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-    window.dispatchEvent(new CustomEvent('taxi-shift-mode-changed'));
-  };
-
   // 基本始業・終業時間
   const [defaultShiftStart, setDefaultShiftStart] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_START) || '');
   const [defaultShiftEnd, setDefaultShiftEnd] = useState(() => localStorage.getItem(APP_CONSTANTS.STORAGE_KEYS.DEFAULT_SHIFT_END) || '');
@@ -8975,33 +8979,6 @@ window.SettingsPage = () => {
       },
         React.createElement('span', { className: 'material-icons-round', style: { fontSize: '18px' } }, 'cloud_sync'),
         syncStatus
-      )
-    ),
-
-    // 勤務モード切り替え
-    React.createElement(Card, { title: '勤務モード', style: { marginBottom: 'var(--space-lg)' } },
-      React.createElement('p', {
-        style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--space-md)' },
-      }, 'ダッシュボードの表示内容を勤務帯に合わせて切り替えます。'),
-      React.createElement('div', { style: { display: 'flex', gap: '8px' } },
-        ...[
-          { mode: 'day', label: '日勤', icon: 'wb_sunny', color: '#ffa726', bg: 'rgba(255,167,38,0.15)' },
-          { mode: 'night', label: '夜勤', icon: 'nightlight', color: '#7c4dff', bg: 'rgba(124,77,255,0.15)' },
-        ].map(opt => React.createElement('button', {
-          key: opt.mode,
-          onClick: () => handleShiftModeChange(opt.mode),
-          style: {
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-            padding: '14px 12px', borderRadius: '10px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-            border: shiftMode === opt.mode ? `2px solid ${opt.color}` : '2px solid rgba(255,255,255,0.15)',
-            background: shiftMode === opt.mode ? opt.bg : 'rgba(255,255,255,0.05)',
-            color: shiftMode === opt.mode ? opt.color : 'var(--text-secondary)',
-            transition: 'all 0.2s',
-          },
-        },
-          React.createElement('span', { className: 'material-icons-round', style: { fontSize: '24px' } }, opt.icon),
-          opt.label
-        ))
       )
     ),
 
@@ -10356,8 +10333,6 @@ window.DataManagePage = () => {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'vacant', label: '空車記録', icon: 'person_off' },
     { id: 'standby', label: '待機記録', icon: 'hourglass_top' },
-    { id: 'gps-analysis', label: 'GPS分析', icon: 'analytics' },
-    { id: 'asahikawa', label: '旭川市データ', icon: 'location_city' },
     { id: 'trash', label: 'ゴミ箱', icon: 'delete_outline' },
   ];
 
@@ -10451,7 +10426,9 @@ window.DataManagePage = () => {
     try {
       const result = await DataService.autoSync();
       if (result) {
-        const merged = (result.revenue || 0) + (result.rival || 0) + (result.gathering || 0) + (result.shifts || 0) + (result.breaks || 0);
+        const n = (x) => (x && typeof x.merged === 'number' ? x.merged : 0);
+        const merged = n(result.revenue) + n(result.shifts) + n(result.breaks) + n(result.dailySales)
+          + (result.workStatus && result.workStatus.merged ? 1 : 0);
         setSyncResult({ success: true, merged });
       } else {
         setSyncResult({ success: true, merged: 0 });

@@ -1171,8 +1171,6 @@ window.DataManagePage = () => {
     { id: 'revenue', label: '売上記録', icon: 'receipt_long' },
     { id: 'vacant', label: '空車記録', icon: 'person_off' },
     { id: 'standby', label: '待機記録', icon: 'hourglass_top' },
-    { id: 'gps-analysis', label: 'GPS分析', icon: 'analytics' },
-    { id: 'asahikawa', label: '旭川市データ', icon: 'location_city' },
     { id: 'trash', label: 'ゴミ箱', icon: 'delete_outline' },
   ];
 
@@ -1266,7 +1264,9 @@ window.DataManagePage = () => {
     try {
       const result = await DataService.autoSync();
       if (result) {
-        const merged = (result.revenue || 0) + (result.rival || 0) + (result.gathering || 0) + (result.shifts || 0) + (result.breaks || 0);
+        const n = (x) => (x && typeof x.merged === 'number' ? x.merged : 0);
+        const merged = n(result.revenue) + n(result.shifts) + n(result.breaks) + n(result.dailySales)
+          + (result.workStatus && result.workStatus.merged ? 1 : 0);
         setSyncResult({ success: true, merged });
       } else {
         setSyncResult({ success: true, merged: 0 });
