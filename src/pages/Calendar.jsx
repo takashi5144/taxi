@@ -412,12 +412,10 @@ window.CalendarPage = () => {
     saveWorkStatus(newStatus);
   }, [workStatus, saveWorkStatus]);
 
-  // 金額短縮表示
-  const shortAmount = (n) => {
-    if (n === 0) return '';
-    if (n >= 10000) return `${Math.floor(n / 10000)}万`;
-    if (n >= 1000) return `${Math.floor(n / 1000)}千`;
-    return `${n}`;
+  // 日付セルの売上（実額。万・千の省略なし）
+  const formatAmount = (n) => {
+    if (!n) return '';
+    return Math.round(n).toLocaleString('ja-JP');
   };
 
   const formatMin = (min) => {
@@ -727,13 +725,15 @@ window.CalendarPage = () => {
           // 売上金額
           d.revenue > 0 && createElement('div', {
             style: {
-              fontSize: 10,
+              fontSize: 9,
               color: d.dailySale != null ? 'var(--color-secondary)' : 'var(--color-accent)',
               textAlign: 'center',
-              fontWeight: 600,
-              lineHeight: 1.2,
+              fontWeight: 700,
+              lineHeight: 1.15,
+              whiteSpace: 'nowrap',
+              letterSpacing: '-0.3px',
             }
-          }, shortAmount(d.revenue)),
+          }, formatAmount(d.revenue)),
           // 乗客人数
           d.passengers > 0 && createElement('div', {
             style: {
